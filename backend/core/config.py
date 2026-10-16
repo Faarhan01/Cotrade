@@ -8,8 +8,13 @@ here or injected through the container.
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Optional
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from managers.mt5_manager import cony
 
 
 def _int(name: str, default: int) -> int:
@@ -18,6 +23,13 @@ def _int(name: str, default: int) -> int:
         return int(value) if value is not None else default
     except (TypeError, ValueError):
         return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass
@@ -31,12 +43,19 @@ class GatewayConfig:
         "database", "data", "peron.db",
     )
     frontend_dir: str = field(default="")
-    log_level: str = "INFO"
+    log_level: str = field(default_factory=lambda: os.getenv("CONY_LOG_LEVEL", "INFO"))
+    log_file: Optional[str] = field(default_factory=lambda: os.getenv("CONY_LOG_FILE") or None)
     gateway_url: str = "http://127.0.0.1:8890"
-    mt5_login: Optional[str] = None
+    mt5_login: Optional[int] = None
     mt5_password: Optional[str] = None
     mt5_server: Optional[str] = None
     mt5_path: Optional[str] = None
+    mt5_package_path: Optional[str] = None
+    mt5_timeout: int = 60000
+    auto_connect: bool = True
+    auto_reconnect: bool = True
+    reconnect_interval: int = 20
+    symbol_cache_ttl: int = 300
 
     @classmethod
     def from_env(cls) -> "GatewayConfig":
@@ -55,11 +74,18 @@ class GatewayConfig:
             db_path=db_path,
             frontend_dir=frontend_dir,
             log_level=os.environ.get("CONY_LOG_LEVEL", "INFO").upper(),
+            log_file=os.environ.get("CONY_LOG_FILE"),
             gateway_url=base,
-            mt5_login=os.environ.get("MT5_LOGIN"),
-            mt5_password=os.environ.get("MT5_PASSWORD"),
-            mt5_server=os.environ.get("MT5_SERVER"),
-            mt5_path=os.environ.get("MT5_PATH"),
+            mt5_login=_int("MT5_LOGIN", None),
+            mt5_password=os.environ.get("MT5_PASSWORD") or None,
+            mt5_server=os.environ.get("MT5_SERVER") or None,
+            mt5_path=os.environ.get("MT5_PATH") or None,
+            mt5_package_path=cony.paths.find_mt5_package(),
+            mt5_timeout=_int("MT5_TIMEOUT", 60000),
+            auto_connect=_env_bool("CONY_AUTO_CONNECT", True),
+            auto_reconnect=_env_bool("CONY_AUTO_RECONNECT", True),
+            reconnect_interval=_int("CONY_RECONNECT_INTERVAL", 20),
+            symbol_cache_ttl=_int("CONY_SYMBOL_CACHE_TTL", 300),
         )
 
 

@@ -30,10 +30,47 @@ HEARTBEAT_SECONDS = 15.0
 
 def _clamp_interval(value, default: float = DEFAULT_INTERVAL) -> float:
     try:
-        interval = float(value)
+        if value is None:
+            return default
+        value = float(value)
+        if value < MIN_INTERVAL:
+            return MIN_INTERVAL
+        if value > MAX_INTERVAL:
+            return MAX_INTERVAL
+        return value
     except (TypeError, ValueError):
         return default
-    return max(MIN_INTERVAL, min(interval, MAX_INTERVAL))
+
+
+def stream_params(query) -> tuple:
+    """
+    Pull (symbols, interval, extras) out of a stream request's query string.
+
+    symbols defaults to whatever is open, so the common case - watch my
+    positions - needs no parameters at all.
+    """
+    names = v.symbol_list(query.get("symbols"))
+    interval = _clamp_interval(query.get("interval"))
+    extras = v.boolean(query.get("book"), default=False)
+    return names, interval, extras
+
+
+def require_symbols(query, engine) -> list:
+    names = v.symbol_list(query.get("symbols"))
+    if names:
+        return names
+    # Fall back to open positions, then to a single liquid default.
+    positions = engine.get_positions()
+    if positions:
+        seen = []
+        for pos in positions:
+            if pos["symbol"] not in seen:
+                seen.append(pos["symbol"])
+        return seen
+    raise BadRequest(
+        "'symbols' is required when nothing is open, "
+        "e.g. ?symbols=EURUSD,GBPUSD"
+    )
 
 
 def _format_event(data: dict, event: str = "message") -> bytes:
@@ -219,34 +256,3 @@ def portfolio_producer(engine, include_book: bool = False):
 
 
 # ─── Parameter parsing ────────────────────────────────────────────────
-
-
-def stream_params(query) -> tuple:
-    """
-    Pull (symbols, interval, extras) out of a stream request's query string.
-
-    symbols defaults to whatever is open, so the common case - watch my
-    positions - needs no parameters at all.
-    """
-    names = v.symbol_list(query.get("symbols"))
-    interval = _clamp_interval(query.get("interval"))
-    extras = v.boolean(query.get("book"), default=False)
-    return names, interval, extras
-
-
-def require_symbols(query, engine) -> list:
-    names = v.symbol_list(query.get("symbols"))
-    if names:
-        return names
-    # Fall back to open positions, then to a single liquid default.
-    positions = engine.get_positions()
-    if positions:
-        seen = []
-        for pos in positions:
-            if pos["symbol"] not in seen:
-                seen.append(pos["symbol"])
-        return seen
-    raise BadRequest(
-        "'symbols' is required when nothing is open, "
-        "e.g. ?symbols=EURUSD,GBPUSD"
-    )

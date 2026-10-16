@@ -32,7 +32,7 @@ def register_all(router, engine, base, container=None) -> list:
 
     # Database
     try:
-        n = _db_routes.register(router)
+        n = _db_routes(router)
         results.append(("database", n, None))
         if n:
             logger.info("database API enabled: %d routes under /db", n)
@@ -42,7 +42,7 @@ def register_all(router, engine, base, container=None) -> list:
 
     # Research
     try:
-        added = _research_routes.register(router, engine, base=base)
+        added = _research_routes(router, engine, base=base)
         err = _research_routes.load_error() if hasattr(_research_routes, "load_error") else None
         if added:
             logger.info("research API enabled: %d routes under /research", added)
@@ -56,7 +56,7 @@ def register_all(router, engine, base, container=None) -> list:
 
     # Bot
     try:
-        n = _bot_routes.register(router, engine=engine)
+        n = _bot_routes(router, engine=engine)
         if n:
             logger.info("bot API enabled: %d routes under /bot", n)
         results.append(("bot", n, None))

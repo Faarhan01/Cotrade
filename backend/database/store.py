@@ -1,0 +1,477 @@
+"""
+database — Store
+=================
+SQLite access layer.
+
+Standard library only (`sqlite3`), so the database adds no dependency to a
+project that already runs on the MetaTrader5 package alone.
+
+WAL mode and a busy timeout are set because the bot may run a backtest sweep in
+one thread while the daemon writes reports in another.
+"""
+
+import json
+import os
+import sqlite3
+import threading
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, Iterable, List, Optional
+
+from database.schema import SCHEMA, REPORT_FIELDS, STRATEGY_FIELDS
+
+_BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.config import GatewayConfig
+
+DEFAULT_PATH = GatewayConfig.from_env().db_path
+
+
+def new_run_id(prefix: str = "run") -> str:
+    return f"{prefix}_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}_{uuid.uuid4().hex[:6]}"
+
+
+class Store:
+    """Thread-safe SQLite wrapper for strategies, reports and pattern hits."""
+
+    def __init__(self, path: Optional[str] = None):
+        self.path = path or DEFAULT_PATH
+        directory = os.path.dirname(os.path.abspath(self.path))
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        self._lock = threading.RLock()
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._conn.row_factory = sqlite3.Row
+        with self._lock:
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.execute("PRAGMA busy_timeout=5000")
+            # Apply schema idempotently so fresh/upgrade databases are usable.
+            for statement in SCHEMA:
+                self._conn.execute(statement)
+            try:
+                self._conn.execute("ALTER TABLE strategies ADD COLUMN deleted_at TEXT")
+            except Exception:  # noqa: BLE001 - column may already exist
+                pass
+            self._conn.commit()
+
+    def close(self):
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+    # ── Plumbing ───────────────────────────────────────────────────────
+
+    def migrate(self):
+        """Create tables and indexes if absent. Safe to call repeatedly."""
+        with self._lock:
+            for statement in SCHEMA:
+                self._conn.execute(statement)
+            self._conn.commit()
+
+    def query(self, sql: str, params: Iterable = ()) -> List[Dict]:
+        with self._lock:
+            rows = self._conn.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def execute(self, sql: str, params: Iterable = ()) -> int:
+        with self._lock:
+            cur = self._conn.execute(sql, tuple(params))
+            self._conn.commit()
+            return cur.lastrowid
+
+    # ── Strategies ─────────────────────────────────────────────────────
+
+    def save_strategy(self, strategy) -> int:
+        """
+        Insert or update a Strategy from the knowledgebase, atomically.
+
+        A select-then-write pair has a race window: two writers can both see
+        no row and both insert, and the second fails on UNIQUE(name). SQLite
+        has no INSERT OR REPLACE on a trigger-maintained table without
+        rebuilding it, so an explicit upsert keeps one statement, one
+        transaction and the trg_strategies_updated trigger intact.
+        """
+        d = strategy.to_dict() if hasattr(strategy, "to_dict") else dict(strategy)
+        values = (
+            d.get("name"),
+            d.get("description", ""),
+            d.get("symbol", ""),
+            d.get("timeframe", "M1"),
+            d.get("entry_name", ""),
+            json.dumps(d.get("entry_params", {})),
+            json.dumps(d.get("exit_rule", {})),
+            json.dumps(d.get("sizing", {})),
+            float(d.get("spread_pips", 0.0)),
+            json.dumps(d.get("tags", [])),
+            1 if d.get("enabled", True) else 0,
+        )
+        placeholders = ", ".join("?" for _ in STRATEGY_FIELDS)
+        updates = ", ".join(f"{f}=excluded.{f}" for f in STRATEGY_FIELDS[1:])
+        sql = (
+            f"INSERT INTO strategies ({', '.join(STRATEGY_FIELDS)}) "
+            f"VALUES ({placeholders}) "
+            f"ON CONFLICT(name) DO UPDATE SET {updates}"
+        )
+        with self._lock:
+            self._conn.execute(sql, values)
+            self._conn.commit()
+            row = self._conn.execute(
+                "SELECT id, version FROM strategies WHERE name = ?", (d["name"],)
+            ).fetchone()
+            strategy_id = int(row["id"]) if row else 0
+            strategy_version = int(row["version"]) if row else 1
+
+            # Save version snapshot
+            if strategy_id:
+                snapshot = json.dumps(d, default=str)
+                self._conn.execute(
+                    "INSERT INTO strategy_versions (strategy_id, version, snapshot) VALUES (?, ?, ?)",
+                    (strategy_id, strategy_version, snapshot)
+                )
+                self._conn.commit()
+            return strategy_id
+
+    def load_strategy(self, name: str):
+        """Reconstruct a knowledgebase Strategy, or None."""
+        from knowledgebase.strategies import Strategy
+        rows = self.query("SELECT * FROM strategies WHERE name = ?", (name,))
+        return Strategy.from_dict(self._row_to_strategy_dict(rows[0])) if rows else None
+
+    def list_strategies(self) -> List[Dict]:
+        return self.query("SELECT * FROM strategies WHERE deleted_at IS NULL ORDER BY name")
+
+    @staticmethod
+    def _row_to_strategy_dict(row: Dict) -> Dict:
+        d = dict(row)
+        d["entry_params"] = json.loads(d.get("entry_params") or "{}")
+        d["exit_rule"] = json.loads(d.get("exit_rule") or "{}")
+        d["sizing"] = json.loads(d.get("sizing") or "{}")
+        d["tags"] = json.loads(d.get("tags") or "[]")
+        d["enabled"] = bool(d.get("enabled", 1))
+        return d
+
+    def delete_strategy(self, name: str) -> bool:
+        """Soft-delete a strategy. Returns whether a row was changed."""
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE strategies SET deleted_at = datetime('now') "
+                "WHERE name = ? AND deleted_at IS NULL", (name,))
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def get_strategy_version(self, name: str, version: Optional[int] = None) -> Optional[Dict]:
+        """Get a specific version of a strategy, or the latest if version is None."""
+        if version is None:
+            row = self.query("""
+                SELECT sv.*, s.name FROM strategy_versions sv
+                JOIN strategies s ON s.id = sv.strategy_id
+                WHERE s.name = ? ORDER BY sv.version DESC LIMIT 1
+            """, (name,))
+        else:
+            row = self.query("""
+                SELECT sv.*, s.name FROM strategy_versions sv
+                JOIN strategies s ON s.id = sv.strategy_id
+                WHERE s.name = ? AND sv.version = ?
+            """, (name, version))
+        if not row:
+            return None
+        d = dict(row[0])
+        d["snapshot"] = json.loads(d.get("snapshot") or "{}")
+        return d
+
+    def get_strategy_history(self, name: str) -> List[Dict]:
+        """Get all versions of a strategy."""
+        rows = self.query("""
+            SELECT sv.version, sv.created, sv.snapshot FROM strategy_versions sv
+            JOIN strategies s ON s.id = sv.strategy_id
+            WHERE s.name = ? ORDER BY sv.version
+        """, (name,))
+        for r in rows:
+            r["snapshot"] = json.loads(r.get("snapshot") or "{}")
+        return rows
+
+    def clone_strategy(self, source_name: str, new_name: str, description: Optional[str] = None) -> int:
+        """Clone a strategy with a new name."""
+        from knowledgebase.strategies import Strategy
+        source = self.load_strategy(source_name)
+        if not source:
+            raise ValueError(f"Source strategy '{source_name}' not found")
+        new_strategy = Strategy.from_dict(source.to_dict())
+        new_strategy.name = new_name
+        if description:
+            new_strategy.description = description
+        return self.save_strategy(new_strategy)
+
+    # ── Reference data ─────────────────────────────────────────────────
+
+    def sync_indicators(self, catalogue: Dict[str, Dict]) -> int:
+        """Upsert the indicator reference table from the knowledgebase."""
+        updates = ", ".join(f"{f}=excluded.{f}" for f in
+                            ("category", "inputs", "description"))
+        sql = (
+            "INSERT INTO indicators (name, category, inputs, description) "
+            "VALUES (?, ?, ?, ?) "
+            f"ON CONFLICT(name) DO UPDATE SET {updates}"
+        )
+        with self._lock:
+            for name, meta in catalogue.items():
+                self._conn.execute(sql, (
+                    name,
+                    meta.get("category", "trend"),
+                    json.dumps(meta.get("inputs", ["close"])),
+                    meta.get("description", ""),
+                ))
+            # One transaction for the whole catalogue. The previous per-row
+            # execute() committed after each row, so a failure halfway through
+            # left a partial sync behind with no way to tell it apart from a
+            # complete one.
+            self._conn.commit()
+            return len(catalogue)
+
+    def sync_patterns(self, catalogue: Dict[str, Dict]) -> int:
+        """Upsert the pattern reference table from the knowledgebase."""
+        updates = ", ".join(f"{f}=excluded.{f}" for f in
+                            ("family", "direction", "description"))
+        sql = (
+            "INSERT INTO patterns (name, family, direction, description) "
+            "VALUES (?, ?, ?, ?) "
+            f"ON CONFLICT(name) DO UPDATE SET {updates}"
+        )
+        with self._lock:
+            for name, meta in catalogue.items():
+                self._conn.execute(sql, (
+                    name,
+                    meta.get("family", "candlestick"),
+                    meta.get("direction", "neutral"),
+                    meta.get("description", ""),
+                ))
+            self._conn.commit()
+            return len(catalogue)
+
+    def list_patterns(self) -> List[Dict]:
+        return self.query("SELECT * FROM patterns ORDER BY family, name")
+
+    def list_indicators(self) -> List[Dict]:
+        return self.query("SELECT * FROM indicators ORDER BY name")
+
+    # ── Reports ────────────────────────────────────────────────────────
+
+    def save_report(self, report: Dict) -> int:
+        """Store a backtest result. `strategy_snapshot` keeps it reproducible."""
+        payload = {k: report.get(k) for k in REPORT_FIELDS}
+        payload["strategy_snapshot"] = json.dumps(
+            report.get("strategy_snapshot", {}), default=str)
+        payload["run_id"] = payload.get("run_id") or new_run_id()
+        values = [payload[k] for k in REPORT_FIELDS]
+        placeholders = ", ".join("?" for _ in REPORT_FIELDS)
+        return self.execute(
+            f"INSERT INTO reports ({', '.join(REPORT_FIELDS)}) "
+            f"VALUES ({placeholders})", values)
+
+    def reports(self, strategy: Optional[str] = None,
+                verdict: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        clauses, params = [], []
+        if strategy:
+            clauses.append("strategy_name = ?")
+            params.append(strategy)
+        if verdict:
+            clauses.append("verdict = ?")
+            params.append(verdict)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        return self.query(
+            f"SELECT * FROM reports {where} ORDER BY id DESC LIMIT ?", params)
+
+    def best_reports(self, limit: int = 20) -> List[Dict]:
+        """Ranked by t-statistic, so noise does not outrank signal."""
+        return self.query(
+            "SELECT * FROM reports WHERE trades > 0 "
+            "ORDER BY COALESCE(t_statistic, 0) DESC, net_points DESC LIMIT ?",
+            (limit,))
+
+    # ── Pattern hits ───────────────────────────────────────────────────
+
+    def save_hits(self, run_id: str, symbol: str, timeframe: str,
+                  hits: List[Dict]) -> int:
+        """Bulk insert pattern matches."""
+        rows = [(run_id, symbol, timeframe, h["pattern"], int(h["index"]),
+                 int(h.get("time", 0)), h.get("direction", "neutral"),
+                 float(h.get("strength", 0)), h.get("price"),
+                 json.dumps(h.get("meta", {}), default=str)) for h in hits]
+        with self._lock:
+            self._conn.executemany(
+                "INSERT INTO pattern_hits (run_id, symbol, timeframe, pattern, "
+                "bar_index, bar_time, direction, strength, price, meta) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+            self._conn.commit()
+            ids = [r[0] for r in self._conn.execute(
+                "SELECT id FROM pattern_hits WHERE run_id = ? ORDER BY id", (run_id,)).fetchall()]
+        return ids[-len(rows):] if rows else []
+
+    def save_hit_context(self, hit_id: int, indicator: str, value: float) -> int:
+        """Save indicator value at a pattern hit for context analysis."""
+        with self._lock:
+            cur = self._conn.execute(
+                "INSERT OR REPLACE INTO hit_context (hit_id, indicator, value) VALUES (?,?,?)",
+                (hit_id, indicator, value)
+            )
+            self._conn.commit()
+            return cur.lastrowid
+
+    def hits(self, pattern: Optional[str] = None, symbol: Optional[str] = None,
+             limit: int = 500) -> List[Dict]:
+        clauses, params = [], []
+        if pattern:
+            clauses.append("pattern = ?")
+            params.append(pattern)
+        if symbol:
+            clauses.append("symbol = ?")
+            params.append(symbol)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.append(limit)
+        return self.query(
+            f"SELECT * FROM pattern_hits {where} ORDER BY bar_time DESC LIMIT ?", params)
+
+    def pattern_frequency(self, symbol: Optional[str] = None) -> List[Dict]:
+        clause = "WHERE symbol = ?" if symbol else ""
+        params = (symbol,) if symbol else ()
+        return self.query(
+            f"SELECT pattern, COUNT(*) n, AVG(strength) avg_strength "
+            f"FROM pattern_hits {clause} GROUP BY pattern ORDER BY n DESC", params)
+
+    # ── Bar cache ──────────────────────────────────────────────────────
+
+    def save_bars(self, symbol: str, timeframe: str, bars: List[Dict]) -> int:
+        rows = [(symbol, timeframe, int(b["time"]), float(b["open"]),
+                 float(b["high"]), float(b["low"]), float(b["close"]),
+                 int(b.get("tick_volume", 0))) for b in bars]
+        with self._lock:
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO bars (symbol, timeframe, bar_time, open, "
+                "high, low, close, tick_volume) VALUES (?,?,?,?,?,?,?,?)", rows)
+            self._conn.commit()
+        return len(rows)
+
+    def load_bars(self, symbol: str, timeframe: str,
+                  limit: int = 10000) -> List[Dict]:
+        """
+        Cached bars, oldest first, keyed like the gateway's candles.
+
+        The column is `bar_time` rather than `time`; it is renamed here so
+        callers see the same shape whether bars came from the gateway or the
+        cache.
+        """
+        rows = self.query(
+            "SELECT bar_time, open, high, low, close, tick_volume FROM "
+            "(SELECT * FROM bars WHERE symbol=? AND timeframe=? "
+            " ORDER BY bar_time DESC LIMIT ?) ORDER BY bar_time",
+            (symbol, timeframe, limit))
+        return [{"time": r["bar_time"], "open": r["open"], "high": r["high"],
+                 "low": r["low"], "close": r["close"],
+                 "tick_volume": r["tick_volume"]} for r in rows]
+
+    def bar_range(self, symbol: str, timeframe: str) -> Dict:
+        r = self.query(
+            "SELECT COUNT(*) n, MIN(bar_time) first, MAX(bar_time) last "
+            "FROM bars WHERE symbol=? AND timeframe=?", (symbol, timeframe))
+        return r[0] if r else {"n": 0, "first": None, "last": None}
+
+    # ── Report trades ──────────────────────────────────────────────────
+    def save_report_trades(self, run_id: str, strategy_name: str, symbol: str,
+                           trades: List[Any], pip: float = 1.0) -> int:
+        """Store individual trades of a backtest run for granular analysis."""
+        rows = []
+        for t in trades:
+            pnl_pts = getattr(t, "pnl_points", 0.0)
+            rows.append((
+                run_id, strategy_name, symbol, int(getattr(t, "side", 1)),
+                int(getattr(t, "entry_index", 0)), int(getattr(t, "exit_index", 0)),
+                float(getattr(t, "entry_price", 0.0)), float(getattr(t, "exit_price", 0.0)),
+                float(pnl_pts), float(pnl_pts / (pip or 1.0)),
+                str(getattr(t, "reason", "unknown")), int(getattr(t, "bars_held", 0))
+            ))
+        if not rows:
+            return 0
+        with self._lock:
+            self._conn.executemany(
+                "INSERT INTO report_trades (run_id, strategy_name, symbol, side, "
+                "entry_index, exit_index, entry_price, exit_price, pnl_points, "
+                "pnl_pips, reason, bars_held) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                rows)
+            self._conn.commit()
+        return len(rows)
+
+    def report_trades(self, run_id: str) -> List[Dict]:
+        return self.query("SELECT * FROM report_trades WHERE run_id = ? ORDER BY id", (run_id,))
+
+    # ── Bot sessions & Execution logging ───────────────────────────────
+    def create_bot_session(self, session_id: str, strategy_name: str, symbol: str,
+                           timeframe: str = "M1", magic: int = 0, dry_run: bool = True) -> int:
+        return self.execute(
+            "INSERT INTO bot_sessions (session_id, strategy_name, symbol, timeframe, magic, dry_run) "
+            "VALUES (?,?,?,?,?,?)",
+            (session_id, strategy_name, symbol, timeframe, magic, 1 if dry_run else 0))
+
+    def update_bot_session(self, session_id: str, trades_count: int, pnl_pips: float,
+                           status: str = "running", stopped: bool = False) -> int:
+        stopped_clause = ", stopped_at = datetime('now')" if stopped else ""
+        return self.execute(
+            f"UPDATE bot_sessions SET trades_count = ?, pnl_pips = ?, status = ?{stopped_clause} "
+            f"WHERE session_id = ?",
+            (trades_count, pnl_pips, status, session_id))
+
+    def list_bot_sessions(self, limit: int = 50) -> List[Dict]:
+        return self.query("SELECT * FROM bot_sessions ORDER BY id DESC LIMIT ?", (limit,))
+
+    def log_bot_action(self, session_id: str, action: str, symbol: str,
+                       side: Optional[str] = None, volume: Optional[float] = None,
+                       price: Optional[float] = None, success: bool = True,
+                       details: str = "") -> int:
+        return self.execute(
+            "INSERT INTO bot_logs (session_id, action, symbol, side, volume, price, success, details) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (session_id, action, symbol, side, volume, price, 1 if success else 0, details))
+
+    def list_bot_logs(self, session_id: Optional[str] = None, limit: int = 100) -> List[Dict]:
+        if session_id:
+            return self.query(
+                "SELECT * FROM bot_logs WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+                (session_id, limit))
+        return self.query("SELECT * FROM bot_logs ORDER BY id DESC LIMIT ?", (limit,))
+
+    # ── Maintenance & Diagnostics ──────────────────────────────────────
+
+    def stats(self) -> Dict[str, Any]:
+        def count(table: str) -> int:
+            try:
+                return self.query(f"SELECT COUNT(*) n FROM {table}")[0]["n"]
+            except Exception:
+                return 0
+        return {
+            "path": self.path,
+            "strategies": count("strategies"),
+            "reports": count("reports"),
+            "report_trades": count("report_trades"),
+            "pattern_hits": count("pattern_hits"),
+            "indicators": count("indicators"),
+            "patterns": count("patterns"),
+            "cached_bars": count("bars"),
+            "bot_sessions": count("bot_sessions"),
+            "bot_logs": count("bot_logs"),
+        }
+
+    def check_integrity(self) -> str:
+        with self._lock:
+            cur = self._conn.execute("PRAGMA integrity_check")
+            row = cur.fetchone()
+            return row[0] if row else "unknown"
+
+    def vacuum(self):
+        with self._lock:
+            self._conn.execute("VACUUM")
+

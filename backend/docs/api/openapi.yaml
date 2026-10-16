@@ -1,0 +1,453 @@
+openapi: 3.0.0
+info:
+  title: Cotrade API
+  version: 1.0.0
+  description: |
+    The Cotrade API provides a RESTful interface for interacting with the MetaTrader 5 terminal.
+    It includes endpoints for market data, trading, account management, strategy research, bot management,
+    and real-time data streams.
+servers:
+  - url: http://localhost:8890
+    description: Local development server
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Returns the status of the gateway and MT5 connection.
+      operationId: getHealth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: cony-gateway
+                  mt5_connected:
+                    type: boolean
+                    example: true
+                  connection:
+                    type: object
+                    properties:
+                      connected:
+                        type: boolean
+                      terminal:
+                        type: object
+                      account:
+                        type: object
+                  time_source:
+                    type: object
+                    properties:
+                      mt5:
+                        type: string
+                      offset_seconds:
+                        type: number
+                  symbol_cache:
+                    type: object
+        '503':
+          description: Service unavailable
+  /metrics:
+    get:
+      summary: Operational metrics
+      description: Returns operational metrics including database stats, uptime, and active streams.
+      operationId: getMetrics
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  service:
+                    type: string
+                    example: cony-gateway
+                  mt5_connected:
+                    type: boolean
+                  database:
+                    type: object
+                  uptime_seconds:
+                    type: number
+                    description: Uptime in seconds
+                  active_streams:
+                    type: integer
+                    description: Number of active SSE streams
+                  timestamp:
+                    type: number
+                    description: Unix timestamp
+  /routes:
+    get:
+      summary: List all routes
+      description: Returns a list of all registered API routes.
+      operationId: getRoutes
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        method:
+                          type: string
+                        pattern:
+                          type: string
+                  count:
+                    type: integer
+  /enums:
+    get:
+      summary: Get MT5 enums
+      description: Returns all MT5 enums used by the gateway.
+      operationId: getEnums
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enums:
+                    type: object
+                  retcodes:
+                    type: object
+                  package_version:
+                    type: string
+  /account:
+    get:
+      summary: Get account information
+      description: Returns the current account information from the MT5 terminal.
+      operationId: getAccount
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  login:
+                    type: integer
+                  balance:
+                    type: number
+                  equity:
+                    type: number
+                  profit:
+                    type: number
+                  margin:
+                    type: number
+                  margin_free:
+                    type: number
+                  margin_level:
+                    type: number
+                  currency:
+                    type: string
+                  trade_allowed:
+                    type: boolean
+                  trade_expert:
+                    type: boolean
+                  limit_orders:
+                    type: integer
+  /tick/{symbol}:
+    get:
+      summary: Get latest tick for a symbol
+      description: Returns the latest tick data for the specified symbol.
+      operationId: getTick
+      parameters:
+        - name: symbol
+          in: path
+          required: true
+          description: Symbol to get tick for (e.g., EURUSD)
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  symbol:
+                    type: string
+                  bid:
+                    type: number
+                  ask:
+                    type: number
+                  last:
+                    type: number
+                  volume:
+                    type: integer
+                  time:
+                    type: string
+                    format: date-time
+                  flags:
+                    type: integer
+  /order:
+    post:
+      summary: Execute an order
+      description: Submits an order to the MT5 terminal.
+      operationId: postOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                symbol:
+                  type: string
+                volume:
+                  type: number
+                  minimum: 0
+                order_type:
+                  type: string
+                  enum: [buy, sell, buy_limit, sell_limit, buy_stop, sell_stop, buy_stop_limit, sell_stop_limit]
+                action:
+                  type: string
+                  enum: [buy, sell]
+                price:
+                  type: number
+                sl:
+                  type: number
+                tp:
+                  type: number
+                deviation:
+                  type: integer
+                  minimum: 0
+                magic:
+                  type: integer
+                comment:
+                  type: string
+                type_time:
+                  type: string
+                  enum: [GTC, DAY, SPECIFIED, SPECIFIED_DAY, SPECIFIED_HOUR, SPECIFIED_MIN]
+                type_filling:
+                  type: string
+                  enum: [FOK, IOC, RETURN]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  order_type:
+                    type: string
+                  result:
+                    type: object
+        '400':
+          description: Bad request
+        '409':
+          description: Conflict (order rejected)
+  /stream/ticks:
+    get:
+      summary: Subscribe to tick data stream
+      description: |
+        Opens a Server-Sent Events stream for real-time tick data.
+        Query parameters:
+          - symbols: Comma-separated list of symbols (defaults to open positions)
+          - interval: Polling interval in seconds (default: 1.0, min: 0.2, max: 60.0)
+          - book: Include market book data (boolean, default: false)
+      operationId: getTickStream
+      parameters:
+        - name: symbols
+          in: query
+          description: Comma-separated list of symbols
+          schema:
+            type: string
+        - name: interval
+          in: query
+          description: Polling interval in seconds
+          schema:
+            type: number
+            minimum: 0.2
+            maximum: 60.0
+            default: 1.0
+        - name: book
+          in: query
+          description: Include market book data
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  interval:
+                    type: number
+                  status:
+                    type: string
+                  ticks:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        bid:
+                          type: number
+                        ask:
+                          type: number
+                        last:
+                          type: number
+                        volume:
+                          type: integer
+                        time:
+                          type: string
+                          format: date-time
+                        flags:
+                          type: integer
+        '400':
+          description: Bad request
+  /stream/marketbook:
+    get:
+      summary: Subscribe to market book stream
+      description: |
+        Opens a Server-Sent Events stream for real-time market book (depth of market) data.
+        Query parameters:
+          - symbols: Comma-separated list of symbols (required if no open positions)
+          - interval: Polling interval in seconds (default: 1.0, min: 0.2, max: 60.0)
+      operationId: getMarketbookStream
+      parameters:
+        - name: symbols
+          in: query
+          description: Comma-separated list of symbols
+          schema:
+            type: string
+        - name: interval
+          in: query
+          description: Polling interval in seconds
+          schema:
+            type: number
+            minimum: 0.2
+            maximum: 60.0
+            default: 1.0
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  interval:
+                    type: number
+                  status:
+                    type: string
+                  books:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          symbol:
+                            type: string
+                          bids:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                price:
+                                  type: number
+                                volume:
+                                  type: number
+                          asks:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                price:
+                                  type: number
+                                volume:
+                                  type: number
+        '400':
+          description: Bad request
+        '404':
+          description: Unknown stream
+  /stream/portfolio:
+    get:
+      summary: Subscribe to portfolio stream
+      description: |
+        Opens a Server-Sent Events stream for real-time portfolio data (account and open positions).
+        Query parameters:
+          - interval: Polling interval in seconds (default: 2.0, min: 0.2, max: 60.0)
+          - book: Include market book data (boolean, default: false)
+      operationId: getPortfolioStream
+      parameters:
+        - name: interval
+          in: query
+          description: Polling interval in seconds
+          schema:
+            type: number
+            minimum: 0.2
+            maximum: 60.0
+            default: 2.0
+        - name: book
+          in: query
+          description: Include market book data
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source:
+                    type: string
+                  interval:
+                    type: number
+                  status:
+                    type: string
+                  account:
+                    type: object
+                  positions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        volume:
+                          type: number
+                        price_open:
+                          type: number
+                        price_current:
+                          type: number
+                        profit:
+                          type: number
+        '400':
+          description: Bad request
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key

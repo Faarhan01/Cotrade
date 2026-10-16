@@ -2,8 +2,8 @@ import uuid
 """
 deamon — Service Entry Point
 ==============================
+        self.router.get("/metrics")(self.metrics)
 Process lifecycle for the cony gateway: configuration, logging, the HTTP
-server, and the streaming connections.
 
 This is the only layer that knows about sockets. It assembles cony (engine)
 and server (routing) and exposes them on the network, which is what makes
@@ -25,7 +25,7 @@ from urllib.parse import urlparse, parse_qs
 
 _gateway_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _backend_dir = os.path.dirname(_gateway_dir)
-    _services_dir = os.path.join(_backend_dir, "services")
+_services_dir = os.path.join(_backend_dir, "services")
 for _d in (_backend_dir, _gateway_dir, _services_dir):
     if _d not in sys.path:
         sys.path.insert(0, _d)
@@ -153,10 +153,26 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
 
+    def send_json(self, data, status=200):
+        """
+        Encode and send a JSON response.
+        Pretty-printing is for humans at a terminal; an agent parsing this pays
+        for it. Measured on 10,000 candles, indent=2 cost 299 ms against 79 ms
+        compact and shipped 27% more bytes. Small bodies stay readable because
+        they are cheap and often inspected by eye; large ones do not, so the
+        size is estimated from one compact encode and only re-encoded when it
+        turns out to be small.
+        """
+        compact = json.dumps(data, default=str)
+        if len(compact) <= PRETTY_LIMIT:
+            body = json.dumps(data, indent=2, default=str).encode("utf-8")
+        else:
+            body = compact.encode("utf-8")
+        extra = {}
+        if hasattr(self, 'request_id'):
             extra['X-Request-ID'] = self.request_id
         self._headers(status, "application/json; charset=utf-8", len(body), extra)
         self.wfile.write(body)
-
     def send_raw(self, response):
         """
         Send a handler result verbatim, without JSON encoding.
@@ -166,6 +182,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
         a confusing JSON error about the response's own type.
         """
         extra = dict(response.headers)
+        if hasattr(self, 'request_id'):
+            extra['X-Request-ID'] = self.request_id
         # Static assets change only when the daemon restarts with new code, so
         # a short cache plus revalidation is correct and keeps the dashboard
         # from re-fetching its CSS on every visit.
@@ -173,12 +191,6 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self._headers(response.status, response.content_type,
                       len(response.body), extra)
         self.wfile.write(response.body)
-
-    def send_error_json(self, message, status, type_name):
-        self.send_json({"error": message, "type": type_name, "status": status}, status)
-
-    # ─── Request parsing ────────────────────────────────────────────────
-
     def read_body(self):
         """Read the JSON body. Raises BadRequest when it is unparseable."""
         raw_length = self.headers.get("Content-Length")
@@ -205,8 +217,9 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 f"Send a JSON object such as "
                 f'{{"symbol": "EURUSD", "volume": 0.1}}.'
             )
+    def send_error_json(self, message, status, type_name):
+        self.send_json({"error": message, "type": type_name, "status": status}, status)
 
-    # ─── Dispatch ───────────────────────────────────────────────────────
 
     def handle_request(self, method, needs_body):
         self.request_id = str(uuid.uuid4())
@@ -221,27 +234,23 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 )
                 return
             if body is not None and not isinstance(body, dict):
-            # Rate limiting
-            # Exclude certain paths from rate limiting
-            excluded_paths = [
-                "/health",
-                "/metrics",
-                "/routes",
-                "/enums",
-            ]
-            if self.path.split("?")[0] not in excluded_paths:
-                client_ip = self.client_address[0]
-                if not allow_request(client_ip):
-                    self.send_error_json("Rate limit exceeded", 429, "RateLimitExceeded")
-                    return
+                # Rate limiting
+                # Exclude certain paths from rate limiting
+                excluded_paths = [
+                    "/health",
+                    "/metrics",
+                    "/routes",
+                    "/enums",
+                ]
+                if self.path.split("?")[0] not in excluded_paths:
+                    client_ip = self.client_address[0]
+                    if not allow_request(client_ip):
+                        self.send_error_json("Rate limit exceeded", 429, "RateLimitExceeded")
+                        return
                 self.send_error_json(
                     f"Body must be a JSON object, got {type(body).__name__}.",
                     400, "BadRequest",
                 )
-                return
-
-            if method == "GET" and self._wants_stream():
-                self.serve_stream()
                 return
 
             handler, params, query = self.server.gateway.router.resolve(method, self.path)
@@ -440,9 +449,9 @@ class Gateway:
             self.container = None
         self._start_time = time.time()
         RouteHandlers(self.engine, self.router,
-        self.router.get("/metrics")(self.metrics)
                           base=f"http://{config.host}:{config.port}",
                           container=getattr(self, "container", None))
+        self.router.get("/metrics")(self.metrics)
         self.server = GatewayServer((config.host, config.port), GatewayHandler, self)
 
         # Market book subscriptions die with the connection; mirror that here
@@ -455,9 +464,36 @@ class Gateway:
         self.engine.market_book.release_all_on_disconnect()
         self.engine.invalidate_symbol_cache()
 
+
     def build_engine(self) -> cony.mt5_engine.MT5Engine:
+        conn = cony.ConnectionManager(
+            {
+                "package_path": config.mt5_package_path,
+                "login": config.mt5_login,
+                "password": config.mt5_password,
+                "server": config.mt5_server,
+                "terminal_path": config.mt5_path,
+                "timeout": config.mt5_timeout,
+                "auto_reconnect": config.auto_reconnect,
+            }
+        )
+        return cony.mt5_engine.MT5Engine(conn, symbol_cache_ttl=config.symbol_cache_ttl)
+
     def metrics(self, params, query, body):
         from database.store import Store
+        with Store() as store:
+            db_stats = store.stats()
+        uptime = time.time() - self._start_time
+        with _STREAM_LOCK:
+            active_streams = len(_ACTIVE_STREAMS)
+        return {
+            "service": "cony-gateway",
+            "mt5_connected": self.engine.is_connected,
+            "database": db_stats,
+            "uptime_seconds": uptime,
+            "active_streams": active_streams,
+            "timestamp": time.time(),
+        }
         with Store() as store:
             db_stats = store.stats()
         uptime = time.time() - self._start_time

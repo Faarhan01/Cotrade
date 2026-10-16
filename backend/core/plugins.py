@@ -7,10 +7,10 @@ each failure is logged with its traceback by the caller.
 from __future__ import annotations
 
 import logging
-
-from core.config import GatewayConfig
 import os
 import traceback
+
+from core.config import GatewayConfig
 
 logger = logging.getLogger("cony.server.plugins")
 
@@ -21,12 +21,10 @@ def register_all(router, engine, base, container=None) -> list:
     Returns a list of ``(name, route_count_or_None, error_or_None)`` records so
     the caller can log and account for them uniformly.
     """
-    from managers.routes_manager import (
-        register_db_routes as _db_routes,
-        register_bot_routes as _bot_routes,
-        register_research_routes as _research_routes
-    )
     from managers.front_manager.frontconnect import register as _dashboard_register
+    from managers.routes_manager import register_bot_routes as _bot_routes
+    from managers.routes_manager import register_db_routes as _db_routes
+    from managers.routes_manager import register_research_routes as _research_routes
 
     results = []
 

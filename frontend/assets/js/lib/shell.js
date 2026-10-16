@@ -32,36 +32,50 @@
 
   function paintShell(boot) {
     boot = boot || {};
+    var connected = Boolean(boot.connected);
     var account = boot.account || {};
     var terminal = boot.terminal || {};
     var clockOffset = Number(boot.clock_offset) || 0;
 
-    setRole("account", account.login || "—");
-    setRole("server", account.server || "—");
-    setRole("mode", account._trade_mode || account.trade_mode || "—");
-    setRole("account-hint", "account " + (account.login || "—"));
-    setRole("leverage-hint", account.server || "—");
+    setRole("account", (connected && account.login) ? String(account.login) : "—");
+    setRole("server", (connected && account.server) ? String(account.server) : "—");
+    setRole("mode", (connected && (account._trade_mode || account.trade_mode)) ? String(account._trade_mode || account.trade_mode) : "—");
+    setRole("account-hint", (connected && account.login) ? ("account " + account.login) : "disconnected");
+    setRole("leverage-hint", (connected && account.server) ? account.server : "no terminal connected");
     setRole("package", boot.package_version || "—");
-    setRole("terminal", terminal.build ? "build " + terminal.build : "—");
-    setRole("offset", clockOffset ? clockOffset.toFixed(1) + " s offset" : "unknown");
-    setRole("permissions",
-      ((terminal.trade_allowed) ? "allowed" : "blocked")
-      + " · DLLs "
-      + ((terminal.dlls_allowed) ? "on" : "off"));
+    setRole("terminal", (connected && terminal.build) ? ("build " + terminal.build) : "—");
+    setRole("offset", (connected && boot.clock_offset !== null && boot.clock_offset !== undefined) ? (clockOffset.toFixed(1) + " s offset") : "—");
 
-    paintStatus(boot.connected !== false);
+    if (connected && terminal && terminal.build) {
+      setRole("permissions",
+        ((terminal.trade_allowed) ? "algo allowed" : "algo blocked")
+        + " · DLLs "
+        + ((terminal.dlls_allowed) ? "on" : "off"));
+    } else {
+      setRole("permissions", "—");
+    }
+
+    paintStatus(connected);
     return clockOffset;
   }
 
   function startClock(boot) {
-    var clockOffset = Number(boot.clock_offset) || 0;
-    var fmtLib = global.fmt || global.fmtLib; // Support both naming conventions
+    var connected = Boolean(boot && boot.connected);
+    var clockOffset = Number(boot && boot.clock_offset) || 0;
+    var fmtLib = global.fmt || global.fmtLib;
+
     function tick() {
-      var clock = fmtLib ? fmtLib.clockOnly(clockOffset) + " UTC" : "";
+      if (!connected) {
+        setRole("clock", "—");
+        return;
+      }
+      var clock = fmtLib ? fmtLib.clockOnly(clockOffset) + " UTC" : "—";
       setRole("clock", clock);
     }
     tick();
-    global.setInterval(tick, 1000);
+    if (connected) {
+      global.setInterval(tick, 1000);
+    }
   }
 
   function markCurrentSection() {

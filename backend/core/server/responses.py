@@ -16,7 +16,6 @@ direction intact: the transport knows about a response type, not about a web
 page.
 """
 
-from typing import Dict, Optional, Union
 
 
 class RawResponse:
@@ -28,10 +27,10 @@ class RawResponse:
 
     __slots__ = ("body", "content_type", "status", "headers")
 
-    def __init__(self, body: Union[bytes, str],
+    def __init__(self, body: bytes | str,
                  content_type: str = "text/html; charset=utf-8",
                  status: int = 200,
-                 headers: Optional[Dict[str, str]] = None):
+                 headers: dict[str, str] | None = None):
         self.body = (body.encode("utf-8") if isinstance(body, str)
                      else bytes(body))
         self.content_type = content_type
@@ -47,10 +46,10 @@ class RawResponse:
 
 
 def html(markup: str, status: int = 200,
-         headers: Optional[Dict[str, str]] = None) -> RawResponse:
+         headers: dict[str, str] | None = None) -> RawResponse:
     return RawResponse(markup, "text/html; charset=utf-8", status, headers)
 
 
 def asset(payload: bytes, content_type: str, status: int = 200,
-          headers: Optional[Dict[str, str]] = None) -> RawResponse:
+          headers: dict[str, str] | None = None) -> RawResponse:
     return RawResponse(payload, content_type, status, headers)

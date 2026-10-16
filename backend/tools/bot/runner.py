@@ -37,29 +37,36 @@ def open_store() -> Store:
 
 def sync_knowledgebase(store: Store):
     """Copy the knowledgebase catalogue into the database for querying."""
-    indicator_meta = {
-        "sma": {"category": "trend", "description": "Simple moving average"},
-        "ema": {"category": "trend", "description": "Exponential moving average"},
-        "wma": {"category": "trend", "description": "Weighted moving average"},
-        "rsi": {"category": "momentum", "description": "Relative Strength Index"},
-        "atr": {"category": "volatility", "inputs": ["high", "low", "close"],
-                "description": "Average True Range"},
-        "bollinger": {"category": "volatility", "description": "Bollinger Bands"},
-        "macd": {"category": "momentum", "description": "MACD"},
-        "stochastic": {"category": "momentum", "inputs": ["high", "low", "close"],
-                       "description": "Stochastic oscillator"},
-        "adx": {"category": "trend", "inputs": ["high", "low", "close"],
-                "description": "Average Directional Index"},
-        "donchian": {"category": "volatility", "inputs": ["high", "low"],
-                     "description": "Donchian channels"},
-        "slope": {"category": "trend", "description": "Least-squares slope"},
-    }
+    from knowledgebase import indicators as kind
     descriptions = kpatterns.describe()
+
+    cat_map = {
+        "rsi": "momentum", "stochastic": "momentum", "macd": "momentum",
+        "cci": "momentum", "williams_r": "momentum", "stoch_rsi": "momentum",
+        "atr": "volatility", "bollinger": "volatility", "donchian": "volatility",
+        "keltner": "volatility", "vwap": "volume", "obv": "volume",
+        "cmf": "volume", "mfi": "volume", "adl": "volume", "z_score": "statistical",
+    }
+
+    indicator_meta = {}
+    for name in kind.REGISTRY:
+        category = cat_map.get(name, "trend")
+        doc = getattr(kind.REGISTRY[name], "__doc__", "") or f"{name.upper()} technical indicator"
+        first_line = doc.strip().split("\n")[0]
+        indicator_meta[name] = {
+            "category": category,
+            "description": first_line,
+        }
+
+    candlestick_set = getattr(kpatterns, "CANDLESTICK", set())
     pattern_meta = {
         name: {
-            "family": ("candlestick" if name in kpatterns.CANDLESTICK
-                       else "price_action"),
-            "direction": "neutral",
+            "family": "candlestick" if name in candlestick_set else "price_action",
+            "direction": (
+                "bullish" if "bullish" in name or "up" in name or name in ("hammer", "morning_star", "piercing_line", "tweezer_bottom")
+                else ("bearish" if "bearish" in name or "down" in name or name in ("shooting_star", "evening_star", "dark_cloud_cover", "tweezer_top")
+                      else "neutral")
+            ),
             "description": desc,
         }
         for name, desc in descriptions.items()

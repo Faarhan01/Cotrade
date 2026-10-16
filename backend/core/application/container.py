@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from core.application.ports import (
-    MT5Port,
-    MarketDataPort,
     AccountPort,
-    TradingPort,
-    StrategyRepository,
-    ReportRepository,
-    PatternHitRepository,
     ConnectionPort,
+    MarketDataPort,
+    MT5Port,
+    PatternHitRepository,
+    ReportRepository,
+    StrategyRepository,
+    TradingPort,
 )
 from database import repositories as _repos
 
@@ -31,21 +31,21 @@ class AppContainer:
     strategy_repo: StrategyRepository
     report_repo: ReportRepository
     pattern_hit_repo: PatternHitRepository
-    backtest: Optional[Any] = None
-    pattern_scan: Optional[Any] = None
-    validation: Optional[Any] = None
-    sizing: Optional[Any] = None
+    backtest: Any | None = None
+    pattern_scan: Any | None = None
+    validation: Any | None = None
+    sizing: Any | None = None
 
 
 def build_container(config, engine) -> AppContainer:
     """Wire every concrete implementation and service into the container."""
+    from managers.api_manager.api import Research
     from managers.services_manager import (
         BacktestService,
         PatternScanService,
+        SizingService,
         ValidationService,
-        SizingService
     )
-    from managers.api_manager.api import Research
 
     # The Research service needs a data fetcher. We use the engine's candle
     # capability through a thin adapter so the knowledgebase stays free of

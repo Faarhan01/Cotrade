@@ -10,7 +10,6 @@ from __future__ import annotations
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,13 +43,13 @@ class GatewayConfig:
     )
     frontend_dir: str = field(default="")
     log_level: str = field(default_factory=lambda: os.getenv("CONY_LOG_LEVEL", "INFO"))
-    log_file: Optional[str] = field(default_factory=lambda: os.getenv("CONY_LOG_FILE") or None)
+    log_file: str | None = field(default_factory=lambda: os.getenv("CONY_LOG_FILE") or None)
     gateway_url: str = "http://127.0.0.1:8890"
-    mt5_login: Optional[int] = None
-    mt5_password: Optional[str] = None
-    mt5_server: Optional[str] = None
-    mt5_path: Optional[str] = None
-    mt5_package_path: Optional[str] = None
+    mt5_login: int | None = None
+    mt5_password: str | None = None
+    mt5_server: str | None = None
+    mt5_path: str | None = None
+    mt5_package_path: str | None = None
     mt5_timeout: int = 60000
     auto_connect: bool = True
     auto_reconnect: bool = True
@@ -58,7 +57,7 @@ class GatewayConfig:
     symbol_cache_ttl: int = 300
 
     @classmethod
-    def from_env(cls) -> "GatewayConfig":
+    def from_env(cls) -> GatewayConfig:
         port = _int("CONY_PORT", _int("PORT", 3000))
         host = os.environ.get("CONY_HOST") or os.environ.get("HOST") or "0.0.0.0"
         explicit_url = os.environ.get("CONY_URL")
@@ -89,7 +88,7 @@ class GatewayConfig:
         )
 
 
-def validate(config: "GatewayConfig") -> None:
+def validate(config: GatewayConfig) -> None:
     """Raise ValueError when configuration is obviously invalid."""
     if config.port < 1 or config.port > 65535:
         raise ValueError(f"invalid port {config.port}")
@@ -102,7 +101,7 @@ def validate(config: "GatewayConfig") -> None:
         raise ValueError(f"invalid log level {config.log_level}")
 
 
-def gateway_url(supplied: Optional[str] = None) -> str:
+def gateway_url(supplied: str | None = None) -> str:
     """Resolve a gateway base URL using centralized config only (not direct env reads elsewhere)."""
     explicit = os.environ.get("CONY_URL")
     if explicit:

@@ -11,6 +11,9 @@
   "use strict";
 
   var boot = dom.bootstrap();
+  if (window.shell && window.shell.start) {
+    window.shell.start(boot);
+  }
   var clockOffset = Number(boot.clock_offset) || 0;
   var currency = (boot.account && boot.account.currency) || "";
 

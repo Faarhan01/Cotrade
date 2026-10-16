@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
 class ValidationService:
@@ -9,5 +9,5 @@ class ValidationService:
     def __init__(self, research):
         self._research = research
 
-    def validate(self, strategy) -> Dict[str, Any]:
+    def validate(self, strategy) -> dict[str, Any]:
         return self._research.validate_strategy(strategy)

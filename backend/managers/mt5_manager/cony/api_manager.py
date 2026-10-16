@@ -46,7 +46,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 from . import enums
 from .connection import ConnectionManager
@@ -112,7 +113,7 @@ def _wrap_function(name: str, raw_fn: Callable) -> Callable:
             }
 
         # 4. Serialise to plain dict (handles namedtuple, custom objects)
-        from cony.serializers import serialize_namedtuple, serialize_array
+        from cony.serializers import serialize_namedtuple
 
         if result is None:
             return {
@@ -157,7 +158,7 @@ def _wrap_function(name: str, raw_fn: Callable) -> Callable:
     return wrapper
 
 
-def load() -> Dict[str, Callable]:
+def load() -> dict[str, Callable]:
     """
     Scan the installed MetaTrader5 package and return a dict mapping every
     public function name to a wrapper.
@@ -172,7 +173,7 @@ def load() -> Dict[str, Callable]:
         _LOG.warning("MetaTrader5 package not importable; API manager has nothing to wrap.")
         return {}
 
-    found: Dict[str, Callable] = {}
+    found: dict[str, Callable] = {}
     for name in dir(mt5):
         if not _is_public(name):
             continue
@@ -183,5 +184,5 @@ def load() -> Dict[str, Callable]:
         wrapped = _wrap_function(name, raw_fn)
         found[name] = wrapped
 
-    __LOG.info("API manager discovered %d MT5 functions", len(found))
+    _LOG.info("API manager discovered %d MT5 functions", len(found))
     return found

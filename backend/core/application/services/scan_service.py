@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 
-
 class PatternScanService:
     def __init__(self, research):
         self._research = research

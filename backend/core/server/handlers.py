@@ -11,12 +11,13 @@ how MetaTrader 5 is actually called.
 import logging
 import math
 import traceback
+from datetime import timedelta
 
 from core.server import validation as v
-from services.error_handlers.errors import BadRequest, UpstreamUnavailable
-from datetime import timedelta
 from core.server.routes import Router
 from managers.mt5_manager import cony
+from managers.mt5_manager.cony import enums
+from services.error_handlers.errors import BadRequest, UpstreamUnavailable
 
 # Standard logging only. server/ must not import deamon/, or the dependency
 # would point backwards (deamon -> server -> deamon) and the layering that

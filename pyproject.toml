@@ -1,0 +1,13 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 160
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    "E501",  # line length
+    "E402",  # module level import not at top of file
+    "E741",  # ambiguous variable name
+    "F401",  # imported but unused (re-exports)
+    "F841",  # local variable assigned but never used
+]

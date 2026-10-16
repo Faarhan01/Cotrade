@@ -29,9 +29,19 @@ from typing import Optional, Tuple
 # Overridable so a deployment can point at a built or vendored copy.
 from core.config import GatewayConfig
 
-_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-FRONTEND_DIR = GatewayConfig.from_env().frontend_dir or os.path.join(_repo_root, "frontend")
+def _find_frontend_dir() -> str:
+    env_dir = GatewayConfig.from_env().frontend_dir or os.environ.get("CONY_FRONTEND_DIR")
+    if env_dir and os.path.isdir(env_dir):
+        return env_dir
+    curr = os.path.abspath(__file__)
+    for _ in range(6):
+        curr = os.path.dirname(curr)
+        candidate = os.path.join(curr, "frontend")
+        if os.path.isdir(candidate):
+            return candidate
+    return os.path.join(curr, "frontend")
 
+FRONTEND_DIR = _find_frontend_dir()
 ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
 PAGES_DIR = os.path.join(FRONTEND_DIR, "pages")
 PARTIALS_DIR = os.path.join(FRONTEND_DIR, "partials")

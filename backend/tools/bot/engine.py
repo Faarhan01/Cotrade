@@ -371,7 +371,8 @@ def run(strategy: Strategy, bars: List[Bar], inst: Dict,
             if pending_trail is not None:
                 hit = (b.low <= pending_trail) if side == 1 else (b.high >= pending_trail)
                 if hit:
-                    exit_price, reason, exit_index = pending_trail, "trailing", j
+                    actual_trail = min(pending_trail, b.open) if side == 1 else max(pending_trail, b.open)
+                    exit_price, reason, exit_index = exit_price_at(actual_trail), "trailing", j
                     break
 
             # Pessimistic tie policy: if a bar reaches both levels, assume the
@@ -379,17 +380,21 @@ def run(strategy: Strategy, bars: List[Bar], inst: Dict,
             # take-profits on bars that also traded through the stop.
             if side == 1:
                 if sl is not None and b.low <= sl:
-                    exit_price, reason, exit_index = exit_price_at(sl), "stop_loss", j
+                    actual_sl = min(sl, b.open)
+                    exit_price, reason, exit_index = exit_price_at(actual_sl), "stop_loss", j
                     break
                 if tp is not None and b.high >= tp:
-                    exit_price, reason, exit_index = exit_price_at(tp), "take_profit", j
+                    actual_tp = max(tp, b.open)
+                    exit_price, reason, exit_index = exit_price_at(actual_tp), "take_profit", j
                     break
             else:
                 if sl is not None and b.high >= sl:
-                    exit_price, reason, exit_index = exit_price_at(sl), "stop_loss", j
+                    actual_sl = max(sl, b.open)
+                    exit_price, reason, exit_index = exit_price_at(actual_sl), "stop_loss", j
                     break
                 if tp is not None and b.low <= tp:
-                    exit_price, reason, exit_index = exit_price_at(tp), "take_profit", j
+                    actual_tp = min(tp, b.open)
+                    exit_price, reason, exit_index = exit_price_at(actual_tp), "take_profit", j
                     break
 
             if exit_rule.breakeven_after_pips:

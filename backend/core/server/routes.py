@@ -4,8 +4,8 @@ server — Router
 URL routing with path parameter support.
 """
 
-from typing import Callable, List, Tuple, Optional
 import re
+from collections.abc import Callable
 from urllib.parse import parse_qs, unquote, urlparse
 
 
@@ -57,8 +57,8 @@ class Router:
     """Simple URL router mapping patterns to handler methods."""
 
     def __init__(self):
-        self._routes: List[Tuple[str, str, Callable]] = []
-        self._compiled: List[Tuple[str, object, Callable]] = []
+        self._routes: list[tuple[str, str, Callable]] = []
+        self._compiled: list[tuple[str, object, Callable]] = []
 
     def add(self, method: str, pattern: str, handler: Callable):
         self._routes.append((method.upper(), pattern, handler))
@@ -88,7 +88,7 @@ class Router:
             return func
         return decorator
 
-    def resolve(self, method: str, path: str) -> Tuple[Optional[Callable], dict, dict]:
+    def resolve(self, method: str, path: str) -> tuple[Callable | None, dict, dict]:
         """
         Match a request to a route and extract its parameters.
 
@@ -111,5 +111,5 @@ class Router:
                 return handler, params, query
         return None, {}, query
 
-    def list_routes(self) -> List[dict]:
+    def list_routes(self) -> list[dict]:
         return [{"method": m, "pattern": p} for m, p, _ in self._routes]

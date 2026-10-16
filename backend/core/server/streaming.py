@@ -17,7 +17,7 @@ Streams:
 import json
 import threading
 import time
-from typing import Iterator
+from collections.abc import Iterator
 
 from core.server import validation as v
 from services.error_handlers.errors import BadRequest
@@ -76,17 +76,17 @@ def require_symbols(query, engine) -> list:
 def _format_event(data: dict, event: str = "message") -> bytes:
     """Encode one SSE frame."""
     payload = json.dumps(data, default=str)
-    return f"event: {event}\ndata: {payload}\n\n".encode("utf-8")
+    return f"event: {event}\ndata: {payload}\n\n".encode()
 
 
 def _format_retry(seconds: float) -> bytes:
     """Tell the client how long to wait before reconnecting."""
-    return f"retry: {int(seconds * 1000)}\n\n".encode("utf-8")
+    return f"retry: {int(seconds * 1000)}\n\n".encode()
 
 
 def _format_comment(text: str) -> bytes:
     """An SSE comment, used as a keepalive the client ignores."""
-    return f": {text}\n\n".encode("utf-8")
+    return f": {text}\n\n".encode()
 
 
 class EventStream:

@@ -11,7 +11,7 @@ and no configuration of its own beyond the connection manager it is given.
 from datetime import datetime, timezone
 import threading
 import time
-from typing import List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import enums
 from .api_manager import load as _load_api

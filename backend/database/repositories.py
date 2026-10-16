@@ -1,7 +1,8 @@
 """SQLite implementations of the application ports."""
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import builtins
+from typing import Any
 
 from database.store import Store
 
@@ -24,7 +25,7 @@ class SqliteStrategyRepository:
         with _store() as s:
             return s.save_strategy(strategy)
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         with _store() as s:
             return s.list_strategies()
 
@@ -37,16 +38,16 @@ class SqliteReportRepository:
     def __init__(self, config=None):
         self.config = config
 
-    def save(self, report: Dict[str, Any]) -> int:
+    def save(self, report: dict[str, Any]) -> int:
         with _store() as s:
             return s.save_report(report)
 
     def list(self, *, strategy=None, verdict=None,
-             limit: int = 100) -> List[Dict[str, Any]]:
+             limit: int = 100) -> builtins.list[dict[str, Any]]:
         with _store() as s:
             return s.reports(strategy=strategy, verdict=verdict, limit=limit)
 
-    def best(self, limit: int = 20) -> List[Dict[str, Any]]:
+    def best(self, limit: int = 20) -> builtins.list[dict[str, Any]]:
         with _store() as s:
             return s.best_reports(limit)
 
@@ -56,7 +57,7 @@ class SqlitePatternHitRepository:
         self.config = config
 
     def save_hits(self, run_id: str, symbol: str, timeframe: str,
-                  hits: List[Dict[str, Any]]) -> int:
+                  hits: list[dict[str, Any]]) -> int:
         with _store() as s:
             return s.save_hits(run_id, symbol, timeframe, hits)
 

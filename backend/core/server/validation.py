@@ -9,11 +9,10 @@ BadRequest with a message that names the offending field and what was
 expected, because the caller is usually an agent acting on the text.
 """
 
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
-from services.error_handlers.errors import BadRequest
 from managers.mt5_manager import cony
+from services.error_handlers.errors import BadRequest
 
 MAX_CANDLES = 10000
 
@@ -45,7 +44,7 @@ def symbol(value, field: str = "symbol") -> str:
     return cleaned
 
 
-def optional_symbol(value, field: str = "symbol") -> Optional[str]:
+def optional_symbol(value, field: str = "symbol") -> str | None:
     return None if value in (None, "") else symbol(value, field)
 
 
@@ -126,14 +125,14 @@ def when(value, field: str, default=None) -> datetime:
         )
     if isinstance(value, datetime):
         if value.tzinfo is not None:
-            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+            value = value.astimezone(UTC).replace(tzinfo=None)
         return value
     text = str(value).strip()
     for parser in (datetime.fromisoformat,):
         try:
             parsed = parser(text.replace("Z", "+00:00"))
             if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                parsed = parsed.astimezone(UTC).replace(tzinfo=None)
             return parsed
         except ValueError:
             pass
@@ -150,7 +149,7 @@ def when(value, field: str, default=None) -> datetime:
 
 def date_range(from_value, to_value, default_days: int = 7):
     """Resolve a from/to pair, checking the order."""
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     start = when(from_value, "from", default=now - timedelta(days=default_days))
     end = when(to_value, "to", default=now)
     if start > end:
@@ -218,16 +217,16 @@ def order_time(value, default: str = "gtc") -> int:
 
 def timeframe(value, default="M1") -> int:
     if value is None or value == "":
-        return cony.enums.TIMEFRAMES[default]
-        if isinstance(value, str):
-            key = value.strip().upper()
-            if key in cony.enums.TIMEFRAMES:
-                return cony.enums.TIMEFRAMES[key]
+        value = default
+    if isinstance(value, str):
+        key = value.strip().upper()
+        if key in cony.enums.TIMEFRAMES:
+            return cony.enums.TIMEFRAMES[key]
         if key.lstrip("-").isdigit():
             return int(key)
         raise BadRequest(
             f"Unknown timeframe {value!r}. Use one of: "
-             f"{', '.join(sorted(cony.enums.TIMEFRAMES, key=lambda k: cony.enums.TIMEFRAMES[k]))}"
+            f"{', '.join(sorted(cony.enums.TIMEFRAMES, key=lambda k: cony.enums.TIMEFRAMES[k]))}"
         )
     return integer(value, "timeframe")
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 
-
 class BacktestService:
     """Thin wrapper around a Research instance backtest."""
 

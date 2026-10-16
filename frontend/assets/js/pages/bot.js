@@ -9,6 +9,11 @@
   const dom = window.dom;
   const fmt = window.fmt;
 
+  const boot = (dom && dom.bootstrap) ? dom.bootstrap() : {};
+  if (window.shell && window.shell.start) {
+    window.shell.start(boot);
+  }
+
   async function loadStats() {
     try {
       const stats = await api.get("/db/stats");

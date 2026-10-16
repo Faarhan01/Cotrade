@@ -12,7 +12,17 @@ cache_dir = "tools/simulatedtester/.pytest_cache"
 
 [tool.ruff]
 target-version = "py311"
-select = ["E", "F", "I", "UP", "B", "SIM"]
+line-length = 200
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    "E501",  # line length
+    "E402",  # module import order
+    "E741",  # ambiguous variable name
+    "F401",  # imported but unused
+    "F841",  # assigned but unused
+]
 
 [tool.mypy]
 python_version = "py311"

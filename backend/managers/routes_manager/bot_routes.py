@@ -7,6 +7,7 @@ Integrates the knowledgebase strategy evaluation with the live MT5 engine feed.
 
 import logging
 from datetime import datetime
+from services.error_handlers.errors import BadRequest, HTTPError
 
 logger = logging.getLogger("cony.server.bot")
 
@@ -112,7 +113,7 @@ def register(router, engine=None) -> int:
                 logs = store.list_bot_logs(session_id=session_id, limit=200)
                 return {"session": session, "logs": logs}
         except Exception as e:
-            from services.error_handlers.errors import HTTPError, BadRequest
+            from services.error_handlers.errors import BadRequest, HTTPError
             if isinstance(e, HTTPError):
                 raise
             raise BadRequest(str(e))
@@ -158,8 +159,8 @@ def register(router, engine=None) -> int:
                                        status="running", stopped=False)
                 return {"success": True, "session_id": session_id, "status": "running"}
         except Exception as e:  # noqa: BLE001
-            from services.error_handlers.errors import BadRequest, HTTPError
-            if isinstance(e, HTTPError): raise
+            if isinstance(e, HTTPError):
+                raise
             raise BadRequest(str(e))
 
     @router.post("/bot/sessions/{session_id}/stop")

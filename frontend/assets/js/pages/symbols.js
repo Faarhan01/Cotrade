@@ -12,6 +12,9 @@
   "use strict";
 
   var boot = dom.bootstrap();
+  if (window.shell && window.shell.start) {
+    window.shell.start(boot);
+  }
   var DEBOUNCE_MS = 220;
 
   var input = document.getElementById("q");

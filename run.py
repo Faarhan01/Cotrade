@@ -26,12 +26,16 @@ import time
 _root = os.path.dirname(os.path.abspath(__file__))
 _backend = os.path.join(_root, "backend")
 _managers = os.path.join(_backend, "managers")
-_db = os.path.join(_backend, "db")
+_mt5_manager = os.path.join(_managers, "mt5_manager")
+_database = os.path.join(_backend, "database")
 _gateway = os.path.join(_backend, "gateway")
 _services = os.path.join(_backend, "services")
+_core = os.path.join(_backend, "core")
+_knowledgebase = os.path.join(_backend, "knowledgebase")
+_tools = os.path.join(_backend, "tools")
 
-for _dir in (_root, _backend, _managers, _db, _gateway, _services):
-    if _dir not in sys.path:
+for _dir in (_root, _backend, _core, _gateway, _managers, _mt5_manager, _database, _knowledgebase, _services, _tools):
+    if os.path.isdir(_dir) and _dir not in sys.path:
         sys.path.insert(0, _dir)
 
 

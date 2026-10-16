@@ -9,8 +9,8 @@ Delegates to ``run.py`` so there is one source of truth for the daemon start-up.
 
 import sys
 
-from run import main as run_main
+from run import main
 
 
 if __name__ == "__main__":
-    sys.exit(run_main())
+    sys.exit(main())

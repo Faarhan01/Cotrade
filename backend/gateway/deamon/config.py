@@ -15,6 +15,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from managers.mt5_manager import cony
 from cony.paths import find_mt5_package
 
 

@@ -21,10 +21,12 @@ def register_all(router, engine, base, container=None) -> list:
     Returns a list of ``(name, route_count_or_None, error_or_None)`` records so
     the caller can log and account for them uniformly.
     """
-    from core.server import db_routes as _db_routes
-    from core.server import bot_routes as _bot_routes
-    from core.server import research as _research_routes
-    from core.frontconnect import register as _dashboard_register
+    from managers.routes_manager import (
+        register_db_routes as _db_routes,
+        register_bot_routes as _bot_routes,
+        register_research_routes as _research_routes
+    )
+    from managers.front_manager.frontconnect import register as _dashboard_register
 
     results = []
 
@@ -64,9 +66,10 @@ def register_all(router, engine, base, container=None) -> list:
 
     # Dashboard
     try:
+        from managers.front_manager import register_frontend as _dashboard_register
         added = _dashboard_register(router, engine)
         if added:
-            from core.frontconnect import assets as _assets
+            from managers.front_manager import frontend_assets as _assets
             logger.info("dashboard enabled: / and /ui/{page} from %s (pages: %s)",
                         _assets.FRONTEND_DIR,
                         ", ".join(_assets.available_pages()) or "none")

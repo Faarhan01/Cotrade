@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from core.server.errors import BadRequest
-from cony import enums
+from managers.mt5_manager import cony
 
 MAX_CANDLES = 10000
 
@@ -192,50 +192,50 @@ def order_type(value, default="buy") -> int:
         if default is None:
             raise BadRequest(
                 f"'order_type' is required. Use one of: "
-                f"{', '.join(sorted(enums.ORDER_TYPES))} or the MT5 integer."
+                 f"{', '.join(sorted(cony.enums.ORDER_TYPES))} or the MT5 integer."
             )
-        return enums.ORDER_TYPES[default]
-    return _from_map(value, enums.ORDER_TYPES, enums.ORDER_TYPE_NAMES, "order_type")
+        return cony.enums.ORDER_TYPES[default]
+    return _from_map(value, cony.enums.ORDER_TYPES, cony.enums.ORDER_TYPE_NAMES, "order_type")
 
 
 def trade_action(value, default: str = "deal") -> int:
     if value in (None, ""):
-        return enums.TRADE_ACTIONS[default]
-    return _from_map(value, enums.TRADE_ACTIONS, enums.TRADE_ACTION_NAMES, "action")
+        return cony.enums.TRADE_ACTIONS[default]
+    return _from_map(value, cony.enums.TRADE_ACTIONS, cony.enums.TRADE_ACTION_NAMES, "action")
 
 
 def filling_mode(value, default: str = "return") -> int:
     if value in (None, ""):
-        return enums.FILLING_MODES[default]
-    return _from_map(value, enums.FILLING_MODES, enums.FILLING_NAMES, "type_filling")
+        return cony.enums.FILLING_MODES[default]
+    return _from_map(value, cony.enums.FILLING_MODES, cony.enums.FILLING_NAMES, "type_filling")
 
 
 def order_time(value, default: str = "gtc") -> int:
     if value in (None, ""):
-        return enums.ORDER_TIMES[default]
-    return _from_map(value, enums.ORDER_TIMES, enums.ORDER_TIME_NAMES, "type_time")
+        return cony.enums.ORDER_TIMES[default]
+    return _from_map(value, cony.enums.ORDER_TIMES, cony.enums.ORDER_TIME_NAMES, "type_time")
 
 
 def timeframe(value, default="M1") -> int:
     if value is None or value == "":
-        return enums.TIMEFRAMES[default]
-    if isinstance(value, str):
-        key = value.strip().upper()
-        if key in enums.TIMEFRAMES:
-            return enums.TIMEFRAMES[key]
+        return cony.enums.TIMEFRAMES[default]
+        if isinstance(value, str):
+            key = value.strip().upper()
+            if key in cony.enums.TIMEFRAMES:
+                return cony.enums.TIMEFRAMES[key]
         if key.lstrip("-").isdigit():
             return int(key)
         raise BadRequest(
             f"Unknown timeframe {value!r}. Use one of: "
-            f"{', '.join(sorted(enums.TIMEFRAMES, key=lambda k: enums.TIMEFRAMES[k]))}"
+             f"{', '.join(sorted(cony.enums.TIMEFRAMES, key=lambda k: cony.enums.TIMEFRAMES[k]))}"
         )
     return integer(value, "timeframe")
 
 
 def copy_ticks_flag(value, default="all") -> int:
     if value is None or value == "":
-        return enums.COPY_TICKS_FLAGS[default]
-    return _from_map(value, enums.COPY_TICKS_FLAGS, enums.COPY_TICKS_NAMES, "flags")
+        return cony.enums.COPY_TICKS_FLAGS[default]
+    return _from_map(value, cony.enums.COPY_TICKS_FLAGS, cony.enums.COPY_TICKS_NAMES, "flags")
 
 
 def symbol_list(value, field: str = "symbols") -> list:

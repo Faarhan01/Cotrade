@@ -23,14 +23,15 @@ import threading
 import time
 
 # Wire backend into sys.path
-_root = os.path.dirname(os.path.abspath(__file__))
-_backend = os.path.join(_root, "backend")
-_db = os.path.join(_backend, "db")
-_gateway = os.path.join(_backend, "gateway")
+    _root = os.path.dirname(os.path.abspath(__file__))
+    _backend = os.path.join(_root, "backend")
+    _managers = os.path.join(_backend, "managers")
+    _db = os.path.join(_backend, "db")
+    _gateway = os.path.join(_backend, "gateway")
 
-for _dir in (_root, _backend, _db, _gateway):
-    if _dir not in sys.path:
-        sys.path.insert(0, _dir)
+    for _dir in (_root, _backend, _managers, _db, _gateway):
+        if _dir not in sys.path:
+            sys.path.insert(0, _dir)
 
 
 def _open_browser_delayed(url: str, delay: float = 1.0):

@@ -119,7 +119,7 @@ def get_research():
     if _load_error is not None:
         return None
     try:
-        api = importlib.import_module("knowledgebase.api")
+        from managers.api_manager import Research
         store = None
         try:
             database = importlib.import_module("database")
@@ -130,7 +130,7 @@ def get_research():
             # works, results just do not persist between restarts.
             print(f"[cony] research running without a database: {exc}",
                   file=sys.stderr)
-        _research = api.Research(fetch=_gateway_fetch, store=store)
+        _research = Research(fetch=_gateway_fetch, store=store)
         return _research
     except Exception as exc:                          # noqa: BLE001
         _load_error = str(exc)

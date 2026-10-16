@@ -578,7 +578,7 @@ def main():
         # resolved path to the assets root is the only thing stopping a read
         # of the Python source, which is why each of these is checked.
         for attempt in ("/assets/../dashboard/views.py",
-                        "/assets/../../backend/frontconnect/assets.py",
+                        "/assets/../../backend/managers/front_manager/frontconnect/assets.py",
                         "/assets/css/../../../dashboard/__init__.py",
                         "/assets/..%2f..%2fdashboard%2fviews.py",
                         "/assets/css/%2e%2e/%2e%2e/dashboard/views.py"):

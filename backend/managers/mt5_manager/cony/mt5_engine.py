@@ -13,11 +13,11 @@ import threading
 import time
 from typing import List, Optional
 
-from cony import enums
-from cony.api_manager import load as _load_api
-from cony.connection import ConnectionManager
-from cony.marketbook import MarketBook
-from cony.serializers import serialize_array, serialize_namedtuple
+from . import enums
+from .api_manager import load as _load_api
+from .connection import ConnectionManager
+from .marketbook import MarketBook
+from .serializers import serialize_array, serialize_namedtuple
 
 # Auto-load every public MT5 function and build a dispatch table.
 # This is intentionally done at module import time so that adding a new

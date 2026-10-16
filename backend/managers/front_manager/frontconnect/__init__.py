@@ -31,7 +31,7 @@ others; a stripped-down gateway serves JSON and nothing else.
 from core.server import responses
 from core.server.errors import NotFound
 
-from core.frontconnect import assets, views
+from . import assets, views
 
 # What each page needs from the server.
 #

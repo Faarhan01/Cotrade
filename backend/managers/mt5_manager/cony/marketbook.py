@@ -12,8 +12,8 @@ disconnect, otherwise the terminal leaks a subscription per symbol.
 import threading
 from typing import Dict, List, Optional
 
-from cony import enums
-from cony.serializers import serialize_namedtuple
+from . import enums
+from .serializers import serialize_namedtuple
 
 
 class MarketBookError(Exception):

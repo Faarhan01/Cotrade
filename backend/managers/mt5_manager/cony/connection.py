@@ -12,8 +12,8 @@ place.
 import threading
 from typing import Optional
 
-from cony import enums
-from cony.paths import ensure_on_path
+from . import enums
+from .paths import ensure_on_path
 
 
 class ConnectionManager:

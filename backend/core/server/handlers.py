@@ -16,8 +16,7 @@ from core.server import validation as v
 from core.server.errors import BadRequest, UpstreamUnavailable
 from datetime import timedelta
 from core.server.routes import Router
-from cony import enums
-from cony.mt5_engine import MT5Engine, MT5ConnectionError
+from managers.mt5_manager import cony
 
 # Standard logging only. server/ must not import deamon/, or the dependency
 # would point backwards (deamon -> server -> deamon) and the layering that
@@ -32,7 +31,7 @@ HISTORY_MAX_ROWS = 20000
 class RouteHandlers:
     """Registers every API route against a router."""
 
-    def __init__(self, engine: MT5Engine, router: Router,
+    def __init__(self, engine: cony.mt5_engine.MT5Engine, router: Router,
                  base: str = "http://127.0.0.1:8890", container=None):
         self.base = base
         self.engine = engine
@@ -327,10 +326,10 @@ class RouteHandlers:
                             "narrowed %s %s window to %d bars",
                             name, tf, v.MAX_CANDLES,
                         )
-                try:
-                    bars = engine.copy_rates_range(name, tf, start, end)
-                except MT5ConnectionError as exc:
-                    raise UpstreamUnavailable(f"MT5 not connected: {exc}") from exc
+                 try:
+                     bars = engine.copy_rates_range(name, tf, start, end)
+                 except cony.mt5_engine.MT5ConnectionError as exc:
+                     raise UpstreamUnavailable(f"MT5 not connected: {exc}") from exc
             elif query.get("start") is not None:
                 offset = v.integer(query["start"], "start", minimum=0, maximum=v.MAX_CANDLES)
                 count = v.integer(query.get("count", 100), "count",

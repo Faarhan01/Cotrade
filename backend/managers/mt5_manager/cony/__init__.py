@@ -15,9 +15,9 @@ ordinary dicts, usable from scripts, notebooks, tests or any server layer.
     conn.disconnect()
 """
 
-from cony.connection import ConnectionManager
-from cony.marketbook import MarketBook, MarketBookError
-from cony.mt5_engine import (
+from .connection import ConnectionManager
+from .marketbook import MarketBook, MarketBookError
+from .mt5_engine import (
     MT5Engine,
     MT5Error,
     MT5ConnectionError,
@@ -26,7 +26,7 @@ from cony.mt5_engine import (
     InvalidRequestError,
     OrderRejectedError,
 )
-from cony import enums
+from . import enums
 
 __version__ = "1.0.0"
 

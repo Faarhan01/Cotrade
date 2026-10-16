@@ -39,11 +39,13 @@ class AppContainer:
 
 def build_container(config, engine) -> AppContainer:
     """Wire every concrete implementation and service into the container."""
-    from core.application.services.backtest_service import BacktestService
-    from core.application.services.scan_service import PatternScanService
-    from core.application.services.validation_service import ValidationService
-    from core.application.services.sizing_service import SizingService
-    from knowledgebase.api import Research
+    from managers.services_manager import (
+        BacktestService,
+        PatternScanService,
+        ValidationService,
+        SizingService
+    )
+    from managers.api_manager.api import Research
 
     # The Research service needs a data fetcher. We use the engine's candle
     # capability through a thin adapter so the knowledgebase stays free of

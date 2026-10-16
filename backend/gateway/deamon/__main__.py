@@ -28,6 +28,7 @@ for _d in (_backend_dir, _gateway_dir):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
+from managers.mt5_manager import cony
 from cony import ConnectionManager, MT5Engine
 from cony.marketbook import MarketBookError
 from cony.mt5_engine import (

@@ -48,8 +48,8 @@ import inspect
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-from cony import enums
-from cony.connection import ConnectionManager
+from . import enums
+from .connection import ConnectionManager
 
 _LOG = logging.getLogger("cony.api_manager")
 

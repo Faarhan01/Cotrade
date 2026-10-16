@@ -13,7 +13,7 @@ MT5 values, so the gateway can answer requests while disconnected.
 import sys
 from typing import Optional
 
-from cony.paths import find_mt5_package
+from .paths import find_mt5_package
 
 import time
 

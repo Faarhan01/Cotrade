@@ -23,7 +23,7 @@ from datetime import datetime
 from typing import Optional
 from urllib.error import HTTPError, URLError
 
-from core.server.errors import BadRequest, NotFound, UpstreamUnavailable
+from services.error_handlers.errors import BadRequest, NotFound, UpstreamUnavailable
 
 # Where this gateway is listening. Supplied by `deamon` when it registers the
 # research routes, because that layer owns the configuration and `server/`

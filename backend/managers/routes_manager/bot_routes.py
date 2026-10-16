@@ -106,13 +106,13 @@ def register(router, engine=None) -> int:
                 sessions = store.list_bot_sessions(limit=1000)
                 session = next((s for s in sessions if s.get("session_id") == session_id), None)
                 if not session:
-                    from core.server.errors import NotFound
+                    from services.error_handlers.errors import NotFound
                     raise NotFound("Session not found")
 
                 logs = store.list_bot_logs(session_id=session_id, limit=200)
                 return {"session": session, "logs": logs}
         except Exception as e:
-            from core.server.errors import HTTPError, BadRequest
+            from services.error_handlers.errors import HTTPError, BadRequest
             if isinstance(e, HTTPError):
                 raise
             raise BadRequest(str(e))
@@ -127,7 +127,7 @@ def register(router, engine=None) -> int:
                 sessions = store.list_bot_sessions(limit=1000)
                 session = next((s for s in sessions if s.get("session_id") == session_id), None)
                 if not session:
-                    from core.server.errors import NotFound
+                    from services.error_handlers.errors import NotFound
                     raise NotFound("Session not found")
                 store.update_bot_session(session_id,
                                        trades_count=session.get("trades_count", 0),
@@ -135,7 +135,7 @@ def register(router, engine=None) -> int:
                                        status="paused", stopped=False)
                 return {"success": True, "session_id": session_id, "status": "paused"}
         except Exception as e:  # noqa: BLE001
-            from core.server.errors import BadRequest, HTTPError
+            from services.error_handlers.errors import BadRequest, HTTPError
             if isinstance(e, HTTPError):
                 raise
             raise BadRequest(str(e))
@@ -150,7 +150,7 @@ def register(router, engine=None) -> int:
                 sessions = store.list_bot_sessions(limit=1000)
                 session = next((s for s in sessions if s.get("session_id") == session_id), None)
                 if not session:
-                    from core.server.errors import NotFound
+                    from services.error_handlers.errors import NotFound
                     raise NotFound("Session not found")
                 store.update_bot_session(session_id,
                                        trades_count=session.get("trades_count", 0),
@@ -158,7 +158,7 @@ def register(router, engine=None) -> int:
                                        status="running", stopped=False)
                 return {"success": True, "session_id": session_id, "status": "running"}
         except Exception as e:  # noqa: BLE001
-            from core.server.errors import BadRequest, HTTPError
+            from services.error_handlers.errors import BadRequest, HTTPError
             if isinstance(e, HTTPError): raise
             raise BadRequest(str(e))
 

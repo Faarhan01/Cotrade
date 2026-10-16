@@ -29,7 +29,7 @@ others; a stripped-down gateway serves JSON and nothing else.
 """
 
 from core.server import responses
-from core.server.errors import NotFound
+from services.error_handlers.errors import NotFound
 
 from . import assets, views
 

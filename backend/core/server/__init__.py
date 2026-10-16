@@ -10,7 +10,7 @@ changing anything below it.
 """
 from core.server.routes import Router
 from core.server.handlers import RouteHandlers
-from core.server.errors import (
+from services.error_handlers.errors import (
     HTTPError,
     BadRequest,
     NotFound,

@@ -12,7 +12,7 @@ expected, because the caller is usually an agent acting on the text.
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from core.server.errors import BadRequest
+from services.error_handlers.errors import BadRequest
 from managers.mt5_manager import cony
 
 MAX_CANDLES = 10000

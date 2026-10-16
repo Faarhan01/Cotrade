@@ -498,6 +498,16 @@ def describe() -> Dict[str, str]:
         "pinbar_bearish": "Long upper rejection wick, small lower body. Bearish reversal.",
         "fvg_bullish": "Untraded bullish liquidity gap between bar i-2 high and bar i low.",
         "fvg_bearish": "Untraded bearish liquidity gap between bar i-2 low and bar i high.",
+        "abandoned_baby": "Isolated doji sandwiched by opposite candles. Bullish reversal.",
+        "three_line_strike": "Three same-direction candles followed by a strong opposite candle.",
+        "tasuki_gap": "A gap partially closed by a candle in the opposite direction.",
+        "mat_hold": "A bullish continuation pattern after a rally.",
+        "dark_cloud_cover": "Bearish reversal: candle opens above prior close but closes below midpoint.",
+        "piercing_line": "Bullish reversal: candle opens below prior close but closes above midpoint.",
+        "tweezer_top": "Two bars with matching highs. Bearish reversal signal.",
+        "tweezer_bottom": "Two bars with matching lows. Bullish reversal signal.",
+        "gap_up": "Current low above previous high. Strong bullish momentum.",
+        "gap_down": "Current high below previous low. Strong bearish momentum.",
     }
 
 
@@ -556,15 +566,97 @@ def _mat_hold(bars: List[Bar], i: int) -> Optional[PatternMatch]:
         return PatternMatch("mat_hold", i, "bullish", 0.75, "Mat hold after a rally")
     return None
 
+def _dark_cloud_cover(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Dark cloud cover: bearish reversal pattern."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if (prev.close > prev.open and cur.close < cur.open
+            and cur.close < (prev.open + prev.close) / 2.0
+            and cur.close > prev.open):
+        return PatternMatch("dark_cloud_cover", i, "bearish", 0.8,
+                            "Dark cloud cover - bearish reversal", {})
+    return None
+
+
+def _piercing_line(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Piercing line: bullish reversal pattern."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if (prev.close < prev.open and cur.close > cur.open
+            and cur.close > (prev.open + prev.close) / 2.0
+            and cur.close < prev.open):
+        return PatternMatch("piercing_line", i, "bullish", 0.7,
+                            "Piercing line - bullish reversal", {})
+    return None
+
+
+def _tweezer_top(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Tweezer top: two bars with matching highs."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if abs(prev.high - cur.high) < 1e-10 and prev.close < prev.open and cur.close < cur.open:
+        return PatternMatch("tweezer_top", i, "bearish", 0.6,
+                            "Tweezer top - matching highs", {})
+    return None
+
+
+def _tweezer_bottom(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Tweezer bottom: two bars with matching lows."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if abs(prev.low - cur.low) < 1e-10 and prev.close > prev.open and cur.close > cur.open:
+        return PatternMatch("tweezer_bottom", i, "bullish", 0.6,
+                            "Tweezer bottom - matching lows", {})
+    return None
+
+
+def _gap_up(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Gap up: current low above previous high."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if cur.low > prev.high:
+        return PatternMatch("gap_up", i, "bullish", 0.7,
+                            "Gap up - strong bullish momentum", {})
+    return None
+
+
+def _gap_down(bars: List[Bar], i: int) -> Optional[PatternMatch]:
+    """Gap down: current high below previous low."""
+    if i < 1 or i >= len(bars):
+        return None
+    prev, cur = bars[i - 1], bars[i]
+    if cur.high < prev.low:
+        return PatternMatch("gap_down", i, "bearish", 0.7,
+                            "Gap down - strong bearish momentum", {})
+    return None
+
+
 CANDLESTICK.update({
     "abandoned_baby": _abandoned_baby,
     "three_line_strike": _three_line_strike,
     "tasuki_gap": _tasuki_gap,
     "mat_hold": _mat_hold,
+    "dark_cloud_cover": _dark_cloud_cover,
+    "piercing_line": _piercing_line,
+    "tweezer_top": _tweezer_top,
+    "tweezer_bottom": _tweezer_bottom,
+    "gap_up": _gap_up,
+    "gap_down": _gap_down,
 })
 REGISTRY.update({
     "abandoned_baby": _abandoned_baby,
     "three_line_strike": _three_line_strike,
     "tasuki_gap": _tasuki_gap,
     "mat_hold": _mat_hold,
+    "dark_cloud_cover": _dark_cloud_cover,
+    "piercing_line": _piercing_line,
+    "tweezer_top": _tweezer_top,
+    "tweezer_bottom": _tweezer_bottom,
+    "gap_up": _gap_up,
+    "gap_down": _gap_down,
 })

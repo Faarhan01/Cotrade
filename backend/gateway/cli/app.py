@@ -7,7 +7,7 @@ import os
 import sys
 
 _BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_ROOT = _BACKEND_ROOT
+_ROOT = os.path.dirname(_BACKEND_ROOT)
 _BACKEND = _BACKEND_ROOT
 _GATEWAY = os.path.join(_BACKEND_ROOT, "gateway")
 

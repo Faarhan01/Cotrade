@@ -380,6 +380,178 @@ def retcode_glossary() -> dict:
     return dict(sorted(found.items(), key=lambda kv: kv[1]))
 
 
+# ─── Position reasons ─────────────────────────────────────────────────
+
+POSITION_REASONS = {
+    "client": _value("POSITION_REASON_CLIENT", 0),
+    "mobile": _value("POSITION_REASON_MOBILE", 1),
+    "web": _value("POSITION_REASON_WEB", 2),
+    "expert": _value("POSITION_REASON_EXPERT", 3),
+}
+POSITION_REASON_NAMES = _reverse("", POSITION_REASONS)
+
+# ─── Order reasons ───────────────────────────────────────────────────
+
+ORDER_REASONS = {
+    "client": _value("ORDER_REASON_CLIENT", 0),
+    "mobile": _value("ORDER_REASON_MOBILE", 1),
+    "web": _value("ORDER_REASON_WEB", 2),
+    "expert": _value("ORDER_REASON_EXPERT", 3),
+    "sl": _value("ORDER_REASON_SL", 4),
+    "tp": _value("ORDER_REASON_TP", 5),
+    "so": _value("ORDER_REASON_SO", 6),
+}
+ORDER_REASON_NAMES = _reverse("", ORDER_REASONS)
+
+# ─── Deal reasons ────────────────────────────────────────────────────
+
+DEAL_REASONS = {
+    "client": _value("DEAL_REASON_CLIENT", 0),
+    "mobile": _value("DEAL_REASON_MOBILE", 1),
+    "web": _value("DEAL_REASON_WEB", 2),
+    "expert": _value("DEAL_REASON_EXPERT", 3),
+    "sl": _value("DEAL_REASON_SL", 4),
+    "tp": _value("DEAL_REASON_TP", 5),
+    "so": _value("DEAL_REASON_SO", 6),
+    "rollover": _value("DEAL_REASON_ROLLOVER", 7),
+    "vmargin": _value("DEAL_REASON_VMARGIN", 8),
+    "split": _value("DEAL_REASON_SPLIT", 9),
+}
+DEAL_REASON_NAMES = _reverse("", DEAL_REASONS)
+
+# ─── Symbol calc modes ───────────────────────────────────────────────
+
+SYMBOL_CALC_MODES = {
+    "forex": _value("SYMBOL_CALC_MODE_FOREX", 0),
+    "futures": _value("SYMBOL_CALC_MODE_FUTURES", 1),
+    "cfd": _value("SYMBOL_CALC_MODE_CFD", 2),
+    "cfdindex": _value("SYMBOL_CALC_MODE_CFDINDEX", 3),
+    "cfdleverage": _value("SYMBOL_CALC_MODE_CFDLEVERAGE", 4),
+    "forex_no_leverage": _value("SYMBOL_CALC_MODE_FOREX_NO_LEVERAGE", 5),
+    "exch_stocks": _value("SYMBOL_CALC_MODE_EXCH_STOCKS", 32),
+    "exch_futures": _value("SYMBOL_CALC_MODE_EXCH_FUTURES", 33),
+    "exch_options": _value("SYMBOL_CALC_MODE_EXCH_OPTIONS", 34),
+    "exch_options_margin": _value("SYMBOL_CALC_MODE_EXCH_OPTIONS_MARGIN", 36),
+    "exch_bonds": _value("SYMBOL_CALC_MODE_EXCH_BONDS", 37),
+    "exch_stocks_moex": _value("SYMBOL_CALC_MODE_EXCH_STOCKS_MOEX", 38),
+    "exch_bonds_moex": _value("SYMBOL_CALC_MODE_EXCH_BONDS_MOEX", 39),
+    "serv_collateral": _value("SYMBOL_CALC_MODE_SERV_COLLATERAL", 64),
+}
+SYMBOL_CALC_MODE_NAMES = _reverse("", SYMBOL_CALC_MODES)
+
+# ─── Symbol trade execution ──────────────────────────────────────────
+
+SYMBOL_TRADE_EXECUTIONS = {
+    "request": _value("SYMBOL_TRADE_EXECUTION_REQUEST", 0),
+    "instant": _value("SYMBOL_TRADE_EXECUTION_INSTANT", 1),
+    "market": _value("SYMBOL_TRADE_EXECUTION_MARKET", 2),
+    "exchange": _value("SYMBOL_TRADE_EXECUTION_EXCHANGE", 3),
+}
+SYMBOL_TRADE_EXECUTION_NAMES = _reverse("", SYMBOL_TRADE_EXECUTIONS)
+
+# ─── Symbol swap modes ──────────────────────────────────────────────
+
+SYMBOL_SWAP_MODES = {
+    "disabled": _value("SYMBOL_SWAP_MODE_DISABLED", 0),
+    "points": _value("SYMBOL_SWAP_MODE_POINTS", 1),
+    "currency_symbol": _value("SYMBOL_SWAP_MODE_CURRENCY_SYMBOL", 2),
+    "currency_margin": _value("SYMBOL_SWAP_MODE_CURRENCY_MARGIN", 3),
+    "currency_deposit": _value("SYMBOL_SWAP_MODE_CURRENCY_DEPOSIT", 4),
+    "interest_current": _value("SYMBOL_SWAP_MODE_INTEREST_CURRENT", 5),
+    "interest_open": _value("SYMBOL_SWAP_MODE_INTEREST_OPEN", 6),
+    "reopen_current": _value("SYMBOL_SWAP_MODE_REOPEN_CURRENT", 7),
+    "reopen_bid": _value("SYMBOL_SWAP_MODE_REOPEN_BID", 8),
+}
+SYMBOL_SWAP_MODE_NAMES = _reverse("", SYMBOL_SWAP_MODES)
+
+# ─── Account stopout modes ───────────────────────────────────────────
+
+ACCOUNT_STOPOUT_MODES = {
+    "percent": _value("ACCOUNT_STOPOUT_MODE_PERCENT", 0),
+    "money": _value("ACCOUNT_STOPOUT_MODE_MONEY", 1),
+}
+ACCOUNT_STOPOUT_MODE_NAMES = _reverse("", ACCOUNT_STOPOUT_MODES)
+
+# ─── Day of week ─────────────────────────────────────────────────────
+
+DAY_OF_WEEK = {
+    "sunday": _value("DAY_OF_WEEK_SUNDAY", 0),
+    "monday": _value("DAY_OF_WEEK_MONDAY", 1),
+    "tuesday": _value("DAY_OF_WEEK_TUESDAY", 2),
+    "wednesday": _value("DAY_OF_WEEK_WEDNESDAY", 3),
+    "thursday": _value("DAY_OF_WEEK_THURSDAY", 4),
+    "friday": _value("DAY_OF_WEEK_FRIDAY", 5),
+    "saturday": _value("DAY_OF_WEEK_SATURDAY", 6),
+}
+DAY_OF_WEEK_NAMES = _reverse("", DAY_OF_WEEK)
+
+# ─── Tick flags ──────────────────────────────────────────────────────
+
+TICK_FLAGS = {
+    "bid": _value("TICK_FLAG_BID", 0x02),
+    "ask": _value("TICK_FLAG_ASK", 0x04),
+    "last": _value("TICK_FLAG_LAST", 0x08),
+    "volume": _value("TICK_FLAG_VOLUME", 0x10),
+    "buy": _value("TICK_FLAG_BUY", 0x20),
+    "sell": _value("TICK_FLAG_SELL", 0x40),
+}
+TICK_FLAG_NAMES = _reverse("", TICK_FLAGS)
+
+# ─── Symbol chart modes ─────────────────────────────────────────────
+
+SYMBOL_CHART_MODES = {
+    "bid": _value("SYMBOL_CHART_MODE_BID", 0),
+    "last": _value("SYMBOL_CHART_MODE_LAST", 1),
+}
+SYMBOL_CHART_MODE_NAMES = _reverse("", SYMBOL_CHART_MODES)
+
+# ─── Symbol option modes ─────────────────────────────────────────────
+
+SYMBOL_OPTION_MODES = {
+    "european": _value("SYMBOL_OPTION_MODE_EUROPEAN", 0),
+    "american": _value("SYMBOL_OPTION_MODE_AMERICAN", 1),
+}
+SYMBOL_OPTION_MODE_NAMES = _reverse("", SYMBOL_OPTION_MODES)
+
+# ─── Symbol option rights ────────────────────────────────────────────
+
+SYMBOL_OPTION_RIGHTS = {
+    "call": _value("SYMBOL_OPTION_RIGHT_CALL", 0),
+    "put": _value("SYMBOL_OPTION_RIGHT_PUT", 1),
+}
+SYMBOL_OPTION_RIGHT_NAMES = _reverse("", SYMBOL_OPTION_RIGHTS)
+
+# ─── Symbol orders GTC modes ─────────────────────────────────────────
+
+SYMBOL_ORDERS_GTC_MODES = {
+    "gtc": _value("SYMBOL_ORDERS_GTC", 0),
+    "daily": _value("SYMBOL_ORDERS_DAILY", 1),
+    "daily_no_stops": _value("SYMBOL_ORDERS_DAILY_NO_STOPS", 2),
+}
+SYMBOL_ORDERS_GTC_MODE_NAMES = _reverse("", SYMBOL_ORDERS_GTC_MODES)
+
+# ─── Function error codes (last_error) ───────────────────────────────
+
+RES_CODES = {
+    "ok": _value("RES_S_OK", 1),
+    "fail": _value("RES_E_FAIL", -1),
+    "invalid_params": _value("RES_E_INVALID_PARAMS", -2),
+    "no_memory": _value("RES_E_NO_MEMORY", -3),
+    "not_found": _value("RES_E_NOT_FOUND", -4),
+    "invalid_version": _value("RES_E_INVALID_VERSION", -5),
+    "auth_failed": _value("RES_E_AUTH_FAILED", -6),
+    "unsupported": _value("RES_E_UNSUPPORTED", -7),
+    "auto_trading_disabled": _value("RES_E_AUTO_TRADING_DISABLED", -8),
+    "internal_fail": _value("RES_E_INTERNAL_FAIL", -10000),
+    "internal_fail_send": _value("RES_E_INTERNAL_FAIL_SEND", -10001),
+    "internal_fail_receive": _value("RES_E_INTERNAL_FAIL_RECEIVE", -10002),
+    "internal_fail_init": _value("RES_E_INTERNAL_FAIL_INIT", -10003),
+    "internal_fail_connect": _value("RES_E_INTERNAL_FAIL_CONNECT", -10004),
+    "internal_fail_timeout": _value("RES_E_INTERNAL_FAIL_TIMEOUT", -10005),
+}
+RES_CODE_NAMES = _reverse("", RES_CODES)
+
+
 def all_enums() -> dict:
     """Every enum map, for GET /enums and agent discovery."""
     return {
@@ -389,12 +561,26 @@ def all_enums() -> dict:
         "order_times": ORDER_TIMES,
         "timeframes": TIMEFRAMES,
         "position_types": POSITION_TYPES,
+        "position_reasons": POSITION_REASONS,
+        "order_reasons": ORDER_REASONS,
         "deal_types": DEAL_TYPES,
         "deal_entries": DEAL_ENTRIES,
+        "deal_reasons": DEAL_REASONS,
         "copy_ticks_flags": COPY_TICKS_FLAGS,
         "book_sides": BOOK_SIDES,
         "order_states": ORDER_STATES,
         "trade_modes": TRADE_MODES,
         "margin_modes": MARGIN_MODES,
         "symbol_trade_modes": SYMBOL_TRADE_MODES,
+        "symbol_calc_modes": SYMBOL_CALC_MODES,
+        "symbol_trade_executions": SYMBOL_TRADE_EXECUTIONS,
+        "symbol_swap_modes": SYMBOL_SWAP_MODES,
+        "account_stopout_modes": ACCOUNT_STOPOUT_MODES,
+        "day_of_week": DAY_OF_WEEK,
+        "tick_flags": TICK_FLAGS,
+        "symbol_chart_modes": SYMBOL_CHART_MODES,
+        "symbol_option_modes": SYMBOL_OPTION_MODES,
+        "symbol_option_rights": SYMBOL_OPTION_RIGHTS,
+        "symbol_orders_gtc_modes": SYMBOL_ORDERS_GTC_MODES,
+        "res_codes": RES_CODES,
     }

@@ -131,6 +131,8 @@ def cmd_sweep(args) -> int:
     results = []
 
     for plan in plans:
+        # Work on a copy so the shared library objects are not mutated
+        plan = kstrategies.Strategy.from_dict(plan.to_dict())
         plan.symbol = args.symbol
         plan.timeframe = args.timeframe
         plan.spread_pips = inst["spread_pips"]

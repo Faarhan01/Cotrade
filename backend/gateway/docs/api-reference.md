@@ -2,10 +2,12 @@
 
 API reference for the cony gateway daemon.
 
+> For basic project facts (tech stack, database, API counts, architecture), see [`docs/context.md`](docs/context.md).
+
 ## Base URL
 
 ```
-http://127.0.0.1:8888
+http://127.0.0.1:8890
 ```
 
 ## Conventions
@@ -327,6 +329,226 @@ Same query parameters as `/history/deals`.
 { "symbol": "EURUSD", "volume": 0.1, "price_move": 0.005, "profit": 50.0 }
 ```
 
+### POST /calc/size
+
+```json
+{ "symbol": "EURUSD", "risk_amount": 50, "stop_pips": 20 }
+```
+
+```json
+{ "lots": 0.24, "actual_risk": 48.0 }
+```
+
+### GET /enums
+
+Every MT5 constant map the gateway exposes, including order types, timeframes,
+filling modes, trade return codes, and all account/symbol/position enums.
+
+### GET /metrics
+
+Database statistics and integrity information.
+
+### GET /streams
+
+List of available SSE streams.
+
+## SSE Streams
+
+| Stream | Emits |
+|--------|-------|
+| `/stream/ticks?symbols=EURUSD,GBPUSD&interval=1` | Ticks, only when a price moved |
+| `/stream/marketbook?symbols=EURUSD&interval=1` | Depth of market |
+| `/stream/portfolio?interval=2` | Account and open positions together |
+
+`symbols` defaults to whatever is open. `interval` is clamped to 0.2–60s.
+
+## Research API
+
+### GET /research
+
+Lists all research endpoints and the workflow.
+
+### GET /research/catalogue
+
+All indicators, patterns, entry rules, exit fields, and sizing fields. See `backend/docs/context.md` for current counts.
+
+### GET /research/indicators
+
+Indicator catalogue only.
+
+### GET /research/patterns
+
+Pattern catalogue only.
+
+### GET /research/strategies
+
+Entry rule catalogue only.
+
+### GET /research/library
+
+Built-in starter strategies. See `backend/docs/context.md` for current counts.
+
+### GET /research/stored
+
+Strategies saved to the database.
+
+### GET /research/strategy/{name}
+
+One stored strategy.
+
+### POST /research/strategy/validate
+
+Check a strategy definition, report what is wrong.
+
+### POST /research/strategy/save
+
+Validate then persist.
+
+### POST /research/backtest
+
+Backtest a definition, or the name of a stored one. Returns full statistical report
+with verdict, t-statistic, split check, and interpretation.
+
+### POST /research/sweep
+
+Backtest several strategies, ranked by |t|.
+
+### POST /research/patterns/scan
+
+Find patterns and measure follow-through against the market baseline and the spread.
+
+### POST /research/indicator
+
+Compute one indicator over recent bars.
+
+### GET /research/patterns/frequency
+
+Pattern frequency statistics.
+
+### GET /research/bars/range
+
+Cached bar range for a symbol/timeframe.
+
+### GET /research/reports/best
+
+Best reports ranked by t-statistic.
+
+### GET /research/reports/{run_id}
+
+Get a single backtest report by run_id.
+
+### GET /research/hits/context
+
+Indicator context at pattern hits.
+
+### GET /research/strategy/{name}/compare
+
+Compare a stored strategy's current and historical snapshots.
+
+### GET /research/strategy/{name}/history
+
+Get all versions of a strategy.
+
+### GET /research/strategy/{name}/version/{version}
+
+Get a specific version of a strategy.
+
+### POST /research/strategy/{name}/clone
+
+Clone a strategy with a new name.
+
+### POST /research/strategy/export
+
+Export strategies to JSON.
+
+### POST /research/strategy/import
+
+Import strategies from JSON.
+
+### DELETE /research/strategy/{name}
+
+Delete a stored strategy.
+
+### GET /research/strategy/{name}/performance
+
+Get performance history for a strategy across all reports.
+
+### GET /research/patterns/cooccurrence
+
+Get pattern co-occurrence analysis.
+
+### POST /research/strategy/{name}/optimize
+
+Optimize strategy parameters using grid search.
+
+## Bot API
+
+### GET /bot/status
+
+Bot engine status and MT5 connection state.
+
+### GET /bot/strategies
+
+List builtin and stored strategies.
+
+### POST /bot/sessions
+
+Create a new bot trading session.
+
+### GET /bot/sessions
+
+List all bot sessions.
+
+### GET /bot/sessions/{session_id}
+
+Get details of a specific bot session including logs.
+
+### POST /bot/sessions/{session_id}/pause
+
+Pause a running bot session (preserves metrics).
+
+### POST /bot/sessions/{session_id}/resume
+
+Resume a paused bot session (preserves metrics).
+
+### POST /bot/sessions/{session_id}/stop
+
+Stop a running bot session.
+
+### GET /bot/sessions/{session_id}/logs
+
+Get execution logs for a bot session.
+
+### POST /bot/sessions/{session_id}/log
+
+Record a bot action.
+
+### POST /bot/sessions/{session_id}/update
+
+Update session performance metrics.
+
+## Database API
+
+### GET /db/stats
+
+Database statistics.
+
+### GET /db/reports
+
+Stored backtest reports.
+
+### GET /db/integrity
+
+Database integrity check.
+
+### POST /db/vacuum
+
+Vacuum the database.
+
+### GET /db/sessions
+
+Bot sessions.
+
 ## Error responses
 
 | Status | When |
@@ -355,105 +577,3 @@ Same query parameters as `/history/deals`.
   strategy later via `/positions?magic=` style filtering and `/close-all`.
 - Prices must match the symbol's `digits`. Stops that violate the broker's
   minimum distance come back as retcode `10016`.
-
-## Auto-generated route inventory
-
-- `DELETE /research/strategy/{name}`
-- `GET /`
-- `GET /account`
-- `GET /assets/{path...}`
-- `GET /bot/sessions`
-- `GET /bot/sessions/{session_id}`
-- `GET /bot/sessions/{session_id}/logs`
-- `GET /bot/sessions/{session_id}/stream`
-- `GET /bot/status`
-- `GET /bot/strategies`
-- `GET /candles/{symbol}`
-- `GET /database/integrity`
-- `GET /database/reports`
-- `GET /database/sessions`
-- `GET /database/stats`
-- `GET /db/integrity`
-- `GET /db/reports`
-- `GET /db/sessions`
-- `GET /db/stats`
-- `GET /enums`
-- `GET /health`
-- `GET /history/deals`
-- `GET /history/orders`
-- `GET /history/summary`
-- `GET /history/totals`
-- `GET /last-error`
-- `GET /marketbook`
-- `GET /marketbook/subscribed`
-- `GET /marketbook/{symbol}`
-- `GET /metrics`
-- `GET /orders`
-- `GET /portfolio`
-- `GET /positions`
-- `GET /positions/{ticket}`
-- `GET /research`
-- `GET /research/bars/range`
-- `GET /research/catalogue`
-- `GET /research/hits/context`
-- `GET /research/indicators`
-- `GET /research/library`
-- `GET /research/patterns`
-- `GET /research/patterns/cooccurrence`
-- `GET /research/patterns/frequency`
-- `GET /research/reports/best`
-- `GET /research/reports/{run_id}`
-- `GET /research/stored`
-- `GET /research/strategies`
-- `GET /research/strategy/{name}`
-- `GET /research/strategy/{name}/compare`
-- `GET /research/strategy/{name}/history`
-- `GET /research/strategy/{name}/performance`
-- `GET /research/strategy/{name}/version/{version}`
-- `GET /routes`
-- `GET /streams`
-- `GET /symbol/{symbol}`
-- `GET /symbols`
-- `GET /symbols/search`
-- `GET /terminal`
-- `GET /tick/{symbol}`
-- `GET /ticks`
-- `GET /ticks/history`
-- `GET /totals`
-- `GET /ui/{page}`
-- `POST /bot/sessions`
-- `POST /bot/sessions/{session_id}/log`
-- `POST /bot/sessions/{session_id}/pause`
-- `POST /bot/sessions/{session_id}/resume`
-- `POST /bot/sessions/{session_id}/stop`
-- `POST /bot/sessions/{session_id}/update`
-- `POST /buy`
-- `POST /calc/margin`
-- `POST /calc/profit`
-- `POST /calc/size`
-- `POST /cancel`
-- `POST /close`
-- `POST /close-all`
-- `POST /connect`
-- `POST /database/vacuum`
-- `POST /db/vacuum`
-- `POST /disconnect`
-- `POST /login`
-- `POST /marketbook/{symbol}/subscribe`
-- `POST /marketbook/{symbol}/unsubscribe`
-- `POST /modify`
-- `POST /order`
-- `POST /order/check`
-- `POST /research/backtest`
-- `POST /research/indicator`
-- `POST /research/patterns/scan`
-- `POST /research/strategy/export`
-- `POST /research/strategy/import`
-- `POST /research/strategy/save`
-- `POST /research/strategy/validate`
-- `POST /research/strategy/{name}/clone`
-- `POST /research/strategy/{name}/optimize`
-- `POST /research/sweep`
-- `POST /sell`
-- `POST /symbol-cache/clear`
-- `POST /symbol/{symbol}/select`

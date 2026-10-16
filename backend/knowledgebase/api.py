@@ -94,6 +94,11 @@ class Research:
             "supertrend": ("trend", ["high", "low", "close"], "SuperTrend (value, direction)."),
             "keltner": ("volatility", ["high", "low", "close"], "Keltner Channels."),
             "ichimoku": ("trend", ["high", "low", "close"], "Ichimoku components."),
+            "mfi": ("volume", ["high", "low", "close", "volume"], "Money Flow Index."),
+            "williams_r": ("momentum", ["high", "low", "close"], "Williams %R."),
+            "trix": ("trend", ["close"], "Trix (triple smoothed EMA rate of change)."),
+            "adl": ("volume", ["high", "low", "close", "volume"], "Accumulation/Distribution Line."),
+            "stoch_rsi": ("momentum", ["close"], "Stochastic RSI."),
         }
         out = []
         for name in sorted(ind.REGISTRY):

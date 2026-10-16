@@ -38,8 +38,24 @@ class AppContainer:
 
 
 def build_container(config, engine) -> AppContainer:
-    # Stage 2/5 factory. Services below can be filled in later without
-    # changing the container shape.
+    """Wire every concrete implementation and service into the container."""
+    from core.application.services.backtest_service import BacktestService
+    from core.application.services.scan_service import PatternScanService
+    from core.application.services.validation_service import ValidationService
+    from core.application.services.sizing_service import SizingService
+    from knowledgebase.api import Research
+
+    # The Research service needs a data fetcher. We use the engine's candle
+    # capability through a thin adapter so the knowledgebase stays free of
+    # transport details.
+    def _fetch(symbol, timeframe, count=2000, days=None):
+        from tools.bot import datafeed
+        return datafeed.bars(symbol, timeframe, count=count, days=days)
+
+    from database.store import Store
+    store = Store(config.db_path)
+    research = Research(fetch=_fetch, store=store)
+
     return AppContainer(
         config=config,
         engine=engine,
@@ -50,4 +66,8 @@ def build_container(config, engine) -> AppContainer:
         strategy_repo=_repos.SqliteStrategyRepository(config),
         report_repo=_repos.SqliteReportRepository(config),
         pattern_hit_repo=_repos.SqlitePatternHitRepository(config),
+        backtest=BacktestService(research),
+        pattern_scan=PatternScanService(research),
+        validation=ValidationService(research),
+        sizing=SizingService(),
     )

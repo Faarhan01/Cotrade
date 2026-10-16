@@ -457,3 +457,120 @@ def _consistent(train: BacktestResult, test: BacktestResult) -> bool:
         return False
     t = test.t_statistic
     return t is not None and abs(t) >= SIGNIFICANT_T
+
+
+def walk_forward(strategy: Strategy, bars: List[Bar], inst: Dict,
+                 train_size: int = 1000, test_size: int = 500,
+                 pip: Optional[float] = None, warmup: int = 60) -> Dict:
+    """
+    Walk-forward analysis: repeatedly train on a window, test on the next.
+
+    This is a more rigorous test than a single train/test split because it
+    simulates how a strategy would have performed if re-optimized periodically.
+    A strategy that only works on one split may have memorised that period;
+    one that works across many rolling windows is more likely to be real.
+
+    Parameters
+    ----------
+    train_size : bars in each training window.
+    test_size : bars in each test window (walked forward after training).
+    """
+    if len(bars) < train_size + test_size + warmup:
+        return {"error": "not enough bars for walk-forward analysis"}
+
+    folds = []
+    net_points_list = []
+    t_stats = []
+    i = 0
+    while i + train_size + test_size <= len(bars):
+        train_bars = bars[i:i + train_size]
+        test_bars = bars[i + train_size - warmup:i + train_size + test_size]
+
+        train_result = run(strategy, train_bars, inst, pip, warmup)
+        test_result = run(strategy, test_bars, inst, pip, warmup)
+
+        folds.append({
+            "fold": i,
+            "train_from": train_bars[0].time if train_bars else None,
+            "train_to": train_bars[-1].time if train_bars else None,
+            "test_from": test_bars[0].time if test_bars else None,
+            "test_to": test_bars[-1].time if test_bars else None,
+            "train_net_points": round(train_result.net_points, 2),
+            "test_net_points": round(test_result.net_points, 2),
+            "test_trades": len(test_result.trades),
+            "test_t_statistic": round(test_result.t_statistic, 3) if test_result.t_statistic is not None else None,
+            "test_verdict": test_result.verdict,
+        })
+        if test_result.trades:
+            net_points_list.append(test_result.net_points)
+            if test_result.t_statistic is not None:
+                t_stats.append(test_result.t_statistic)
+
+        i += test_size
+
+    if not net_points_list:
+        return {"error": "no test folds produced trades"}
+
+    # Aggregate across folds
+    profitable_folds = sum(1 for n in net_points_list if n > 0)
+    consistent_direction = profitable_folds >= len(net_points_list) * 0.6
+    avg_t = sum(t_stats) / len(t_stats) if t_stats else None
+    all_same_sign = all(n > 0 for n in net_points_list) or all(n < 0 for n in net_points_list)
+
+    return {
+        "folds": folds,
+        "fold_count": len(folds),
+        "train_size": train_size,
+        "test_size": test_size,
+        "profitable_folds": profitable_folds,
+        "total_net_points": round(sum(net_points_list), 2),
+        "avg_net_points_per_fold": round(sum(net_points_list) / len(net_points_list), 2),
+        "avg_t_statistic": round(avg_t, 3) if avg_t is not None else None,
+        "consistent_direction": consistent_direction,
+        "all_same_sign": all_same_sign,
+        "verdict": "consistent" if consistent_direction and all_same_sign else "inconsistent",
+    }
+
+
+def parameter_sensitivity(strategy: Strategy, bars: List[Bar], inst: Dict,
+                          param_name: str, values: List,
+                          pip: Optional[float] = None, warmup: int = 60) -> Dict:
+    """
+    Test how sensitive a strategy is to one parameter.
+
+    A real strategy should degrade gracefully as a parameter moves away from
+    its optimal value. A fake one will show a sharp cliff - profitable at one
+    value and unprofitable at the next - which is the signature of overfitting.
+    """
+    results = []
+    for value in values:
+        plan = Strategy.from_dict(strategy.to_dict())
+        if hasattr(plan, param_name):
+            setattr(plan, param_name, value)
+        elif hasattr(plan.entry_rule, param_name):
+            setattr(plan.entry_rule, param_name, value)
+        elif hasattr(plan.exit_rule, param_name):
+            setattr(plan.exit_rule, param_name, value)
+        else:
+            results.append({"value": value, "error": f"unknown parameter '{param_name}'"})
+            continue
+
+        result = run(plan, bars, inst, pip, warmup)
+        results.append({
+            "value": value,
+            "trades": len(result.trades),
+            "net_points": round(result.net_points, 2),
+            "net_pips": round(result.net_pips, 2),
+            "t_statistic": round(result.t_statistic, 3) if result.t_statistic is not None else None,
+            "verdict": result.verdict,
+        })
+
+    # A smooth degradation curve is healthier than a sharp cliff
+    profitable = [r for r in results if r.get("net_points", 0) > 0]
+    return {
+        "parameter": param_name,
+        "values_tested": len(results),
+        "profitable_count": len(profitable),
+        "results": results,
+        "assessment": "smooth" if len(profitable) > len(results) * 0.3 else "cliff",
+    }

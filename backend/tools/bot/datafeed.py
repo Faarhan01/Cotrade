@@ -65,7 +65,7 @@ def _call(method: str, path: str, payload: Optional[Dict] = None):
     except urllib.error.URLError as exc:
         raise GatewayError(
             f"Cannot reach the gateway at {BASE} ({exc.reason}). "
-            f"Start it with: python -m deamon") from exc
+            f"Start it with: python -m daemon") from exc
 
 
 def health() -> Dict:

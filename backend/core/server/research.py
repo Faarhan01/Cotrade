@@ -531,12 +531,11 @@ def register(router, engine, base: Optional[str] = None):
         run_id = params["run_id"]
         try:
             with Store() as store:
-                reports = store.reports(limit=1)
-                # Filter by run_id
-                for r in reports:
-                    if r.get("run_id") == run_id:
-                        return r
-                raise NotFound(f"No report with run_id '{run_id}'")
+                reports = store.query(
+                    "SELECT * FROM reports WHERE run_id = ? LIMIT 1", (run_id,))
+                if not reports:
+                    raise NotFound(f"No report with run_id '{run_id}'")
+                return reports[0]
         except NotFound:
             raise
         except Exception as e:
@@ -663,7 +662,7 @@ def register(router, engine, base: Optional[str] = None):
                     elif hasattr(plan.entry_rule, k):
                         setattr(plan.entry_rule, k, v)
                     elif hasattr(plan.exit_rule, k):
-                        setattr(plan.entry_rule, k, v)
+                        setattr(plan.exit_rule, k, v)
                     elif hasattr(plan.sizing, k):
                         setattr(plan.sizing, k, v)
 

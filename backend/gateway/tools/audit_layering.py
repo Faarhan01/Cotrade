@@ -16,13 +16,13 @@ for path in files:
     rel = os.path.relpath(path, BACKEND)
     if rel.endswith(os.path.join("tools", "audit_layering.py")):
         continue
+    entry_ok = os.path.basename(rel) in {"app.py", "run.py", "cli.py"}
     with open(path, encoding="utf-8") as fh:
         for n, line in enumerate(fh, 1):
             if "engine._" in line:
                 violations.append((rel, n, "engine private access", line.strip()))
             if "store._conn" in line:
                 violations.append((rel, n, "store private access", line.strip()))
-            entry_ok = os.path.basename(rel) in {"app.py", "run.py", "cli.py"}
             if "os.environ" in line and not entry_ok and rel != os.path.join("core", "config.py"):
                 violations.append((rel, n, "env read outside config", line.strip()))
 

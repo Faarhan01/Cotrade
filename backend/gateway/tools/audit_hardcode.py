@@ -62,7 +62,7 @@ def scan():
 
     # Port defaults are checked separately so the gateway's own default is
     # not flagged, and comments are skipped for the same reason as above.
-    config = os.path.join(ROOT, "deamon", "config.py")
+    config = os.path.join(ROOT, "core", "config.py")
     with open(config, encoding="utf-8") as fh:
         for number, line in enumerate(fh.readlines(), 1):
             if line.strip().startswith("#"):
@@ -72,7 +72,7 @@ def scan():
                 if match.group(1) == "8890":
                     continue
                 findings.append(
-                    (f"deamon/config.py:{number}", "foreign port default", match.group(1))
+                    (f"core/config.py:{number}", "foreign port default", match.group(1))
                 )
 
 

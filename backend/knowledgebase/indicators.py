@@ -528,6 +528,93 @@ def ichimoku(high: Sequence[float], low: Sequence[float],
     return tenkan, kijun, senkou_a, senkou_b
 
 
+def mfi(high: Sequence[float], low: Sequence[float], close: Sequence[float],
+        volume: Sequence[float], period: int = 14) -> Series:
+    """Money Flow Index."""
+    if period <= 0:
+        raise ValueError("period must be positive")
+    h, l, c, v = _clean(high), _clean(low), _clean(close), _clean(volume)
+    n = len(c)
+    out: Series = [None] * n
+    typical = [(h[i] + l[i] + c[i]) / 3.0 for i in range(n)]
+    raw_mf = [typical[i] * max(v[i], 0.0) for i in range(n)]
+    for i in range(period, n):
+        pos_sum = sum(raw_mf[j] for j in range(i - period + 1, i + 1)
+                      if typical[j] > typical[j - 1])
+        neg_sum = sum(raw_mf[j] for j in range(i - period + 1, i + 1)
+                      if typical[j] < typical[j - 1])
+        if neg_sum == 0:
+            out[i] = 100.0
+        else:
+            out[i] = 100.0 - (100.0 / (1.0 + pos_sum / neg_sum))
+    return out
+
+
+def williams_r(high: Sequence[float], low: Sequence[float],
+               close: Sequence[float], period: int = 14) -> Series:
+    """Williams %R."""
+    if period <= 0:
+        raise ValueError("period must be positive")
+    h, l, c = _clean(high), _clean(low), _clean(close)
+    n = len(c)
+    out: Series = [None] * n
+    for i in range(period - 1, n):
+        hh = max(h[i - period + 1:i + 1])
+        ll = min(l[i - period + 1:i + 1])
+        rng = hh - ll
+        out[i] = -100.0 * (hh - c[i]) / rng if rng > 0 else -50.0
+    return out
+
+
+def trix(close: Sequence[float], period: int = 15) -> Series:
+    """Trix (triple smoothed EMA rate of change)."""
+    if period <= 0:
+        raise ValueError("period must be positive")
+    c = _clean(close)
+    ema1 = ema(c, period)
+    ema2 = ema([x for x in ema1], period)
+    ema3 = ema([x for x in ema2], period)
+    n = len(c)
+    out: Series = [None] * n
+    for i in range(1, n):
+        if ema3[i] is not None and ema3[i - 1] is not None and ema3[i - 1] != 0:
+            out[i] = (ema3[i] - ema3[i - 1]) / ema3[i - 1] * 100.0
+    return out
+
+
+def adl(high: Sequence[float], low: Sequence[float], close: Sequence[float],
+        volume: Sequence[float]) -> Series:
+    """Accumulation/Distribution Line."""
+    h, l, c, v = _clean(high), _clean(low), _clean(close), _clean(volume)
+    n = len(c)
+    out: Series = [0.0] * n
+    for i in range(n):
+        rng = max(h[i] - l[i], 1e-12)
+        mfm = ((c[i] - l[i]) - (h[i] - c[i])) / rng
+        out[i] = out[i - 1] + mfm * max(v[i], 0.0) if i > 0 else mfm * max(v[i], 0.0)
+    return out
+
+
+def stoch_rsi(close: Sequence[float], period: int = 14,
+              smooth: int = 3) -> Series:
+    """Stochastic RSI."""
+    rsi_vals = rsi(close, period)
+    c = _clean(close)
+    n = len(c)
+    out: Series = [None] * n
+    for i in range(n):
+        if rsi_vals[i] is None:
+            continue
+        window = [rsi_vals[j] for j in range(max(0, i - period + 1), i + 1)
+                  if rsi_vals[j] is not None]
+        if not window:
+            continue
+        lo, hi = min(window), max(window)
+        rng = hi - lo
+        out[i] = (rsi_vals[i] - lo) / rng if rng > 0 else 0.5
+    return out
+
+
 REGISTRY.update({
     "obv": obv,
     "cmf": cmf,
@@ -535,4 +622,9 @@ REGISTRY.update({
     "supertrend": supertrend,
     "keltner": keltner_channels,
     "ichimoku": ichimoku,
+    "mfi": mfi,
+    "williams_r": williams_r,
+    "trix": trix,
+    "adl": adl,
+    "stoch_rsi": stoch_rsi,
 })

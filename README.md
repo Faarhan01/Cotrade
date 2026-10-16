@@ -4,6 +4,8 @@ MetaTrader 5 gateway, real-time trading dashboard, research analytics, and algor
 
 Python drives the terminal through the official `MetaTrader5` package and exposes it three ways: a JSON REST API for autonomous agents, a research API for strategy work, and a vanilla HTML/CSS/JavaScript dashboard for users.
 
+> For basic project facts (tech stack, database, API counts, architecture), see [`backend/docs/context.md`](backend/docs/context.md).
+
 ---
 
 ## Quick Start from Root
@@ -26,7 +28,7 @@ python run.py server --open
 # Inspect SQLite database statistics and verify integrity
 python run.py db
 
-# Print directory of all 99 active API & UI endpoints
+# Print directory of all active API & UI endpoints
 python run.py routes
 ```
 
@@ -66,6 +68,9 @@ python run.py bot scan EURUSD
 - **Frontend**: Plain Vanilla HTML, CSS, and modern JavaScript in `frontend/`. No build step or bundler needed.
 - **Database**: Embedded SQLite in `backend/database/data/peron.db` running in WAL mode with auto-indexing.
 - **Gateway**: Decoupled 3-layer architecture (`deamon` → `server` → `cony`).
+- **Knowledgebase**: Pure-logic indicators, patterns, and strategies (see `backend/docs/context.md` for counts).
+- **Backtest Engine**: Event-driven simulation with t-statistic verdicts, train/test splits, walk-forward analysis, and parameter sensitivity testing.
+- **MT5 Coverage**: All public MetaTrader5 functions wrapped (see `backend/docs/context.md`).
 
 ## Environment variables
 - `PERON_DB` / `CONY_DB_PATH` — SQLite database path.

@@ -359,11 +359,11 @@ class RouteHandlers:
             if narrowed or truncated:
                 payload["truncated"] = True
                 payload["max_candles"] = limit
-                payload["note"] = (
-                    f"Window narrowed to {v.MAX_CANDLES} bars from "
-                    f"{start.isoformat()}. Use ?count=N for the most recent "
-                    f"bars, or a narrower from/to range."
-                )
+                note = f"Window narrowed to {v.MAX_CANDLES} bars."
+                if start is not None:
+                    note += f" From {start.isoformat()}."
+                note += " Use ?count=N for the most recent bars, or a narrower from/to range."
+                payload["note"] = note
             return payload
 
         # ─── Positions and orders ───────────────────────────────────────

@@ -67,6 +67,9 @@ class Context:
         "vwap": ("high", "low", "close", "volume"),
         "obv": ("close", "volume"),
         "cmf": ("high", "low", "close", "volume"),
+        "mfi": ("high", "low", "close", "volume"),
+        "williams_r": ("high", "low", "close"),
+        "adl": ("high", "low", "close", "volume"),
     }
 
     def ind(self, name: str, *args, **kwargs) -> list:
@@ -294,6 +297,107 @@ def trend_strength_entry(ctx: Context, i: int, period: int = 14,
     return 1 if s > 0 else -1
 
 
+def bollinger_band_entry(ctx: Context, i: int, period: int = 20,
+                         mult: float = 2.0, mode: str = "reversion") -> int:
+    """
+    Trade Bollinger Band touches.
+
+    mode="reversion": buy at lower band, sell at upper band.
+    mode="breakout": buy above upper band, sell below lower band.
+    """
+    lower = ctx.series("bollinger", i, 0, period, mult)
+    upper = ctx.series("bollinger", i, 2, period, mult)
+    if lower is None or upper is None:
+        return 0
+    bar = ctx.bars[i]
+    if mode == "reversion":
+        if bar.close <= lower:
+            return 1
+        if bar.close >= upper:
+            return -1
+    else:
+        if bar.close > upper:
+            return 1
+        if bar.close < lower:
+            return -1
+    return 0
+
+
+def macd_cross_entry(ctx: Context, i: int, fast: int = 12, slow: int = 26,
+                     signal: int = 9) -> int:
+    """Trade MACD signal line crosses."""
+    macd_now = ctx.series("macd", i, 0, fast, slow, signal)
+    signal_now = ctx.series("macd", i, 1, fast, slow, signal)
+    if macd_now is None or signal_now is None:
+        return 0
+    macd_prev = ctx.series("macd", i - 1, 0, fast, slow, signal)
+    signal_prev = ctx.series("macd", i - 1, 1, fast, slow, signal)
+    if macd_prev is None or signal_prev is None:
+        return 0
+    if macd_prev <= signal_prev and macd_now > signal_now:
+        return 1
+    if macd_prev >= signal_prev and macd_now < signal_now:
+        return -1
+    return 0
+
+
+def stoch_cross_entry(ctx: Context, i: int, period: int = 14,
+                      smooth: int = 3, oversold: float = 20.0,
+                      overbought: float = 80.0) -> int:
+    """Trade stochastic crosses at extremes."""
+    k = ctx.value("stochastic", i, period, smooth)
+    if k is None:
+        return 0
+    k_prev = ctx.value("stochastic", i - 1, period, smooth)
+    if k_prev is None:
+        return 0
+    if k_prev < oversold and k >= oversold:
+        return 1
+    if k_prev > overbought and k <= overbought:
+        return -1
+    return 0
+
+
+def vwap_reversion_entry(ctx: Context, i: int, period: int = 20,
+                         max_deviation: float = 2.0) -> int:
+    """Trade reversion to VWAP."""
+    vwap = ctx.value("vwap", i, period)
+    if vwap is None:
+        return 0
+    bar = ctx.bars[i]
+    atr_val = ctx.value("atr", i, 14)
+    if atr_val is None or atr_val == 0:
+        return 0
+    deviation = (bar.close - vwap) / atr_val
+    if deviation <= -max_deviation:
+        return 1
+    if deviation >= max_deviation:
+        return -1
+    return 0
+
+
+def ichimoku_cross_entry(ctx: Context, i: int) -> int:
+    """Trade Tenkan/Kijun crosses with cloud confirmation."""
+    tenkan = ctx.series("ichimoku", i, 0)
+    kijun = ctx.series("ichimoku", i, 1)
+    senkou_a = ctx.series("ichimoku", i, 2)
+    senkou_b = ctx.series("ichimoku", i, 3)
+    if tenkan is None or kijun is None or senkou_a is None or senkou_b is None:
+        return 0
+    tenkan_prev = ctx.series("ichimoku", i - 1, 0)
+    kijun_prev = ctx.series("ichimoku", i - 1, 1)
+    if tenkan_prev is None or kijun_prev is None:
+        return 0
+    cloud_top = max(senkou_a, senkou_b)
+    cloud_bottom = min(senkou_a, senkou_b)
+    price = ctx.bars[i].close
+    if tenkan_prev <= kijun_prev and tenkan > kijun and price > cloud_top:
+        return 1
+    if tenkan_prev >= kijun_prev and tenkan < kijun and price < cloud_bottom:
+        return -1
+    return 0
+
+
 ENTRY_RULES: Dict[str, Callable] = {
     "rsi_reversion": rsi_reversion,
     "ma_cross": ma_cross,
@@ -301,6 +405,11 @@ ENTRY_RULES: Dict[str, Callable] = {
     "pattern_entry": pattern_entry,
     "momentum_entry": momentum_entry,
     "trend_strength_entry": trend_strength_entry,
+    "bollinger_band_entry": bollinger_band_entry,
+    "macd_cross_entry": macd_cross_entry,
+    "stoch_cross_entry": stoch_cross_entry,
+    "vwap_reversion_entry": vwap_reversion_entry,
+    "ichimoku_cross_entry": ichimoku_cross_entry,
 }
 
 
@@ -402,6 +511,49 @@ def library() -> List[Strategy]:
                           "direction": "any", "require_strength": 0.5},
             exit_rule=ExitRule(take_profit=12, stop_loss=12, time_stop_bars=30),
         ),
+        Strategy(
+            name="bollinger_reversion",
+            description="Buy at lower Bollinger Band, sell at upper.",
+            entry_name="bollinger_band_entry",
+            entry_params={"period": 20, "mult": 2.0, "mode": "reversion"},
+            exit_rule=ExitRule(take_profit=15, stop_loss=15, time_stop_bars=40),
+        ),
+        Strategy(
+            name="macd_cross",
+            description="Trade MACD signal line crosses.",
+            entry_name="macd_cross_entry",
+            entry_params={"fast": 12, "slow": 26, "signal": 9},
+            exit_rule=ExitRule(take_profit=20, stop_loss=15, time_stop_bars=50),
+        ),
+        Strategy(
+            name="stoch_extremes",
+            description="Buy at stochastic oversold, sell at overbought.",
+            entry_name="stoch_cross_entry",
+            entry_params={"period": 14, "smooth": 3, "oversold": 20, "overbought": 80},
+            exit_rule=ExitRule(take_profit=15, stop_loss=15, time_stop_bars=35),
+        ),
+        Strategy(
+            name="vwap_reversion",
+            description="Trade reversion to VWAP.",
+            entry_name="vwap_reversion_entry",
+            entry_params={"period": 20, "max_deviation": 2.0},
+            exit_rule=ExitRule(take_profit=12, stop_loss=12, time_stop_bars=30),
+        ),
+        Strategy(
+            name="ichimoku_trend",
+            description="Trade Tenkan/Kijun crosses with cloud confirmation.",
+            entry_name="ichimoku_cross_entry",
+            entry_params={},
+            exit_rule=ExitRule(take_profit=30, stop_loss=20, time_stop_bars=80),
+        ),
+        Strategy(
+            name="supertrend_pullback",
+            description="Trade in the direction of the SuperTrend.",
+            entry_name="trend_strength_entry",
+            entry_params={"period": 14, "min_adx": 20},
+            exit_rule=ExitRule(take_profit=25, stop_loss=15, trailing_stop=10,
+                               time_stop_bars=60),
+        ),
     ]
 
 
@@ -413,4 +565,9 @@ def describe_entry_rules() -> Dict[str, str]:
         "pattern_entry": "Trade a named candlestick or price-action pattern.",
         "momentum_entry": "Follow or fade a run of same-direction bars.",
         "trend_strength_entry": "Direction confirmed by ADX and normalised slope.",
+        "bollinger_band_entry": "Trade Bollinger Band touches (reversion or breakout).",
+        "macd_cross_entry": "Trade MACD signal line crosses.",
+        "stoch_cross_entry": "Trade stochastic crosses at extremes.",
+        "vwap_reversion_entry": "Trade reversion to VWAP.",
+        "ichimoku_cross_entry": "Trade Tenkan/Kijun crosses with cloud confirmation.",
     }

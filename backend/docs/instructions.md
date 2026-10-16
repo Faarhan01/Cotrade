@@ -1,5 +1,7 @@
 # Local Instructions
 
+> For basic project facts (tech stack, database, API counts, architecture), see [`docs/context.md`](context.md).
+
 Run the gateway locally:
 
 ```bash
@@ -31,8 +33,8 @@ Validation commands:
 
 ```bash
 cd backend
-PYTHONPATH=. pytest -q tools/simulatedtester/tests
-PYTHONPATH=. python gateway/tools/audit_layering.py
+PYTHONPATH=.:gateway pytest -q tools/simulatedtester/tests
+PYTHONPATH=.:gateway python gateway/tools/audit_layering.py
 cd ..
 for f in frontend/assets/js/lib/*.js frontend/assets/js/pages/*.js; do node --check "$f"; done
 ```

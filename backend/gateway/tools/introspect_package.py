@@ -8,8 +8,11 @@ import os
 import sys
 import inspect
 
-PKG = r"C:\Users\faarh\Workspaces\Tools\peron\metatrader5_package"
-if PKG not in sys.path:
+# Use the same package discovery as the gateway itself.
+from cony.paths import find_mt5_package
+
+PKG = find_mt5_package()
+if PKG and PKG not in sys.path:
     sys.path.insert(0, PKG)
 
 import MetaTrader5 as mt5

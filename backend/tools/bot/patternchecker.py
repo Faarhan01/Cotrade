@@ -476,15 +476,6 @@ def check_and_store(symbol: str, timeframe: str = "M1", count: int = 3000,
                         except Exception:  # noqa: BLE001
                             pass
 
-    # Also save hit context if we have any
-    if context_payload:
-        try:
-            # The save_hits already stored the basic hits, now we need to update meta
-            # For simplicity, we'll just note that hit_context could be populated here
-            pass
-        except Exception:
-            pass
-
     return {"run_id": rid, **report.to_dict()}
 
 
@@ -507,20 +498,15 @@ def main(argv=None):
         store = Store()
         store.migrate()
 
+    if args.save and store is not None:
+        # Use check_and_store so indicator context is populated too
+        return check_and_store(args.symbol, args.timeframe, args.count,
+                               args.days, args.pattern, store)
+
     report = check(args.symbol, args.timeframe, args.count, args.days,
                    args.pattern, store)
     print(json.dumps(report.to_dict(), indent=2, default=str) if args.json
           else report.summary())
-
-    if args.save:
-        from database.store import new_run_id
-        payload = [{"pattern": m.pattern, "index": m.index,
-                    "time": report.bars[m.index].time, "direction": m.direction,
-                    "strength": m.strength, "price": report.bars[m.index].close,
-                    "meta": m.meta} for m in report.matches]
-        rid = new_run_id("scan")
-        saved = store.save_hits(rid, args.symbol, args.timeframe, payload)
-        print(f"\nsaved {len(saved)} hits as run {rid}", file=sys.stderr)
     return 0
 
 

@@ -73,11 +73,12 @@ def main():
     d = sym["_derived"]
     info = d["order_rules"]
     pip = d["pip_size"]
+    digits = sym.get("digits", 5)
     tick = sym.get("bid", 0)
     min_stop = info.get("min_stop_distance_pips", 0)
 
     print(f"  balance      {account['balance']} {account['currency']}")
-    print(f"  symbol       {SYMBOL}  {d['digits']} digits, pip {pip:g}")
+    print(f"  symbol       {SYMBOL}  {digits} digits, pip {pip:g}")
     print(f"  lot limits   {d['lot_info']['min_lot']} .. "
           f"{d['lot_info']['max_lot']} step {d['lot_info']['lot_step']}")
     print(f"  min stop     {min_stop} pips "
@@ -91,8 +92,8 @@ def main():
     lot = d["lot_info"]["min_lot"]
     # Place the stop clear of the broker's minimum distance.
     stop_pips = max(min_stop + 5, 10)
-    sl = round(tick - stop_pips * pip, d["digits"])
-    tp = round(tick + stop_pips * pip, d["digits"])
+    sl = round(tick - stop_pips * pip, digits)
+    tp = round(tick + stop_pips * pip, digits)
 
     # 1. Size from the risk the symbol actually allows.
     status, sized = call("POST", "/calc/size",
@@ -162,7 +163,7 @@ def main():
 
         # 6. Move the stop, still respecting the minimum distance.
         status, tick_now = call("GET", f"/tick/{SYMBOL}")
-        new_sl = round(tick_now["bid"] - (stop_pips + 5) * pip, d["digits"])
+        new_sl = round(tick_now["bid"] - (stop_pips + 5) * pip, digits)
         status, modified = call("POST", "/modify", {"ticket": ticket, "sl": new_sl})
         report("modify moves the stop loss", status == 200 and modified.get("success"),
                f"sl -> {new_sl}" if status == 200 else modified)

@@ -258,8 +258,28 @@ class LiveTrader:
             return {"success": False, "blocked": "dry_run"}
         if not self.strategy or not getattr(self.strategy, "exit_rule", None) or not self.strategy.exit_rule.trailing_stop:
             return {"success": False, "reason": "no trailing rule"}
-        result = {"success": True, "touched": []}
-        self._log_action("trailstops", self.symbol, details=f"{len(result['touched'])} positions")
+        trail_pips = self.strategy.exit_rule.trailing_stop
+        positions = self.open_positions()
+        touched = []
+        for pos in positions.get("positions", []):
+            ticket = pos.get("ticket")
+            current_sl = pos.get("sl", 0.0)
+            price_current = pos.get("price_current", 0.0)
+            side = pos.get("type", 0)  # 0=buy, 1=sell
+            if side == 0:  # buy: trail below current price
+                new_sl = round(price_current - trail_pips * self.pip,
+                               int(self.inst.get("digits") or 5))
+                if new_sl > current_sl:
+                    datafeed._call("POST", "/modify", {"ticket": ticket, "sl": new_sl})
+                    touched.append({"ticket": ticket, "old_sl": current_sl, "new_sl": new_sl})
+            else:  # sell: trail above current price
+                new_sl = round(price_current + trail_pips * self.pip,
+                               int(self.inst.get("digits") or 5))
+                if new_sl < current_sl:
+                    datafeed._call("POST", "/modify", {"ticket": ticket, "sl": new_sl})
+                    touched.append({"ticket": ticket, "old_sl": current_sl, "new_sl": new_sl})
+        result = {"success": True, "touched": touched}
+        self._log_action("trailstops", self.symbol, details=f"{len(touched)} positions")
         return result
 
     # ── Cycle ───────────────────────────────────────────────────────────
@@ -272,6 +292,7 @@ class LiveTrader:
         bars = self.bars()
         sym_quoted = urllib.parse.quote(self.symbol, safe='')
         tick = datafeed._call("GET", f"/tick/{sym_quoted}")
+        signal = self.current_signal(bars)
         rule = self.strategy.exit_rule if self.strategy else None
         return {
             "symbol": self.symbol,

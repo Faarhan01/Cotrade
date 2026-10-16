@@ -48,13 +48,14 @@ def main():
     d = sym["_derived"]
     pip = d["pip_size"]
     step = d["point_size"]
+    digits = sym.get("digits", 5)
     spread = sym["ask"] - sym["bid"]
     contract = d["lot_info"]["contract_size"]
     pip_value = d["pip_value_per_lot"]
     stop_pips = d["order_rules"]["min_stop_distance_pips"]
 
     print(f"   symbol        {sym['name']}")
-    print(f"   digits        {d['digits']}   point {step:g}   pip {pip:g}")
+    print(f"   digits        {digits}   point {step:g}   pip {pip:g}")
     print(f"   spread        {spread:g}  ({spread/pip:.1f} pips)")
     print(f"   contract      {contract:g}   pip value/lot {pip_value:g} {sym['currency_profit']}")
     print(f"   min stop      {stop_pips:g} pips")
@@ -242,8 +243,8 @@ def main():
     st, prof = call("POST", "/calc/profit",
                     {"symbol": sym["name"], "volume": 0.01,
                      "order_type": "buy" if sample[0] == 1 else "sell",
-                     "open_price": round(c[len(c) // 2], d["digits"]),
-                     "close_price": round(c[len(c) // 2] + move, d["digits"])})
+                     "open_price": round(c[len(c) // 2], digits),
+                     "close_price": round(c[len(c) // 2] + move, digits)})
     if st == 200:
         print(f"   MT5 confirms a {abs(move)/pip:.1f}-pip move on 0.01 lot "
               f"= {prof.get('profit')} {sym['currency_profit']}")

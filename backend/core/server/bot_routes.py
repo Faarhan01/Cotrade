@@ -123,7 +123,15 @@ def register(router, engine=None) -> int:
         from database.store import Store
         try:
             with Store() as store:
-                store.update_bot_session(session_id, trades_count=0, pnl_pips=0.0,
+                # Preserve existing metrics — only change status
+                sessions = store.list_bot_sessions(limit=1000)
+                session = next((s for s in sessions if s.get("session_id") == session_id), None)
+                if not session:
+                    from core.server.errors import NotFound
+                    raise NotFound("Session not found")
+                store.update_bot_session(session_id,
+                                       trades_count=session.get("trades_count", 0),
+                                       pnl_pips=session.get("pnl_pips", 0.0),
                                        status="paused", stopped=False)
                 return {"success": True, "session_id": session_id, "status": "paused"}
         except Exception as e:  # noqa: BLE001
@@ -138,7 +146,15 @@ def register(router, engine=None) -> int:
         from database.store import Store
         try:
             with Store() as store:
-                store.update_bot_session(session_id, trades_count=0, pnl_pips=0.0,
+                # Preserve existing metrics — only change status
+                sessions = store.list_bot_sessions(limit=1000)
+                session = next((s for s in sessions if s.get("session_id") == session_id), None)
+                if not session:
+                    from core.server.errors import NotFound
+                    raise NotFound("Session not found")
+                store.update_bot_session(session_id,
+                                       trades_count=session.get("trades_count", 0),
+                                       pnl_pips=session.get("pnl_pips", 0.0),
                                        status="running", stopped=False)
                 return {"success": True, "session_id": session_id, "status": "running"}
         except Exception as e:  # noqa: BLE001

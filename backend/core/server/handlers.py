@@ -13,7 +13,7 @@ import math
 import traceback
 
 from core.server import validation as v
-from core.server.errors import BadRequest, UpstreamUnavailable
+from services.error_handlers.errors import BadRequest, UpstreamUnavailable
 from datetime import timedelta
 from core.server.routes import Router
 from managers.mt5_manager import cony
@@ -64,21 +64,6 @@ class RouteHandlers:
                 payload["symbol_cache"] = engine.symbol_cache_info()
             return payload
 
-        @r.get("/metrics")
-        def metrics(params, query, body):
-            """Operational metrics for monitoring."""
-            from database.store import Store
-            with Store() as store:
-                stats = store.stats()
-            from datetime import datetime, timezone
-            return {
-                "service": "cony-gateway",
-                "mt5_connected": engine.is_connected,
-                "database": stats,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-
-        @r.post("/symbol-cache/clear")
         def clear_symbol_cache(params, query, body):
             """
             Drop the cached symbol-name map.

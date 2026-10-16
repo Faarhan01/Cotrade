@@ -1,3 +1,4 @@
+import uuid
 """
 deamon — Service Entry Point
 ==============================
@@ -24,13 +25,14 @@ from urllib.parse import urlparse, parse_qs
 
 _gateway_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _backend_dir = os.path.dirname(_gateway_dir)
-for _d in (_backend_dir, _gateway_dir):
+    _services_dir = os.path.join(_backend_dir, "services")
+for _d in (_backend_dir, _gateway_dir, _services_dir):
     if _d not in sys.path:
         sys.path.insert(0, _d)
 
 from managers.mt5_manager import cony
 from core.server import Router, RouteHandlers
-from core.server.errors import BadRequest, HTTPError, PayloadTooLarge
+from services.error_handlers.errors import BadRequest, HTTPError, PayloadTooLarge
 from core.server.responses import RawResponse
 from core.server.streaming import (
     EventStream,
@@ -151,23 +153,8 @@ class GatewayHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
 
-    def send_json(self, data, status=200):
-        """
-        Encode and send a JSON response.
-
-        Pretty-printing is for humans at a terminal; an agent parsing this pays
-        for it. Measured on 10,000 candles, indent=2 cost 299 ms against 79 ms
-        compact and shipped 27% more bytes. Small bodies stay readable because
-        they are cheap and often inspected by eye; large ones do not, so the
-        size is estimated from one compact encode and only re-encoded when it
-        turns out to be small.
-        """
-        compact = json.dumps(data, default=str)
-        if len(compact) <= PRETTY_LIMIT:
-            body = json.dumps(data, indent=2, default=str).encode("utf-8")
-        else:
-            body = compact.encode("utf-8")
-        self._headers(status, "application/json; charset=utf-8", len(body))
+            extra['X-Request-ID'] = self.request_id
+        self._headers(status, "application/json; charset=utf-8", len(body), extra)
         self.wfile.write(body)
 
     def send_raw(self, response):
@@ -222,6 +209,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
     # ─── Dispatch ───────────────────────────────────────────────────────
 
     def handle_request(self, method, needs_body):
+        self.request_id = str(uuid.uuid4())
         try:
             body = self.read_body() if needs_body else None
 
@@ -233,6 +221,19 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 )
                 return
             if body is not None and not isinstance(body, dict):
+            # Rate limiting
+            # Exclude certain paths from rate limiting
+            excluded_paths = [
+                "/health",
+                "/metrics",
+                "/routes",
+                "/enums",
+            ]
+            if self.path.split("?")[0] not in excluded_paths:
+                client_ip = self.client_address[0]
+                if not allow_request(client_ip):
+                    self.send_error_json("Rate limit exceeded", 429, "RateLimitExceeded")
+                    return
                 self.send_error_json(
                     f"Body must be a JSON object, got {type(body).__name__}.",
                     400, "BadRequest",
@@ -437,7 +438,9 @@ class Gateway:
         except Exception as exc:  # noqa: BLE001
             logger.debug("container not available: %s", exc)
             self.container = None
+        self._start_time = time.time()
         RouteHandlers(self.engine, self.router,
+        self.router.get("/metrics")(self.metrics)
                           base=f"http://{config.host}:{config.port}",
                           container=getattr(self, "container", None))
         self.server = GatewayServer((config.host, config.port), GatewayHandler, self)
@@ -453,6 +456,21 @@ class Gateway:
         self.engine.invalidate_symbol_cache()
 
     def build_engine(self) -> cony.mt5_engine.MT5Engine:
+    def metrics(self, params, query, body):
+        from database.store import Store
+        with Store() as store:
+            db_stats = store.stats()
+        uptime = time.time() - self._start_time
+        with _STREAM_LOCK:
+            active_streams = len(_ACTIVE_STREAMS)
+        return {
+            "service": "cony-gateway",
+            "mt5_connected": self.engine.is_connected,
+            "database": db_stats,
+            "uptime_seconds": uptime,
+            "active_streams": active_streams,
+            "timestamp": time.time(),
+        }
         conn = cony.ConnectionManager(
             {
                 "package_path": config.mt5_package_path,

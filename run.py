@@ -28,8 +28,9 @@ import time
     _managers = os.path.join(_backend, "managers")
     _db = os.path.join(_backend, "db")
     _gateway = os.path.join(_backend, "gateway")
+    _services = os.path.join(_backend, "services")
 
-    for _dir in (_root, _backend, _managers, _db, _gateway):
+    for _dir in (_root, _backend, _managers, _db, _gateway, _services):
         if _dir not in sys.path:
             sys.path.insert(0, _dir)
 

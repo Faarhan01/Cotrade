@@ -20,7 +20,7 @@ import time
 from typing import Iterator
 
 from core.server import validation as v
-from core.server.errors import BadRequest
+from services.error_handlers.errors import BadRequest
 
 DEFAULT_INTERVAL = 1.0
 MIN_INTERVAL = 0.2

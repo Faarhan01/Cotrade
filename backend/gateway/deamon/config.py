@@ -16,7 +16,6 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from managers.mt5_manager import cony
-from cony.paths import find_mt5_package
 
 
 def _env_int(name: str, default: Optional[int]) -> Optional[int]:
@@ -49,7 +48,7 @@ class DaemonConfig:
     port: int = field(default_factory=lambda: _env_int("CONY_PORT", 3000))
 
     # MetaTrader5 package
-    mt5_package_path: Optional[str] = field(default_factory=find_mt5_package)
+    mt5_package_path: Optional[str] = field(default_factory=cony.paths.find_mt5_package)
 
     # MT5 credentials (optional — terminal session can be reused)
     mt5_login: Optional[int] = field(default_factory=lambda: _env_int("MT5_LOGIN", None))

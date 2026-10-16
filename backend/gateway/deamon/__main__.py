@@ -29,14 +29,6 @@ for _d in (_backend_dir, _gateway_dir):
         sys.path.insert(0, _d)
 
 from managers.mt5_manager import cony
-from cony import ConnectionManager, MT5Engine
-from cony.marketbook import MarketBookError
-from cony.mt5_engine import (
-    MT5ConnectionError,
-    NotFoundError,
-    OrderRejectedError,
-    SymbolNotFoundError,
-)
 from core.server import Router, RouteHandlers
 from core.server.errors import BadRequest, HTTPError, PayloadTooLarge
 from core.server.responses import RawResponse
@@ -270,11 +262,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
 
         except BadRequest as exc:
             self.send_error_json(str(exc), 400, "BadRequest")
-        except SymbolNotFoundError as exc:
+        except cony.SymbolNotFoundError as exc:
             self.send_error_json(str(exc), 404, "SymbolNotFound")
-        except NotFoundError as exc:
+        except cony.NotFoundError as exc:
             self.send_error_json(str(exc), 404, "NotFound")
-        except OrderRejectedError as exc:
+        except cony.OrderRejectedError as exc:
             self.send_json(
                 {
                     "success": False,
@@ -285,11 +277,11 @@ class GatewayHandler(BaseHTTPRequestHandler):
                 },
                 status=409,
             )
-        except MT5ConnectionError as exc:
+        except cony.MT5ConnectionError as exc:
             self.send_error_json(str(exc), 503, "MT5Disconnected")
         except ConnectionError as exc:
             self.send_error_json(str(exc), 503, "MT5Disconnected")
-        except MarketBookError as exc:
+        except cony.MarketBookError as exc:
             # A broker not offering depth of market is a normal condition on
             # retail accounts, not a server fault.
             self.send_error_json(str(exc), 409, "MarketBookUnavailable")
@@ -391,7 +383,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         try:
             readable, _, _ = select.select([self.connection], [], [], 0)
             if not readable:
-                return False
+               return False
             # Readable while we are not reading means either buffered request
             # data (the client is still talking) or EOF (it has gone).
             return self.connection.recv(1, socket.MSG_PEEK) == b""
@@ -460,8 +452,8 @@ class Gateway:
         self.engine.market_book.release_all_on_disconnect()
         self.engine.invalidate_symbol_cache()
 
-    def build_engine(self) -> MT5Engine:
-        conn = ConnectionManager(
+    def build_engine(self) -> cony.mt5_engine.MT5Engine:
+        conn = cony.ConnectionManager(
             {
                 "package_path": config.mt5_package_path,
                 "login": config.mt5_login,
@@ -472,7 +464,7 @@ class Gateway:
                 "auto_reconnect": config.auto_reconnect,
             }
         )
-        return MT5Engine(conn, symbol_cache_ttl=config.symbol_cache_ttl)
+        return cony.mt5_engine.MT5Engine(conn, symbol_cache_ttl=config.symbol_cache_ttl)
 
     def connect(self) -> bool:
         """Attach to the terminal, reporting rather than raising."""
@@ -486,7 +478,7 @@ class Gateway:
             if config.auto_reconnect:
                 self.engine.start_auto_reconnect(config.reconnect_interval)
             return True
-        except (ConnectionError, MT5ConnectionError) as exc:
+        except (ConnectionError, cony.mt5_engine.MT5ConnectionError) as exc:
             logger.warning("Could not connect to MT5: %s", exc)
             logger.warning("Serving anyway; POST /connect to retry.")
             return False

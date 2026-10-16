@@ -326,9 +326,9 @@ class RouteHandlers:
                             "narrowed %s %s window to %d bars",
                             name, tf, v.MAX_CANDLES,
                         )
-                 try:
+                try:
                      bars = engine.copy_rates_range(name, tf, start, end)
-                 except cony.mt5_engine.MT5ConnectionError as exc:
+                except cony.mt5_engine.MT5ConnectionError as exc:
                      raise UpstreamUnavailable(f"MT5 not connected: {exc}") from exc
             elif query.get("start") is not None:
                 offset = v.integer(query["start"], "start", minimum=0, maximum=v.MAX_CANDLES)

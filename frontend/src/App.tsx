@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Home,
   Sliders,
@@ -359,16 +359,28 @@ export default function App() {
           }
         });
 
-        // Add to tick history for sparklines
-        setHistory((prev) => [
-          ...prev.slice(-120),
-          {
-            time: activeTick.time || Math.floor(Date.now() / 1000),
-            price: activeTick.bid,
-            velocity: 0,
-            volume: activeTick.volume || 1,
-          },
-        ]);
+        // Add to tick history for sparklines. useChartData reads time/price and
+        // treats a bare price as an open=high=low=close point, so a synthetic
+        // entry only needs those; direction is derived from the last point so
+        // the shape matches Tick.
+        setHistory((prev) => {
+          const last = prev[prev.length - 1];
+          const price = activeTick.bid;
+          return [
+            ...prev.slice(-120),
+            {
+              time: activeTick.time || Math.floor(Date.now() / 1000),
+              price,
+              symbol: activeSymbol ?? undefined,
+              direction:
+                !last || last.price === price
+                  ? "flat"
+                  : price > last.price
+                    ? "up"
+                    : "down",
+            },
+          ];
+        });
 
         scheduleChartUpdate({ currentPrice: activeTick.bid });
       }

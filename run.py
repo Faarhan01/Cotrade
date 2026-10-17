@@ -111,53 +111,44 @@ def main():
     parser = argparse.ArgumentParser(
         description="Cotrade — MetaTrader 5 gateway & trading dashboard"
     )
-    sub = parser.add_subparsers(dest="command")
+    parser.add_argument("--port", "-p", type=int, default=None, help="Port to bind (default: 3000)")
+    parser.add_argument("--host", "-H", default=None, help="Host to bind (default: 0.0.0.0)")
+    parser.add_argument("--open", dest="open_browser", action="store_true", help="Open browser on start")
+    parser.add_argument("--log-level", default=None, help="Logging level (DEBUG, INFO, WARNING)")
+    parser.add_argument("command", nargs="?", default="server", help="Subcommand: server, dev, db, bot, routes")
+    parser.add_argument("bot_args", nargs=argparse.REMAINDER, help="Additional arguments for bot commands")
 
-    # Dev server runner
-    dev_parser = sub.add_parser("dev", help="Start development server (default: 0.0.0.0:3000)")
-    dev_parser.add_argument("--port", "-p", type=int, default=None, help="Port to bind (default: 3000)")
-    dev_parser.add_argument("--host", "-H", default=None, help="Host to bind (default: 0.0.0.0)")
-    dev_parser.add_argument("--open", dest="open_browser", action="store_true", help="Open browser on start")
-    dev_parser.add_argument("--log-level", default=None, help="Logging level (DEBUG, INFO, WARNING)")
+    args, unknown = parser.parse_known_args()
 
-    # Explicit server runner
-    srv = sub.add_parser("server", help="Start the gateway server and dashboard")
-    srv.add_argument("--port", "-p", type=int, default=None, help="Port to bind (default: 3000)")
-    srv.add_argument("--host", "-H", default=None, help="Host to bind (default: 0.0.0.0)")
-    srv.add_argument("--open", dest="open_browser", action="store_true", help="Open browser on start")
-    srv.add_argument("--log-level", default=None, help="Logging level (DEBUG, INFO, WARNING)")
+    # Handle any extra forwarded flags like --port=3000 or --host=0.0.0.0
+    for i, arg in enumerate(unknown):
+        if arg in ("--port", "-p") and i + 1 < len(unknown):
+            try:
+                args.port = int(unknown[i + 1])
+            except ValueError:
+                pass
+        elif arg.startswith("--port="):
+            try:
+                args.port = int(arg.split("=", 1)[1])
+            except ValueError:
+                pass
+        elif arg in ("--host", "-H") and i + 1 < len(unknown):
+            args.host = unknown[i + 1]
+        elif arg.startswith("--host="):
+            args.host = arg.split("=", 1)[1]
 
-    # Database inspector
-    sub.add_parser("db", help="Show database statistics and verify integrity")
-
-    # Bot runner
-    bot = sub.add_parser("bot", help="Run strategy backtests, sweeps, and pattern scans")
-    bot.add_argument("bot_args", nargs=argparse.REMAINDER, help="Arguments passed to bot.runner")
-
-    # Routes directory
-    sub.add_parser("routes", help="Display all registered API and UI endpoints")
-
-    # Default to server when no subcommand passed
-    if len(sys.argv) == 1:
-        class DefaultArgs:
-            port = None
-            host = None
-            open_browser = False
-            log_level = None
-        return cmd_server(DefaultArgs())
-
-    args = parser.parse_args()
-    if args.command in ("server", "dev"):
+    cmd = args.command or "server"
+    if cmd in ("server", "dev"):
         return cmd_server(args)
-    elif args.command == "db":
+    elif cmd == "db":
         return cmd_db(args)
-    elif args.command == "bot":
+    elif cmd == "bot":
         return cmd_bot(args)
-    elif args.command == "routes":
+    elif cmd == "routes":
         return cmd_routes(args)
     else:
-        parser.print_help()
-        return 1
+        # Fallback to server if command was an option or target
+        return cmd_server(args)
 
 
 if __name__ == "__main__":

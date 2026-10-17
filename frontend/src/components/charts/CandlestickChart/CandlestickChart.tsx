@@ -55,11 +55,12 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
   const maxCandles = Math.floor(chartWidth / CANDLE_STEP);
   const visibleCandles = displayCandles.slice(-maxCandles);
 
+  const precision = maxPrice > 500 ? 2 : maxPrice > 5 ? 4 : 5;
   const priceTicks: PriceTick[] = [];
   for (let i = 0; i <= PRICE_TICK_COUNT; i++) {
     const p = minPrice + (priceRange * i) / PRICE_TICK_COUNT;
     const y = CHART_PADDING + (1 - (p - minPrice) / priceRange) * chartHeight;
-    priceTicks.push({ p, y, label: p.toFixed(1) });
+    priceTicks.push({ p, y, label: p.toFixed(precision) });
   }
 
   const timeTicks = [];
@@ -69,7 +70,8 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
     const candle = visibleCandles[idx];
     if (!candle) continue;
     const x = LEFT_AXIS_WIDTH + idx * CANDLE_STEP + CANDLE_WIDTH / 2;
-    const date = new Date(candle.time);
+    const rawTime = candle.time;
+    const date = new Date(rawTime > 1e11 ? rawTime : rawTime * 1000);
     const label = `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`;
     timeTicks.push({ x, label, idx });
   }
@@ -118,16 +120,36 @@ export const CandlestickChart: React.FC<CandlestickChartProps> = ({
         ))}
 
         {currentPrice > 0 && (
-          <line
-            x1={LEFT_AXIS_WIDTH}
-            y1={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight}
-            x2={chartWidth + LEFT_AXIS_WIDTH}
-            y2={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight}
-            stroke={CURRENT_PRICE_COLOR}
-            strokeWidth="1"
-            strokeDasharray={CURRENT_PRICE_DASH}
-            opacity={CURRENT_PRICE_OPACITY}
-          />
+          <g>
+            <line
+              x1={LEFT_AXIS_WIDTH}
+              y1={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight}
+              x2={chartWidth + LEFT_AXIS_WIDTH}
+              y2={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight}
+              stroke={CURRENT_PRICE_COLOR}
+              strokeWidth="1"
+              strokeDasharray={CURRENT_PRICE_DASH}
+              opacity={CURRENT_PRICE_OPACITY}
+            />
+            <rect
+              x={CHART_WIDTH - RIGHT_AXIS_WIDTH + 2}
+              y={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight - 8}
+              width={RIGHT_AXIS_WIDTH - 4}
+              height={16}
+              rx={3}
+              fill="#4f46e5"
+            />
+            <text
+              x={CHART_WIDTH - RIGHT_AXIS_WIDTH + 4}
+              y={CHART_PADDING + (1 - (currentPrice - minPrice) / priceRange) * chartHeight + 4}
+              fill="#ffffff"
+              fontSize={AXIS_FONT_SIZE}
+              fontFamily={AXIS_FONT_FAMILY}
+              fontWeight="bold"
+            >
+              {currentPrice.toFixed(precision)}
+            </text>
+          </g>
         )}
 
         {visibleCandles.map((candle, idx) => {

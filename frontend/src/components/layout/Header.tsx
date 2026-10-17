@@ -24,6 +24,7 @@ export interface HeaderProps {
   activeSymbol: string;
   currentPrice: number;
   symbolStates: Array<{ symbol: string; connection: any; currentPrice: number; tickCount: number }>;
+  allSymbols?: Array<any>;
   isMobileMenuOpen: boolean;
   onToggleTradingExecution: () => void;
   onToggleMobileMenu: () => void;
@@ -41,6 +42,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeSymbol,
   currentPrice,
   symbolStates,
+  allSymbols = [],
   isMobileMenuOpen,
   onToggleTradingExecution,
   onToggleMobileMenu,
@@ -54,9 +56,9 @@ export const Header: React.FC<HeaderProps> = ({
           <TrendingUp className="w-4.5 h-4.5 text-white" />
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-base font-bold tracking-tight text-white">Scalar AI</span>
+          <span className="text-base font-bold tracking-tight text-white">Cotrade</span>
           <span className="hidden xs:inline-block text-[10px] font-mono px-1.5 py-0.5 bg-indigo-500/15 border border-indigo-500/30 rounded text-indigo-300 font-medium">
-            {activeSymbol || "NONE"}
+            MT5 GATEWAY
           </span>
         </div>
       </div>
@@ -65,6 +67,7 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="hidden md:flex items-center gap-3">
         <SymbolSwitcher
           symbolStates={symbolStates}
+          allSymbols={allSymbols}
           activeSymbol={activeSymbol}
           onSwitchSymbol={onSwitchSymbol}
         />

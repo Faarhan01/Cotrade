@@ -36,6 +36,9 @@ import {
   Badge,
   Button,
   AppShell,
+  MarketWatch,
+  BotDashboard,
+  SymbolsPage,
 } from "./components";
 import { useCotradeStream } from "./hooks/useCotradeStream";
 import { getStatus, getCandles, getStrategies, switchSymbol as cotradeSwitchSymbol, toTradeRecord, searchSymbols, getSymbol, selectSymbol, getResearchCatalogue, getResearchStored, scanPatterns, getBotStatus, getBotStrategies, getBotSessions, getDbStats, getDbIntegrity, vacuumDb, getHistorySummary, getHistoryDeals, getSymbols } from "./services/cotrade";
@@ -296,8 +299,16 @@ export default function App() {
   // Sync WebSocket
   const sendWsMessage = (_msg: any) => false;
 
+  const streamSymbols = useMemo(() => {
+    const list = symbolStates.map((s) => s.symbol);
+    if (activeSymbol && !list.includes(activeSymbol)) {
+      list.push(activeSymbol);
+    }
+    return list;
+  }, [symbolStates, activeSymbol]);
+
   useCotradeStream({
-    symbols: symbolStates.map((s) => s.symbol),
+    symbols: streamSymbols,
     onPortfolio: (msg) => {
       if (msg.positions) setTradesList((msg.positions || []).map(toTradeRecord));
       if (msg.balance !== undefined || msg.equity !== undefined) {
@@ -319,14 +330,57 @@ export default function App() {
       const activeTick = (activeSymbol && symbols[activeSymbol]) ? symbols[activeSymbol] : Object.values(symbols)[0];
       if (activeTick?.bid !== undefined) {
         setCurrentPrice(activeTick.bid);
-        setLastTick({ time: activeTick.time, bid: activeTick.bid, ask: activeTick.ask });
+        setLastTick({ time: activeTick.time, bid: activeTick.bid, ask: activeTick.ask, spread: activeTick.spread });
+
+        // Update current candle in real-time with incoming live tick
+        setCandles((prev) => {
+          if (!prev || prev.length === 0) return prev;
+          const last = prev[prev.length - 1];
+          const tickTime = activeTick.time || Math.floor(Date.now() / 1000);
+          const candleSec = last.time > 1e11 ? Math.floor(last.time / 1000) : last.time;
+          const candleMinute = Math.floor(candleSec / 60) * 60;
+          const tickMinute = Math.floor(tickTime / 60) * 60;
+          if (tickMinute > candleMinute) {
+            return [...prev.slice(-1999), {
+              time: tickTime,
+              open: activeTick.bid,
+              high: activeTick.bid,
+              low: activeTick.bid,
+              close: activeTick.bid,
+            }];
+          } else {
+            const updated = {
+              ...last,
+              high: Math.max(last.high, activeTick.bid),
+              low: Math.min(last.low, activeTick.bid),
+              close: activeTick.bid,
+            };
+            return [...prev.slice(0, -1), updated];
+          }
+        });
+
+        // Add to tick history for sparklines
+        setHistory((prev) => [
+          ...prev.slice(-120),
+          {
+            time: activeTick.time || Math.floor(Date.now() / 1000),
+            price: activeTick.bid,
+            velocity: 0,
+            volume: activeTick.volume || 1,
+          },
+        ]);
+
         scheduleChartUpdate({ currentPrice: activeTick.bid });
       }
       setSymbolStates((prev) => {
         const next = [...prev];
         for (const [name, t] of Object.entries(symbols)) {
           const idx = next.findIndex((s) => s.symbol === name);
-          if (idx >= 0) next[idx] = { ...next[idx], currentPrice: (t as any).bid } as any;
+          if (idx >= 0) {
+            next[idx] = { ...next[idx], currentPrice: (t as any).bid } as any;
+          } else {
+            next.push({ symbol: name, connection: true, currentPrice: (t as any).bid, tickCount: 1 });
+          }
         }
         return next;
       });
@@ -352,7 +406,8 @@ export default function App() {
     fetchStrategies();
     fetchResearchCatalog();
     fetchBotData();
-  }, [fetchStatus, fetchStrategies, fetchResearchCatalog, fetchBotData]);
+    fetchAllSymbols();
+  }, [fetchStatus, fetchStrategies, fetchResearchCatalog, fetchBotData, fetchAllSymbols]);
 
   // Load historical candles via REST when activeSymbol changes
   useEffect(() => {
@@ -364,7 +419,7 @@ export default function App() {
     getCandles(activeSymbol, 1000)
       .then((data) => {
         if (data.candles && Array.isArray(data.candles)) {
-          setCandles((prev) => mergeCandles(prev, data.candles).slice(-2000));
+          setCandles(data.candles);
         }
       })
       .catch(() => {
@@ -402,15 +457,15 @@ export default function App() {
 
   const switchSymbol = async (symbol: string) => {
     try {
+      setActiveSymbol(symbol);
       try {
-        const data = await cotradeSwitchSymbol(symbol);
-        if (data.activeSymbol) setActiveSymbol(data.activeSymbol);
-        else setActiveSymbol(symbol);
-      } catch {
-        setActiveSymbol(symbol);
-      }
+        await cotradeSwitchSymbol(symbol);
+      } catch {}
       const c = await getCandles(symbol, 1000);
-      if (c.candles) setCandles((prev) => mergeCandles(prev, c.candles).slice(-2000));
+      if (c.candles && Array.isArray(c.candles)) {
+        setCandles(c.candles);
+      }
+      setHistory([]);
     } catch (e) {
       console.error("Failed to switch symbol:", e);
     }
@@ -437,6 +492,7 @@ export default function App() {
         activeSymbol={activeSymbol}
         currentPrice={currentPrice}
         symbolStates={symbolStates}
+        allSymbols={allSymbols}
         isMobileMenuOpen={isMobileMenuOpen}
         onToggleTradingExecution={toggleTradingExecution}
         onToggleMobileMenu={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -484,18 +540,12 @@ export default function App() {
         {currentNavTab === "home" && (
           <div className="space-y-6 animate-fade-in">
             {/* Market Watch (live symbols from MT5) */}
-            <div className="card-panel p-3">
-              <div className="text-sm font-bold mb-2">Market Watch ({symbolStates.length})</div>
-              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
-                {symbolStates.map((s: any) => (
-                  <div key={s.symbol} className="bg-slate-800 rounded px-2 py-1 text-xs">
-                    <div className="font-semibold text-slate-200">{s.symbol}</div>
-                    <div className="text-emerald-400 font-mono">{typeof s.currentPrice === "number" ? s.currentPrice.toFixed(5) : s.currentPrice}</div>
-                  </div>
-                ))}
-                {symbolStates.length === 0 && <div className="text-xs text-slate-400">Loading symbols...</div>}
-              </div>
-            </div>
+            <MarketWatch
+              symbolStates={symbolStates}
+              allSymbols={allSymbols}
+              activeSymbol={activeSymbol}
+              onSwitchSymbol={switchSymbol}
+            />
             {/* Main Interactive Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
               {/* Left Column (5 cols): Control Panel, Metrics, Active Strategy */}
@@ -707,38 +757,13 @@ export default function App() {
 
         {/* Symbols */}
         {currentNavTab === "symbols" && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="card-panel p-3">
-              <h2 className="text-lg font-bold">Symbols ({allSymbols.length})</h2>
-              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 max-h-[70vh] overflow-auto">
-                {allSymbols.map((s: any) => {
-                  const live = symbolStates.find((x: any) => x.symbol === s.name);
-                  const price = live?.currentPrice ?? s.bid;
-                  return (
-                    <button
-                      key={s.name}
-                      className={`text-left rounded p-3 border ${selectedSymbol?.name === s.name ? "border-indigo-500 bg-indigo-950/30" : "border-slate-700 bg-slate-800 hover:bg-slate-750"}`}
-                      onClick={() => { openSymbol(s.name); }}
-                    >
-                      <div className="flex justify-between items-start">
-                        <span className="font-bold text-sm">{s.name}</span>
-                        <span className="text-emerald-400 font-mono text-sm">{typeof price === "number" ? price.toFixed(5) : price}</span>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-                        <div><span className="text-slate-400">Bid:</span> <span className="font-mono">{s.bid ?? "-"}</span></div>
-                        <div><span className="text-slate-400">Ask:</span> <span className="font-mono">{s.ask ?? "-"}</span></div>
-                        <div><span className="text-slate-400">Spread:</span> <span className="font-mono">{s.spread ?? "-"}</span></div>
-                        <div><span className="text-slate-400">Digits:</span> <span className="font-mono">{s.digits ?? "-"}</span></div>
-                        <div><span className="text-slate-400">Contract:</span> <span className="font-mono">{s.trade_contract_size ?? "-"}</span></div>
-                        <div><span className="text-slate-400">Swap L/S:</span> <span className="font-mono">{s.swap_long ?? "-"}/{s.swap_short ?? "-"}</span></div>
-                      </div>
-                    </button>
-                  );
-                })}
-                {allSymbols.length === 0 && <div className="text-xs text-slate-400">Loading...</div>}
-              </div>
-            </div>
-          </div>
+          <SymbolsPage
+            allSymbols={allSymbols}
+            symbolStates={symbolStates}
+            activeSymbol={activeSymbol}
+            onSwitchSymbol={switchSymbol}
+            onNavigateHome={() => setCurrentNavTab("home")}
+          />
         )}
 
         {/* History */}
@@ -772,53 +797,12 @@ export default function App() {
 
         {/* Bot & Database */}
         {currentNavTab === "bot" && (
-          <div className="space-y-6 animate-fade-in">
-            <div className="flex gap-2">
-              <button className="px-3 py-1 bg-indigo-600 rounded text-xs text-white" onClick={fetchBotData}>Refresh</button>
-            </div>
-            {botStatus && (
-              <div className="card-panel p-3">
-                <div className="text-sm font-bold">Bot Status</div>
-                <div className="text-xs text-slate-300 mt-1">status: {botStatus.status} | connected: {String(botStatus.connected_to_mt5)} | engine: {botStatus.engine}</div>
-              </div>
-            )}
-            {botStrategies && (
-              <div className="card-panel p-3">
-                <div className="text-sm font-bold">Strategies (builtin {botStrategies.builtin_strategies?.length}, stored {botStrategies.stored_strategies?.length})</div>
-                <div className="text-xs text-slate-400 mt-1 max-h-32 overflow-auto">{(botStrategies.stored_strategies || []).join(", ")}</div>
-              </div>
-            )}
-            {botSessions.length > 0 && (
-              <div className="card-panel p-3">
-                <div className="text-sm font-bold mb-2">Sessions ({botSessions.length})</div>
-                <div className="text-xs space-y-1 max-h-48 overflow-auto">
-                  {botSessions.map((s: any) => (
-                    <div key={s.session_id} className="flex justify-between border-b border-slate-800 py-1">
-                      <span>{s.session_id} — {s.strategy_name} on {s.symbol}</span>
-                      <span className="text-slate-400">{s.status} | trades {s.trades_count ?? 0} | pnl {s.pnl_pips ?? 0}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {dbStats && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {Object.entries(dbStats).filter(([k]) => k !== "path").map(([k, v]) => (
-                  <div key={k} className="card-panel p-3">
-                    <div className="text-[10px] uppercase text-slate-400">{k}</div>
-                    <div className="text-lg font-bold">{String(v)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {dbIntegrity && (
-              <div className="card-panel p-3">
-                <div className="text-sm font-bold">Integrity: {dbIntegrity.status}</div>
-                <div className="text-xs text-slate-400">{dbIntegrity.path}</div>
-                <button className="mt-2 px-3 py-1 bg-amber-600 rounded text-xs text-white" onClick={async () => { await vacuumDb(); fetchBotData(); }}>Vacuum DB</button>
-              </div>
-            )}
-          </div>
+          <BotDashboard
+            activeSymbol={activeSymbol}
+            allSymbols={allSymbols}
+            onSwitchSymbol={switchSymbol}
+            onNavigateHome={() => setCurrentNavTab("home")}
+          />
         )}
 
         {/* About */}
@@ -870,7 +854,7 @@ export default function App() {
           <div className="card-panel p-4">
             <h3 className="text-sm font-bold mb-2">Order Calculator</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-              <div className="bg-slate-800 rounded px-2 py-1"><span className="text-slate-400">Symbol:</span> <span className="font-mono">{activeSymbol || "�"}</span></div>
+              <div className="bg-slate-800 rounded px-2 py-1"><span className="text-slate-400">Symbol:</span> <span className="font-mono">{activeSymbol || "—"}</span></div>
               <div className="bg-slate-800 rounded px-2 py-1"><span className="text-slate-400">Lot:</span> <span className="font-mono">{settings.paramInput.lotSize || "0.1"}</span></div>
               <div className="bg-slate-800 rounded px-2 py-1"><span className="text-slate-400">TP (pts):</span> <span className="font-mono">{settings.paramInput.takeProfitPoints || "300"}</span></div>
               <div className="bg-slate-800 rounded px-2 py-1"><span className="text-slate-400">SL (pts):</span> <span className="font-mono">{settings.paramInput.stopLossPoints || "150"}</span></div>

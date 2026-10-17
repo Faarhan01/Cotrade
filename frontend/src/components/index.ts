@@ -16,6 +16,7 @@ export { AppShell } from "./layout/AppShell";
 export { TradePanel } from "./dashboard/TradePanel";
 export { PriceChart } from "./dashboard/PriceChart";
 export { StatsCards } from "./dashboard/StatsCards";
+export { MarketWatch } from "./dashboard/MarketWatch";
 
 // Charts
 export { CandlestickChart } from "./charts/CandlestickChart";
@@ -37,3 +38,7 @@ export { AssetSelector } from "./settings/AssetSelector";
 
 // Logs
 export { LogsViewer } from "./logs/LogsViewer";
+
+// Bot & Symbols
+export { BotDashboard } from "./bot/BotDashboard";
+export { SymbolsPage } from "./symbols/SymbolsPage";

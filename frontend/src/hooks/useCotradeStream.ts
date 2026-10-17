@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 
-const BASE = import.meta.env.VITE_COTRADE_URL || "http://localhost:3000";
+const BASE = import.meta.env.VITE_COTRADE_URL || "";
 
 export function useCotradeStream(options: {
   symbols: string[];

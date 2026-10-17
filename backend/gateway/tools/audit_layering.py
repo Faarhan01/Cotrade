@@ -1,5 +1,6 @@
 """Static layering/value checks (best-effort grep, not a substitute for review)."""
-import os, sys
+import os
+import sys
 
 BACKEND = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

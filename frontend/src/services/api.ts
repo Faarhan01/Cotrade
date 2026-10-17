@@ -1,6 +1,6 @@
 import type { StatusResponse, AiStudyFeedResponse, SettingsResponse, TradeResponse } from "../types/api";
 
-const API_BASE = import.meta.env.VITE_COTRADE_URL || "http://localhost:3000";
+const API_BASE = import.meta.env.VITE_COTRADE_URL || "";
 
 class ApiClient {
   private async request<T>(

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "python3 app.py",
-    "build": "python3 run.py db",
+    "build": "cd frontend && npm run build && cd .. && python3 run.py db",
     "start": "python3 app.py",
     "lint": "python3 -m compileall app.py run.py backend"
   }

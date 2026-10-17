@@ -41,10 +41,10 @@ export function useChartData(
       if (displayCandles[i].low < minPrice) minPrice = displayCandles[i].low;
       if (displayCandles[i].high > maxPrice) maxPrice = displayCandles[i].high;
     }
-    let priceRange = maxPrice - minPrice || 1.0;
-    const minRange = 1.5;
+    let priceRange = maxPrice - minPrice;
+    const minRange = Math.max((maxPrice || 1.0) * 0.0005, 0.00005);
     if (priceRange < minRange) {
-      const center = (maxPrice + minPrice) / 2;
+      const center = (maxPrice + minPrice) / 2 || 1.0;
       minPrice = center - minRange / 2;
       maxPrice = center + minRange / 2;
       priceRange = minRange;
@@ -52,6 +52,7 @@ export function useChartData(
     const paddingPrice = priceRange * 0.05;
     minPrice -= paddingPrice;
     maxPrice += paddingPrice;
+    priceRange = maxPrice - minPrice;
 
     return { candleData, displayCandles, minPrice, maxPrice, priceRange };
   }, [candles, history, maxVisibleCandles]);

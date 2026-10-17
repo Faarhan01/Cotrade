@@ -1,4 +1,4 @@
-const BASE = import.meta.env.VITE_COTRADE_URL || "http://localhost:3000";
+const BASE = import.meta.env.VITE_COTRADE_URL || "";
 
 export async function cotradeGet(path: string) {
   const res = await fetch(`${BASE}${path}`);
@@ -154,14 +154,21 @@ export async function runIndicator(body: any) { return cotradePost("/research/in
 export async function getReportsBest() { return cotradeGet("/research/reports/best"); }
 
 export async function getBotStatus() { return cotradeGet("/bot/status"); }
+export async function getBotRunning() { return cotradeGet("/bot/running"); }
 export async function getBotStrategies() { return cotradeGet("/bot/strategies"); }
 export async function getBotSessions(limit = 50) { return cotradeGet(`/bot/sessions?limit=${limit}`); }
 export async function getBotSession(id: string) { return cotradeGet(`/bot/sessions/${encodeURIComponent(id)}`); }
 export async function getBotSessionLogs(id: string, limit = 200) { return cotradeGet(`/bot/sessions/${encodeURIComponent(id)}/logs?limit=${limit}`); }
+export async function getBotSignal(strategy: string, symbol: string, timeframe = "M1", bars = 500) {
+  return cotradeGet(`/bot/signal?strategy=${encodeURIComponent(strategy)}&symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}&bars=${bars}`);
+}
+export async function startBot(body: any) { return cotradePost("/bot/start", body); }
+export async function stepBot(body?: any) { return cotradePost("/bot/step", body || {}); }
 export async function pauseBotSession(id: string) { return cotradePost(`/bot/sessions/${encodeURIComponent(id)}/pause`); }
 export async function resumeBotSession(id: string) { return cotradePost(`/bot/sessions/${encodeURIComponent(id)}/resume`); }
 export async function stopBotSession(id: string, body?: any) { return cotradePost(`/bot/sessions/${encodeURIComponent(id)}/stop`, body || {}); }
 export async function createBotSession(body: any) { return cotradePost("/bot/sessions", body); }
+export async function getReportTrades(runId: string) { return cotradeGet(`/db/trades/${encodeURIComponent(runId)}`); }
 
 export async function getDbStats() { return cotradeGet("/db/stats"); }
 export async function getDbReports(limit = 50, strategy?: string, verdict?: string) {

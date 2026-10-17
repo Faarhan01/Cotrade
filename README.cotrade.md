@@ -88,7 +88,7 @@ restarted.
 cotrade/
 ├── backend/
 │   ├── gateway/          the MT5 bridge and HTTP server
-│   │   ├── cony/         engine — no HTTP, no server
+│   │   ├── mt5_pkg_bridge/  engine — no HTTP, no server
 │   │   ├── server/       HTTP layer
 │   │   └── deamon/       entry point, sockets, SSE transport
 │   ├── core/             application layer (config, composition, plugins)
@@ -105,7 +105,7 @@ cotrade/
 ```
 
 The gateway is three layers with dependencies pointing one way only:
-`deamon → server → cony`. The engine never knows HTTP exists.
+`deamon → server → mt5_pkg_bridge`. The engine never knows HTTP exists.
 
 `backend/frontconnect/` and `backend/knowledgebase/` are **optional extensions**.
 They register their routes on startup and log a warning if they cannot load;

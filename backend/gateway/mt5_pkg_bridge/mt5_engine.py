@@ -1,5 +1,5 @@
 """
-cony — MT5 Engine
+mt5_pkg_bridge — MT5 Engine
 =================
 High-level wrapper over the MetaTrader5 package.
 

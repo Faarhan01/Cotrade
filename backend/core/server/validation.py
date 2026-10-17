@@ -3,7 +3,7 @@ server — Validation
 =====================
 Input parsing shared by the handlers.
 
-Kept out of cony so the engine stays usable without HTTP semantics, and out
+Kept out of mt5_pkg_bridge so the engine stays usable without HTTP semantics, and out
 of the handlers so every endpoint validates the same way. Each helper raises
 BadRequest with a message that names the offending field and what was
 expected, because the caller is usually an agent acting on the text.
@@ -11,7 +11,7 @@ expected, because the caller is usually an agent acting on the text.
 
 from datetime import UTC, datetime, timedelta
 
-from managers.mt5_manager import cony
+import mt5_pkg_bridge
 from services.error_handlers.errors import BadRequest
 
 MAX_CANDLES = 10000
@@ -191,28 +191,28 @@ def order_type(value, default="buy") -> int:
         if default is None:
             raise BadRequest(
                 f"'order_type' is required. Use one of: "
-                 f"{', '.join(sorted(cony.enums.ORDER_TYPES))} or the MT5 integer."
+                 f"{', '.join(sorted(mt5_pkg_bridge.enums.ORDER_TYPES))} or the MT5 integer."
             )
-        return cony.enums.ORDER_TYPES[default]
-    return _from_map(value, cony.enums.ORDER_TYPES, cony.enums.ORDER_TYPE_NAMES, "order_type")
+        return mt5_pkg_bridge.enums.ORDER_TYPES[default]
+    return _from_map(value, mt5_pkg_bridge.enums.ORDER_TYPES, mt5_pkg_bridge.enums.ORDER_TYPE_NAMES, "order_type")
 
 
 def trade_action(value, default: str = "deal") -> int:
     if value in (None, ""):
-        return cony.enums.TRADE_ACTIONS[default]
-    return _from_map(value, cony.enums.TRADE_ACTIONS, cony.enums.TRADE_ACTION_NAMES, "action")
+        return mt5_pkg_bridge.enums.TRADE_ACTIONS[default]
+    return _from_map(value, mt5_pkg_bridge.enums.TRADE_ACTIONS, mt5_pkg_bridge.enums.TRADE_ACTION_NAMES, "action")
 
 
 def filling_mode(value, default: str = "return") -> int:
     if value in (None, ""):
-        return cony.enums.FILLING_MODES[default]
-    return _from_map(value, cony.enums.FILLING_MODES, cony.enums.FILLING_NAMES, "type_filling")
+        return mt5_pkg_bridge.enums.FILLING_MODES[default]
+    return _from_map(value, mt5_pkg_bridge.enums.FILLING_MODES, mt5_pkg_bridge.enums.FILLING_NAMES, "type_filling")
 
 
 def order_time(value, default: str = "gtc") -> int:
     if value in (None, ""):
-        return cony.enums.ORDER_TIMES[default]
-    return _from_map(value, cony.enums.ORDER_TIMES, cony.enums.ORDER_TIME_NAMES, "type_time")
+        return mt5_pkg_bridge.enums.ORDER_TIMES[default]
+    return _from_map(value, mt5_pkg_bridge.enums.ORDER_TIMES, mt5_pkg_bridge.enums.ORDER_TIME_NAMES, "type_time")
 
 
 def timeframe(value, default="M1") -> int:
@@ -220,21 +220,21 @@ def timeframe(value, default="M1") -> int:
         value = default
     if isinstance(value, str):
         key = value.strip().upper()
-        if key in cony.enums.TIMEFRAMES:
-            return cony.enums.TIMEFRAMES[key]
+        if key in mt5_pkg_bridge.enums.TIMEFRAMES:
+            return mt5_pkg_bridge.enums.TIMEFRAMES[key]
         if key.lstrip("-").isdigit():
             return int(key)
         raise BadRequest(
             f"Unknown timeframe {value!r}. Use one of: "
-            f"{', '.join(sorted(cony.enums.TIMEFRAMES, key=lambda k: cony.enums.TIMEFRAMES[k]))}"
+            f"{', '.join(sorted(mt5_pkg_bridge.enums.TIMEFRAMES, key=lambda k: mt5_pkg_bridge.enums.TIMEFRAMES[k]))}"
         )
     return integer(value, "timeframe")
 
 
 def copy_ticks_flag(value, default="all") -> int:
     if value is None or value == "":
-        return cony.enums.COPY_TICKS_FLAGS[default]
-    return _from_map(value, cony.enums.COPY_TICKS_FLAGS, cony.enums.COPY_TICKS_NAMES, "flags")
+        return mt5_pkg_bridge.enums.COPY_TICKS_FLAGS[default]
+    return _from_map(value, mt5_pkg_bridge.enums.COPY_TICKS_FLAGS, mt5_pkg_bridge.enums.COPY_TICKS_NAMES, "flags")
 
 
 def symbol_list(value, field: str = "symbols") -> list:

@@ -1,5 +1,5 @@
 """
-cony — Connection Manager
+mt5_pkg_bridge — Connection Manager
 ==========================
 Owns the lifecycle of the terminal connection: import, attach, authenticate,
 reconnect and detach.
@@ -181,7 +181,7 @@ class ConnectionManager:
             target=self._reconnect_loop,
             args=(interval,),
             daemon=True,
-            name="cony-reconnect",
+            name="mt5pkg-reconnect",
         )
         self._reconnect_thread.start()
 

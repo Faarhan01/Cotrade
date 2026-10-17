@@ -1,5 +1,5 @@
 """
-Verification suite for the cony gateway.
+Verification suite for the Cotrade gateway.
 
 Exercises every endpoint group against a live MT5 terminal, including the
 error paths and the live streams.

@@ -1,7 +1,7 @@
 """
 tools.bot — Trading Bot
 ========================
-Backtesting and trading built from the knowledgebase, driven by the cony
+Backtesting and trading built from the knowledgebase, driven by the mt5_pkg_bridge
 gateway for data and order execution.
 
 Modules:

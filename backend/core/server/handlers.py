@@ -1,7 +1,7 @@
 """
 server — HTTP Request Handlers
 ===============================
-Binds the HTTP surface onto the cony engine.
+Binds the HTTP surface onto the mt5_pkg_bridge engine.
 
 Every route takes the same shape - validate, delegate, shape the response -
 and does no MT5 work itself, so the engine stays the only place that knows
@@ -15,14 +15,14 @@ from datetime import timedelta
 
 from core.server import validation as v
 from core.server.routes import Router
-from managers.mt5_manager import cony
-from managers.mt5_manager.cony import enums
+import mt5_pkg_bridge
+from mt5_pkg_bridge import enums
 from services.error_handlers.errors import BadRequest, UpstreamUnavailable
 
 # Standard logging only. server/ must not import deamon/, or the dependency
 # would point backwards (deamon -> server -> deamon) and the layering that
 # makes either half swappable would collapse.
-logger = logging.getLogger("cony.server")
+logger = logging.getLogger("mt5pkg.server")
 
 # History grows without bound, so both the window and the row count are capped.
 HISTORY_MAX_DAYS = 365
@@ -32,12 +32,14 @@ HISTORY_MAX_ROWS = 20000
 class RouteHandlers:
     """Registers every API route against a router."""
 
-    def __init__(self, engine: cony.mt5_engine.MT5Engine, router: Router,
-                 base: str = "http://127.0.0.1:8890", container=None):
+    def __init__(self, engine: mt5_pkg_bridge.mt5_engine.MT5Engine, router: Router,
+                 base: str = "http://127.0.0.1:8890", container=None,
+                 bot_runtime=None):
         self.base = base
         self.engine = engine
         self.router = router
         self.container = container
+        self.bot_runtime = bot_runtime
         self.setup_routes()
 
     def setup_routes(self):
@@ -51,7 +53,7 @@ class RouteHandlers:
         def health(params, query, body):
             payload = {
                 "status": "ok",
-                "service": "cony-gateway",
+                "service": "cotrade-gateway",
                 "mt5_connected": engine.is_connected,
                 "connection": engine.connection_info(),
             }
@@ -188,6 +190,9 @@ class RouteHandlers:
             if "visible" in query:
                 want = v.boolean(query.get("visible"), default=True)
                 found = [s for s in found if bool(s.get("visible")) is want]
+            if "select" in query:
+                want = v.boolean(query.get("select"), default=True)
+                found = [s for s in found if bool(s.get("select")) is want]
             if query.get("trade_mode"):
                 mode = v._from_map(
                     query["trade_mode"], enums.SYMBOL_TRADE_MODES,
@@ -314,7 +319,7 @@ class RouteHandlers:
                         )
                 try:
                      bars = engine.copy_rates_range(name, tf, start, end)
-                except cony.mt5_engine.MT5ConnectionError as exc:
+                except mt5_pkg_bridge.mt5_engine.MT5ConnectionError as exc:
                      raise UpstreamUnavailable(f"MT5 not connected: {exc}") from exc
             elif query.get("start") is not None:
                 offset = v.integer(query["start"], "start", minimum=0, maximum=v.MAX_CANDLES)
@@ -741,7 +746,9 @@ class RouteHandlers:
         # ─── Optional extensions (Stage 6: single plugin entrypoint) ──
         try:
             from core import plugins as _plugins
-            _plugins.register_all(r, engine, base=self.base, container=getattr(self, "container", None))
+            _plugins.register_all(r, engine, base=self.base,
+                              container=getattr(self, "container", None),
+                              bot_runtime=getattr(self, "bot_runtime", None))
         except Exception:  # noqa: BLE001
             logger.warning("extension loading raised: %s", traceback.format_exc())
 

@@ -21,12 +21,12 @@
 ## Architecture (3-Layer Gateway)
 
 ```
-AI agent / app  →  deamon (HTTP)  →  server (routing)  →  cony (engine)  →  MetaTrader5  →  MT5 terminal
+AI agent / app  →  deamon (HTTP)  →  server (routing)  →  mt5_pkg_bridge (engine)  →  MetaTrader5  →  MT5 terminal
 ```
 
 | Package | Location | Responsibility |
 |---------|----------|----------------|
-| `cony` | `backend/gateway/cony/` | MT5 engine — no HTTP, no server. Just MT5 operations returning dicts |
+| `mt5_pkg_bridge` | `backend/gateway/mt5_pkg_bridge/` | MT5 engine — no HTTP, no server. Just MT5 operations returning dicts |
 | `server` | `backend/core/server/` | HTTP routing, validation, JSON shaping, SSE streams |
 | `deamon` | `backend/gateway/deamon/` | Process lifecycle — config, logging, sockets, startup |
 | `frontconnect` | `backend/core/frontconnect/` | Web UI routes — optional extension |
@@ -34,7 +34,7 @@ AI agent / app  →  deamon (HTTP)  →  server (routing)  →  cony (engine)  �
 | `tools/bot` | `backend/tools/bot/` | Backtesting, pattern checking, live execution |
 | `database` | `backend/database/` | SQLite access layer + schema |
 
-Dependencies run one way: `deamon → server → cony`. Neither `cony` nor `server` imports `deamon`.
+Dependencies run one way: `deamon → server → mt5_pkg_bridge`. Neither `mt5_pkg_bridge` nor `server` imports `deamon`.
 
 ## Entry Points
 
@@ -45,7 +45,7 @@ Dependencies run one way: `deamon → server → cony`. Neither `cony` nor `serv
 
 ## Key Components
 
-### 1. MetaTrader 5 Gateway (`backend/gateway/cony/`)
+### 1. MetaTrader 5 Gateway (`backend/gateway/mt5_pkg_bridge/`)
 
 **connection.py** — `ConnectionManager`: Thread-safe terminal lifecycle with auto-reconnect.
 
@@ -86,7 +86,7 @@ All environment variables are centralized in `backend/core/config.py`. See `back
 ## Design Principles
 
 1. **No external dependencies** — frontend is pure HTML/CSS/JS
-2. **Layer separation** — `deamon → server → cony` strict boundaries
+2. **Layer separation** — `deamon → server → mt5_pkg_bridge` strict boundaries
 3. **No fake data** — all data from real MT5 terminal
 4. **Honest statistics** — verdicts based on t-statistics, not profit
 5. **Case preservation** — MT5 symbol names as-is

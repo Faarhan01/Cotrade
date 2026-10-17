@@ -1,4 +1,4 @@
-"""cony — Serializers
+"""mt5_pkg_bridge — Serializers
 ===================
 Convert MT5 namedtuples, numpy arrays, and native types to JSON-serializable dicts.
 Gracefully handles environments where numpy is not installed, preserving maximum flexibility.

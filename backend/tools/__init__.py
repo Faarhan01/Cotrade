@@ -2,7 +2,7 @@
 tools — Backend tooling
 ========================
 The bot: strategy testing and live trading, driven by the knowledgebase and
-executed through the cony gateway.
+executed through the Cotrade gateway.
 
     python -m tools.bot.runner sweep EURUSD --timeframe M15
     python -m tools.bot.runner scan  EURUSD --timeframe H1

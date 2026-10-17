@@ -1,5 +1,5 @@
 """
-cony — Enumerations
+mt5_pkg_bridge — Enumerations
 =====================
 MT5 constant maps built by reading the installed MetaTrader5 package rather
 than hardcoding integers here. The values are MT5's stable public API, but

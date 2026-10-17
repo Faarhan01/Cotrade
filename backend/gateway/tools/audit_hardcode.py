@@ -8,7 +8,8 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# One level above gateway/: core/, managers/ and the bridge all sit under backend/.
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Absolute Windows paths - valid only inside the local workspace, never in source.
 ABS_PATH = re.compile(r"[A-Za-z]:\\\\?[\w\\.\-]+")
@@ -16,11 +17,14 @@ ABS_PATH = re.compile(r"[A-Za-z]:\\\\?[\w\\.\-]+")
 # Ports. 8888 is the Cotrade peron_bridge port and must not appear as a default.
 HARDCODED_PORT = re.compile(r"\b(8888|8890|8899)\b")
 
-# Documented MT5 enum values duplicated outside cony/enums.py, which is the
+# Documented MT5 enum values duplicated outside mt5_pkg_bridge/enums.py, which is the
 # single place allowed to hold them. The lookbehind excludes qualified
-# references such as enums.ORDER_TYPE_NAMES, which are our own names.
+# references such as enums.ORDER_TYPE_NAMES, which are our own names. A name
+# inside quotes is an attribute lookup, not a duplicated constant, so those are
+# skipped too - getattr(enums, "TIMEFRAME_NAMES") is not a hardcoded MT5 value.
 MT5_LITERAL = re.compile(
-    r"(?<![\w.])(TRADE_RETCODE_[A-Z_]+|ORDER_TYPE_[A-Z_]+|TIMEFRAME_[A-Z0-9]+)\b"
+    r"""(?<![\w.])(?<!["'])"""
+    r"""(TRADE_RETCODE_[A-Z_]+|ORDER_TYPE_[A-Z_]+|TIMEFRAME_[A-Z0-9]+)\b"""
 )
 
 # Magic defaults / account numbers.
@@ -28,8 +32,8 @@ SUSPECT_NUMBER = re.compile(r"(?<![\w.])(\d{7,})(?![\w.])")
 
 SKIP_DIRS = {"__pycache__", ".git", "tools", "docs", "node_modules"}
 
-# cony/enums.py legitimately reads these names from the package.
-ALLOWED = {"cony/enums.py"}
+# mt5_pkg_bridge/enums.py legitimately reads these names from the package.
+ALLOWED = {"gateway/mt5_pkg_bridge/enums.py"}
 
 findings = []
 

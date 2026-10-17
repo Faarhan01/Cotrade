@@ -1,7 +1,7 @@
 """
 tools.bot — Live Execution
 ============================
-Places real orders through the cony gateway using a knowledgebase Strategy.
+Places real orders through the mt5_pkg_bridge using a knowledgebase Strategy.
 
 Deliberately conservative:
 

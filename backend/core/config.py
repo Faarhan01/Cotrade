@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from managers.mt5_manager import cony
+import mt5_pkg_bridge
 
 
 def _int(name: str, default: int) -> int:
@@ -79,7 +79,7 @@ class GatewayConfig:
             mt5_password=os.environ.get("MT5_PASSWORD") or None,
             mt5_server=os.environ.get("MT5_SERVER") or None,
             mt5_path=os.environ.get("MT5_PATH") or None,
-            mt5_package_path=cony.paths.find_mt5_package(),
+            mt5_package_path=mt5_pkg_bridge.paths.find_mt5_package(),
             mt5_timeout=_int("MT5_TIMEOUT", 60000),
             auto_connect=_env_bool("CONY_AUTO_CONNECT", True),
             auto_reconnect=_env_bool("CONY_AUTO_RECONNECT", True),
@@ -101,11 +101,38 @@ def validate(config: GatewayConfig) -> None:
         raise ValueError(f"invalid log level {config.log_level}")
 
 
+def _loopback_if_wildcard(url: str) -> str:
+    """
+    Rewrite a wildcard bind address into a connectable one.
+
+    `0.0.0.0` and `::` are fine to bind and impossible to connect to. The
+    daemon builds its own base URL from the bind address, and the research
+    layer uses that base to call the gateway back over HTTP, so on Windows
+    `http://0.0.0.0:3000` fails with "the requested address is not valid in
+    its context". Substituting loopback keeps the URL usable as both a bind
+    target and a client destination.
+    """
+    if not url:
+        return url
+    for wildcard, loopback in (
+        ("//0.0.0.0:", "//127.0.0.1:"),
+        ("//[::]:", "//[::1]:"),
+        ("//[0:0:0:0:0:0:0:0]:", "//[::1]:"),
+    ):
+        if wildcard in url:
+            return url.replace(wildcard, loopback, 1)
+    # Also handle a bare wildcard with no port.
+    for wildcard, loopback in (("//0.0.0.0", "//127.0.0.1"), ("//[::]", "//[::1]")):
+        if url.endswith(wildcard):
+            return url[: -len(wildcard)] + loopback
+    return url
+
+
 def gateway_url(supplied: str | None = None) -> str:
     """Resolve a gateway base URL using centralized config only (not direct env reads elsewhere)."""
     explicit = os.environ.get("CONY_URL")
     if explicit:
-        return explicit
+        return _loopback_if_wildcard(explicit)
     if supplied:
-        return supplied
-    return GatewayConfig.from_env().gateway_url
+        return _loopback_if_wildcard(supplied)
+    return _loopback_if_wildcard(GatewayConfig.from_env().gateway_url)

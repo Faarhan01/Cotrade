@@ -8,8 +8,11 @@ import os
 import sys
 import inspect
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.dirname(HERE))
+
 # Use the same package discovery as the gateway itself.
-from cony.paths import find_mt5_package
+from mt5_pkg_bridge.paths import find_mt5_package
 
 PKG = find_mt5_package()
 if PKG and PKG not in sys.path:

@@ -4,7 +4,7 @@ server — HTTP API Layer
 URL routing, request handlers, validation and HTTP error types for the
 MetaTrader 5 gateway.
 
-Imports cony as its engine, so this layer never touches the MetaTrader5
+Imports mt5_pkg_bridge as its engine, so this layer never touches the MetaTrader5
 package directly and can be swapped for a different transport without
 changing anything below it.
 """

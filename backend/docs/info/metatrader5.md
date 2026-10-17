@@ -15,7 +15,7 @@ Cotrade integrates with the MetaTrader 5 trading platform through the official `
 User/Agent → HTTP API → Server Layer → Cony (MT5 Engine) → MetaTrader5 Package → MT5 Terminal
 ```
 
-### MT5 Engine (`cony.mt5_engine.MT5Engine`)
+### MT5 Engine (`mt5_pkg_bridge.mt5_engine.MT5Engine`)
 The high-level MT5 engine provides:
 - **Connection Management**: Automatic connection/reconnection handling
 - **Symbol Resolution**: Case-insensitive symbol lookup with broker-specific spelling
@@ -60,7 +60,7 @@ Because the wrappers forward directly to the real MT5 package:
 ### Usage Examples
 ```python
 # Direct Python usage
-from cony import ConnectionManager, MT5Engine
+from mt5_pkg_bridge import ConnectionManager, MT5Engine
 
 conn = ConnectionManager()
 conn.connect()

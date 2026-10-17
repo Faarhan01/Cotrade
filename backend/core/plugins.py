@@ -12,21 +12,35 @@ import traceback
 
 from core.config import GatewayConfig
 
-logger = logging.getLogger("cony.server.plugins")
+logger = logging.getLogger("mt5pkg.server.plugins")
 
 
-def register_all(router, engine, base, container=None) -> list:
+def register_all(router, engine, base, container=None, bot_runtime=None) -> list:
     """Register every optional extension.
 
     Returns a list of ``(name, route_count_or_None, error_or_None)`` records so
     the caller can log and account for them uniformly.
     """
+    from core.mcp import register as _mcp_register
     from managers.front_manager.frontconnect import register as _dashboard_register
     from managers.routes_manager import register_bot_routes as _bot_routes
     from managers.routes_manager import register_db_routes as _db_routes
     from managers.routes_manager import register_research_routes as _research_routes
 
     results = []
+
+    # MCP (Model Context Protocol) - JSON-RPC surface for AI agents.
+    try:
+        added = _mcp_register(router, engine, base=base, container=container,
+                              runtime=bot_runtime)
+        results.append(("mcp", added, None))
+        if added:
+            logger.info("MCP enabled: POST /mcp")
+        else:
+            logger.warning("MCP registered no routes")
+    except Exception:  # noqa: BLE001
+        results.append(("mcp", 0, traceback.format_exc()))
+        logger.warning("MCP failed to load.\n%s", traceback.format_exc())
 
     # Database
     try:
@@ -54,7 +68,7 @@ def register_all(router, engine, base, container=None) -> list:
 
     # Bot
     try:
-        n = _bot_routes(router, engine=engine)
+        n = _bot_routes(router, engine=engine, runtime=bot_runtime)
         if n:
             logger.info("bot API enabled: %d routes under /bot", n)
         results.append(("bot", n, None))

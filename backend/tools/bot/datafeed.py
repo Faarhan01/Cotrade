@@ -1,7 +1,7 @@
 """
 tools.bot — Data Feed
 =======================
-Pulls market data from the cony gateway, with an optional SQLite cache.
+Pulls market data from the mt5_pkg_bridge, with an optional SQLite cache.
 
 The cache exists because MT5 will not re-serve history it has forgotten: ticks
 survive roughly a day, M1 around 90-180 days. A strategy grid re-requests the

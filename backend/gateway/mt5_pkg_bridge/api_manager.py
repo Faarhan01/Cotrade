@@ -1,5 +1,5 @@
 """
-cony — API Manager
+mt5_pkg_bridge — API Manager
 
 Auto-discovers and wraps every public MetaTrader5 function so the engine
 never needs to be manually updated when the package gains or loses functions.
@@ -52,7 +52,7 @@ from typing import Any
 from . import enums
 from .connection import ConnectionManager
 
-_LOG = logging.getLogger("cony.api_manager")
+_LOG = logging.getLogger("mt5pkg.discovery")
 
 
 def _is_public(name: str) -> bool:
@@ -83,7 +83,7 @@ def _wrap_function(name: str, raw_fn: Callable) -> Callable:
     def wrapper(*args: Any, **kwargs: Any) -> dict:
         # 1. Ensure we have a terminal connected
         if not ConnectionManager.is_connected:
-            from cony.mt5_engine import MT5ConnectionError
+            from mt5_pkg_bridge.mt5_engine import MT5ConnectionError
             raise MT5ConnectionError(
                 "MT5 engine not connected. Call ConnectionManager.connect() first."
             )
@@ -113,7 +113,7 @@ def _wrap_function(name: str, raw_fn: Callable) -> Callable:
             }
 
         # 4. Serialise to plain dict (handles namedtuple, custom objects)
-        from cony.serializers import serialize_namedtuple
+        from mt5_pkg_bridge.serializers import serialize_namedtuple
 
         if result is None:
             return {

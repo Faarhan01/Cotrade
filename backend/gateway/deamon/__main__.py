@@ -1,7 +1,7 @@
 """
 deamon — Service Entry Point
 ==============================
-Process lifecycle for the cony gateway: configuration, logging, HTTP routing,
+Process lifecycle for the Cotrade gateway: configuration, logging, HTTP routing,
 and live streaming.
 
 Wires the MT5Engine, URL Router, and Threaded HTTP Server into a cohesive daemon.
@@ -26,7 +26,7 @@ from urllib.parse import parse_qs, urlparse
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 _backend = os.path.join(_root, "backend")
 _managers = os.path.join(_backend, "managers")
-_mt5_manager = os.path.join(_managers, "mt5_manager")
+
 _database = os.path.join(_backend, "database")
 _gateway = os.path.join(_backend, "gateway")
 _services = os.path.join(_backend, "services")
@@ -34,7 +34,7 @@ _core = os.path.join(_backend, "core")
 _knowledgebase = os.path.join(_backend, "knowledgebase")
 _tools = os.path.join(_backend, "tools")
 
-for _dir in (_root, _backend, _core, _gateway, _managers, _mt5_manager, _database, _knowledgebase, _services, _tools):
+for _dir in (_root, _backend, _core, _gateway, _managers, _database, _knowledgebase, _services, _tools):
     if os.path.isdir(_dir) and _dir not in sys.path:
         sys.path.insert(0, _dir)
 
@@ -50,7 +50,7 @@ from core.server.streaming import (
     tick_producer,
 )
 from gateway.deamon.logger import get_logger, setup_logging
-from managers.mt5_manager import cony
+import mt5_pkg_bridge
 from services.error_handlers.errors import (
     BadRequest,
     HTTPError,
@@ -73,6 +73,25 @@ class GatewayServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+    def handle_error(self, request, client_address):
+        """
+        Stay quiet about clients that hang up mid-request.
+
+        `socketserver` prints a full traceback for every connection fault. In
+        a trading dashboard that is the normal case: a browser aborts an
+        in-flight fetch on navigation, Vite's HMR client drops sockets on every
+        reload, and EventSource probes before reconnecting. The volume of
+        tracebacks buried real faults, so ordinary disconnects are logged at
+        debug and everything else keeps its traceback.
+        """
+        exc = sys.exc_info()[1]
+        if isinstance(exc, (ConnectionAbortedError, ConnectionResetError,
+                            BrokenPipeError, socket.timeout, TimeoutError)):
+            logger.debug("%s disconnected: %s", client_address[0],
+                         type(exc).__name__)
+            return
+        logger.error("error serving %s", client_address[0], exc_info=True)
+
     def server_bind(self):
         """Disable Nagle's algorithm for low-latency market data delivery."""
         try:
@@ -82,9 +101,26 @@ class GatewayServer(ThreadingMixIn, HTTPServer):
         return super().server_bind()
 
 
+def _built_index() -> Optional[bytes]:
+    """
+    The built SPA's index.html, or None when the frontend has not been built.
+
+    Resolution is delegated to the frontend manager rather than re-derived
+    here, so there is exactly one place that knows where `dist/` lives. A
+    gateway deployed without a built frontend simply returns None and unknown
+    routes keep their normal 404.
+    """
+    try:
+        from managers.front_manager.frontconnect import assets as _fe_assets
+        found = _fe_assets.read_dist_index()
+        return found[0] if found else None
+    except Exception:
+        return None
+
+
 class GatewayRequestHandler(BaseHTTPRequestHandler):
     """Dispatches incoming HTTP and SSE stream requests."""
-    server_version = "cony-gateway/1.0"
+    server_version = "cotrade-gateway/1.0"
 
     def log_message(self, format, *args):
         logger.debug("%s - [%s] " + format, self.address_string(), self.log_date_time_string(), *args)
@@ -112,6 +148,17 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         self._dispatch("DELETE")
 
     def _dispatch(self, method: str):
+        # Compatibility: allow /api/* by stripping the prefix so both prefixed
+        # and unprefixed routes resolve against the same router.
+        self._was_api = self.path.startswith("/api/") or self.path == "/api"
+        if self._was_api:
+            if "?" in self.path:
+                _p, _q = self.path.split("?", 1)
+                _p = _p[4:] or "/"
+                self.path = _p + "?" + _q
+            else:
+                self.path = self.path[4:] or "/"
+
         parsed = urlparse(self.path)
         clean_path = parsed.path.rstrip("/") or "/"
 
@@ -214,6 +261,23 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         handler, params, query = self.server.gateway.router.resolve(method, self.path)
         if handler is None:
             clean_path = parsed.path.rstrip("/") or "/"
+            # SPA fallback: an unknown GET path is a client-side route, so the
+            # built frontend's index is served instead of a 404. `/api/*` is
+            # excluded because those must 404 as JSON, and streams/assets are
+            # real endpoints that should report themselves missing.
+            if method == "GET" and not clean_path.startswith(("/api", "/stream", "/assets")):
+                index = _built_index()
+                if index is not None:
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(index)))
+                    self._send_cors_headers()
+                    self.end_headers()
+                    try:
+                        self.wfile.write(index)
+                    except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                        pass
+                    return
             self._send_error_json(
                 404,
                 f"No such route: {clean_path}. See /routes for the full directory.",
@@ -226,7 +290,7 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         except HTTPError as exc:
             self._send_error_json(exc.status, str(exc), exc.type_name)
             return
-        except cony.mt5_engine.MT5ConnectionError as exc:
+        except mt5_pkg_bridge.mt5_engine.MT5ConnectionError as exc:
             self._send_error_json(503, str(exc), "UpstreamUnavailable")
             return
         except Exception as exc:
@@ -242,7 +306,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
                 self.send_header(k, v)
             self._send_cors_headers()
             self.end_headers()
-            self.wfile.write(result.body)
+            try:
+                self.wfile.write(result.body)
+            except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+                pass
             return
 
         try:
@@ -260,7 +327,10 @@ class GatewayRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(rendered)))
         self._send_cors_headers()
         self.end_headers()
-        self.wfile.write(rendered)
+        try:
+            self.wfile.write(rendered)
+        except (ConnectionAbortedError, ConnectionResetError, BrokenPipeError):
+            pass
 
     def _send_error_json(self, status: int, error_msg: str, error_type: str):
         payload = json.dumps({"error": error_msg, "type": error_type}).encode("utf-8")
@@ -295,11 +365,23 @@ class Gateway:
             self.container = None
 
         self._start_time = time.time()
+
+        # One bot runtime for the whole process, so a session started over MCP
+        # is the same session the web UI sees. Built before the routes register
+        # because both the bot routes and the MCP tools need this instance.
+        try:
+            from core.bot_runtime import BotRuntime
+            self.bot_runtime = BotRuntime(self.engine, container=self.container)
+        except Exception as exc:
+            logger.warning("bot runtime unavailable: %s", exc)
+            self.bot_runtime = None
+
         RouteHandlers(
             self.engine,
             self.router,
             base=f"http://{self.config.host}:{self.config.port}",
             container=getattr(self, "container", None),
+            bot_runtime=getattr(self, "bot_runtime", None),
         )
 
         self.router.get("/metrics")(self.metrics)
@@ -312,8 +394,8 @@ class Gateway:
                 f"Port {self.config.port} is unavailable on {self.config.host}: {exc}"
             ) from exc
 
-    def build_engine(self) -> cony.mt5_engine.MT5Engine:
-        conn = cony.ConnectionManager(
+    def build_engine(self) -> mt5_pkg_bridge.mt5_engine.MT5Engine:
+        conn = mt5_pkg_bridge.ConnectionManager(
             {
                 "package_path": self.config.mt5_package_path,
                 "login": self.config.mt5_login,
@@ -324,7 +406,7 @@ class Gateway:
                 "auto_reconnect": self.config.auto_reconnect,
             }
         )
-        return cony.mt5_engine.MT5Engine(conn, symbol_cache_ttl=self.config.symbol_cache_ttl)
+        return mt5_pkg_bridge.mt5_engine.MT5Engine(conn, symbol_cache_ttl=self.config.symbol_cache_ttl)
 
     def metrics(self, params, query, body):
         from database.store import Store
@@ -334,7 +416,7 @@ class Gateway:
         with _STREAM_LOCK:
             active_streams = len(_ACTIVE_STREAMS)
         return {
-            "service": "cony-gateway",
+            "service": "cotrade-gateway",
             "mt5_connected": self.engine.is_connected,
             "database": db_stats,
             "uptime_seconds": uptime,
@@ -354,14 +436,14 @@ class Gateway:
             if self.config.auto_reconnect:
                 self.engine.start_auto_reconnect(self.config.reconnect_interval)
             return True
-        except (ConnectionError, cony.mt5_engine.MT5ConnectionError) as exc:
+        except (ConnectionError, mt5_pkg_bridge.mt5_engine.MT5ConnectionError) as exc:
             logger.warning("Could not connect to MT5: %s", exc)
             logger.warning("Serving anyway; POST /connect to retry.")
             return False
 
     def serve_forever(self):
         logger.info("=" * 58)
-        logger.info("cony gateway %s", getattr(cony, "__version__", "1.0.0"))
+        logger.info("mt5 bridge %s", getattr(mt5_pkg_bridge, "__version__", "1.0.0"))
         logger.info("listening      http://%s:%s", self.config.host, self.config.port)
         logger.info("package path   %s", self.config.mt5_package_path or "importable directly")
         logger.info("routes         http://%s:%s/routes", self.config.host, self.config.port)
@@ -369,7 +451,7 @@ class Gateway:
         logger.info("=" * 58)
 
         if self.config.auto_connect:
-            threading.Thread(target=self.connect, name="cony-connect", daemon=True).start()
+            threading.Thread(target=self.connect, name="mt5pkg-connect", daemon=True).start()
 
         try:
             self.server.serve_forever()

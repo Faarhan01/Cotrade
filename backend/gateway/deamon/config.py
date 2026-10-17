@@ -4,7 +4,7 @@ deamon — Configuration
 Every setting is an environment variable, so the daemon can be reconfigured
 without touching code.
 
-Package discovery is delegated to cony.paths, the single place that knows how
+Package discovery is delegated to mt5_pkg_bridge.paths, the single place that knows how
 to locate the MetaTrader5 package - no absolute paths live here.
 """
 
@@ -15,7 +15,7 @@ from typing import Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from managers.mt5_manager import cony
+import mt5_pkg_bridge
 
 
 def _env_int(name: str, default: Optional[int]) -> Optional[int]:
@@ -48,7 +48,7 @@ class DaemonConfig:
     port: int = field(default_factory=lambda: _env_int("CONY_PORT", 3000))
 
     # MetaTrader5 package
-    mt5_package_path: Optional[str] = field(default_factory=cony.paths.find_mt5_package)
+    mt5_package_path: Optional[str] = field(default_factory=mt5_pkg_bridge.paths.find_mt5_package)
 
     # MT5 credentials (optional — terminal session can be reused)
     mt5_login: Optional[int] = field(default_factory=lambda: _env_int("MT5_LOGIN", None))

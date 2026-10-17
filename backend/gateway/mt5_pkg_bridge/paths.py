@@ -1,5 +1,5 @@
 """
-cony — Package Discovery
+mt5_pkg_bridge — Package Discovery
 ==========================
 Locates the MetaTrader5 Python package.
 
@@ -19,7 +19,7 @@ from typing import Optional
 
 ENV_VARS = ("CONY_MT5_PACKAGE", "PERON_PACKAGE_PATH")
 
-# Relative to this file: gateway/cony/paths.py -> gateway/../metatrader5_package
+# Relative to this file: gateway/mt5_pkg_bridge/paths.py -> gateway/../metatrader5_package
 _LOCAL_CANDIDATES = (
     os.path.join("..", "metatrader5_package"),
     os.path.join("..", "..", "metatrader5_package"),

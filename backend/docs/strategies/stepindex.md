@@ -7,7 +7,7 @@ statistically indistinguishable from random. This file records the strategy and
 the evidence honestly so it can be re-tested rather than re-invented.
 
 - Instrument: `Step Index 200` (Deriv synthetic index)
-- Data source: cony gateway, M1 candles, 7 days
+- Data source: Cotrade gateway, M1 candles, 7 days
 - Test harness: `gateway/tools/scalp_lab.py`
 - Verdict: break-even after costs, as random-walk maths predicts
 

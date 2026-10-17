@@ -3,7 +3,7 @@
 - Keep all changes local-first: no deployment assumptions, no Docker/service stack requirements, no platform-specific production tooling.
 - Frontend remains dependency-free: no build tool, Node runtime dependency, or CDN.
 - `knowledgebase/` must remain dependency-free.
-- `gateway/cony/` must not import `server`, `application`, `database`, or `tools`.
+- `gateway/mt5_pkg_bridge/` must not import `server`, `application`, `database`, or `tools`.
 - `frontconnect` must stay read-only and isolated: it can gather MT5 data for rendering, but it must not mutate connection state or break backend request handling.
 - Do not hardcode MetaTrader 5 data, symbols, prices, currency formatting assumptions, or business constants in the frontend/server when the value can come from MT5.
 - Send and receive MetaTrader 5 values as they are; only normalize at rendering boundaries and never silently convert pip/point/symbol spelling.

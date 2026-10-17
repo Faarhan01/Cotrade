@@ -1,5 +1,5 @@
 """
-cony — Market Book
+mt5_pkg_bridge — Market Book
 ====================
 Level-2 depth of market via the MetaTrader5 market book interface.
 

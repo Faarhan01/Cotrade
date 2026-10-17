@@ -17,7 +17,7 @@ sys.path.insert(0, ROOT)
 with open(os.path.join(HERE, "mt5_api.json"), encoding="utf-8") as fh:
     pkg = json.load(fh)
 
-# package function -> the cony method that wraps it ("" means not wrapped)
+# package function -> the bridge method that wraps it ("" means not wrapped)
 WRAPPERS = {
     "initialize": "ConnectionManager.connect",
     "shutdown": "ConnectionManager.disconnect",
@@ -63,7 +63,7 @@ unknown = [f for f in WRAPPERS if f not in pkg["functions"]]
 covered = [f for f in pkg["functions"] if WRAPPERS.get(f)]
 
 # Cross-check the wrappers still exist on the engine.
-from cony import ConnectionManager, MT5Engine  # noqa: E402
+from mt5_pkg_bridge import ConnectionManager, MT5Engine  # noqa: E402
 
 engine = MT5Engine(ConnectionManager())
 missing_methods = []

@@ -1,12 +1,12 @@
 """
-cony — MetaTrader 5 Engine
-============================
+mt5_pkg_bridge — MetaTrader 5 Engine
+====================================
 A plain Python library over the official MetaTrader5 package.
 
 No HTTP, no server, no JSON concerns - just MT5 operations returning
 ordinary dicts, usable from scripts, notebooks, tests or any server layer.
 
-    from cony import ConnectionManager, MT5Engine
+    from mt5_pkg_bridge import ConnectionManager, MT5Engine
 
     conn = ConnectionManager()
     conn.connect()
@@ -27,6 +27,8 @@ from .mt5_engine import (
     OrderRejectedError,
 )
 from . import enums
+from . import paths
+from . import mt5_engine
 
 __version__ = "1.0.0"
 
@@ -42,5 +44,7 @@ __all__ = [
     "InvalidRequestError",
     "OrderRejectedError",
     "enums",
+    "paths",
+    "mt5_engine",
     "__version__",
 ]

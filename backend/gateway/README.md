@@ -1,4 +1,4 @@
-# cony gateway
+# Cotrade gateway
 
 Direct MetaTrader 5 gateway: a Python daemon that attaches straight to the MT5
 terminal through the official `MetaTrader5` package and exposes it over HTTP so
@@ -6,7 +6,7 @@ an AI agent can drive it — market data, account state, every order operation,
 and live streaming.
 
 ```
-AI agent / app  →  deamon (:8890)  →  server (routing)  →  cony (engine)  →  MetaTrader5  →  MT5 terminal
+AI agent / app  →  deamon (:8890)  →  server (routing)  →  mt5_pkg_bridge (engine)  →  MetaTrader5  →  MT5 terminal
 ```
 
 No Node.js. One process. One port.
@@ -15,20 +15,20 @@ No Node.js. One process. One port.
 
 ## Layers
 
-Three sibling packages. Dependencies run one way only: `deamon → server → cony`.
+Three sibling packages. Dependencies run one way only: `deamon → server → mt5_pkg_bridge`.
 
-| Package   | Responsibility | Knows about |
-|-----------|----------------|-------------|
-| `cony/`   | MT5 engine — connection, symbols, data, trading, DOM | the MetaTrader5 package only |
-| `server/` | HTTP routing, validation, JSON shaping, SSE streams | cony, HTTP |
-| `deamon/` | Process lifecycle — config, logging, sockets, startup | server, cony |
+| Package             | Responsibility | Knows about |
+|---------------------|----------------|-------------|
+| `mt5_pkg_bridge/`   | MT5 engine — connection, symbols, data, trading, DOM | the MetaTrader5 package only |
+| `server/`           | HTTP routing, validation, JSON shaping, SSE streams | mt5_pkg_bridge, HTTP |
+| `deamon/`           | Process lifecycle — config, logging, sockets, startup | server, mt5_pkg_bridge |
 
-Neither `cony` nor `server` imports `deamon`, so any layer can be replaced
-without touching the others:
+Neither `mt5_pkg_bridge` nor `server` imports `deamon`, so any layer can be
+replaced without touching the others:
 
-- Swap `deamon/` for an MCP server, a WebSocket front end or a CLI — cony and server stay as they are.
-- Swap `server/` for FastAPI — cony and deamon stay as they are.
-- Import `cony` from a script or notebook with no server running at all.
+- Swap `deamon/` for an MCP server, a WebSocket front end or a CLI — the bridge and server stay as they are.
+- Swap `server/` for FastAPI — the bridge and deamon stay as they are.
+- Import `mt5_pkg_bridge` from a script or notebook with no server running at all.
 
 ## Coverage
 
@@ -40,7 +40,7 @@ All public functions of the MetaTrader5 package are wrapped, verified by
 
 ```
 gateway/
-├── cony/                    engine — no HTTP, no server
+├── mt5_pkg_bridge/         engine — no HTTP, no server
 │   ├── __init__.py
 │   ├── connection.py        terminal lifecycle, locking, auto-reconnect
 │   ├── mt5_engine.py        every MT5 operation
@@ -183,5 +183,5 @@ Python 3.11 on Windows. The MetaTrader5 package ships a `cp311-win_amd64`
 binary extension, so the interpreter version and platform must match. The MT5
 terminal must be installed, logged in and running, with Algo Trading enabled.
 
-`cony` never invents data. With the terminal down, reads reconnect or fail
+`mt5_pkg_bridge` never invents data. With the terminal down, reads reconnect or fail
 rather than returning placeholders.

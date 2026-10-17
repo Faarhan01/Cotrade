@@ -3,7 +3,7 @@ server — HTTP Error Types
 ==========================
 Request-level errors that carry an HTTP status.
 
-Engine errors live in cony and stay generic; these express the HTTP
+Engine errors live in mt5_pkg_bridge and stay generic; these express the HTTP
 contract, so the transport can translate one into a response without
 knowing anything about trading.
 """

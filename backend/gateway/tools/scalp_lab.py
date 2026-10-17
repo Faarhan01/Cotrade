@@ -2,7 +2,7 @@
 Scalping strategy lab for Step Index.
 
 Builds and tests scalping rules against Step Index M1 data pulled through the
-cony gateway, sizing with MT5's own /calc/size and pricing with /calc/profit so
+Cotrade gateway, sizing with MT5's own /calc/size and pricing with /calc/profit so
 the arithmetic comes from the terminal rather than being re-derived here.
 
     python tools/scalp_lab.py            # last 7 days of M1

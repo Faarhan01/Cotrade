@@ -29,6 +29,8 @@ from typing import Optional, Tuple
 # Overridable so a deployment can point at a built or vendored copy.
 from core.config import GatewayConfig
 
+_repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
 def _find_frontend_dir() -> str:
     env_dir = GatewayConfig.from_env().frontend_dir or os.environ.get("CONY_FRONTEND_DIR")
     if env_dir and os.path.isdir(env_dir):
@@ -45,6 +47,11 @@ FRONTEND_DIR = _find_frontend_dir()
 ASSETS_DIR = os.path.join(FRONTEND_DIR, "assets")
 PAGES_DIR = os.path.join(FRONTEND_DIR, "pages")
 PARTIALS_DIR = os.path.join(FRONTEND_DIR, "partials")
+
+# Optional built SPA (Vite output). When present, serve it on the same origin.
+DIST_DIR = os.path.join(_repo_root, "dist")
+DIST_ASSETS_DIR = os.path.join(DIST_DIR, "assets")
+DIST_INDEX = os.path.join(DIST_DIR, "index.html")
 
 TEXTUAL = {
     ".css": "text/css; charset=utf-8",
@@ -81,11 +88,25 @@ def _read_inside(root: str, relpath: str) -> Optional[Tuple[bytes, str]]:
 
 
 def read_asset(relpath: str) -> Optional[Tuple[bytes, str]]:
+    # Prefer built SPA assets when available.
+    if os.path.isdir(DIST_ASSETS_DIR):
+        found = _read_inside(DIST_ASSETS_DIR, relpath)
+        if found is not None:
+            return found
     return _read_inside(ASSETS_DIR, relpath)
 
 
 def read_page(relpath: str) -> Optional[Tuple[bytes, str]]:
+    # Serve the built SPA index when available.
+    if os.path.isfile(DIST_INDEX) and relpath in ("index", "index.html"):
+        return _read_inside(DIST_DIR, "index.html")
     return _read_inside(PAGES_DIR, relpath)
+
+
+def read_dist_index() -> Optional[Tuple[bytes, str]]:
+    if not os.path.isfile(DIST_INDEX):
+        return None
+    return _read_inside(DIST_DIR, "index.html")
 
 
 def read_partial(name: str) -> Optional[str]:
@@ -94,11 +115,15 @@ def read_partial(name: str) -> Optional[str]:
 
 
 def frontend_available() -> bool:
+    if os.path.isfile(DIST_INDEX):
+        return True
     return os.path.isdir(PAGES_DIR)
 
 
 def available_pages() -> list:
     """Page names without the extension, for diagnostics and the nav."""
+    if os.path.isfile(DIST_INDEX):
+        return ["index"]
     if not os.path.isdir(PAGES_DIR):
         return []
     return sorted(

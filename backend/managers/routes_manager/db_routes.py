@@ -7,7 +7,7 @@ Keeps data layer visibility accessible to both browser dashboards and automation
 
 import logging
 
-logger = logging.getLogger("cony.server.db")
+logger = logging.getLogger("mt5pkg.server.db")
 
 
 def register(router) -> int:

@@ -28,6 +28,8 @@ should not know what a web page is. This is one optional extension among
 others; a stripped-down gateway serves JSON and nothing else.
 """
 
+import os
+
 from core.server import responses
 from services.error_handlers.errors import NotFound
 
@@ -56,7 +58,15 @@ def register(router, engine) -> int:
     """Attach the UI routes. Returns how many were added."""
     before = len(router.list_routes())
 
+    spa = os.path.isfile(assets.DIST_INDEX)
+
     def serve(page: str):
+        if spa:
+            found = assets.read_dist_index()
+            if found is None:
+                raise NotFound("Built frontend not found")
+            payload, ctype = found
+            return responses.asset(payload, ctype)
         if assets.read_page(page if page.endswith(".html") else page + ".html") is None:
             raise NotFound(
                 f"No page named '{page}'. Available: "
@@ -71,6 +81,9 @@ def register(router, engine) -> int:
 
     @router.get("/ui/{page}")
     def page(params, query, body):
+        # SPA fallback: serve index for any page route.
+        if spa:
+            return serve("index")
         return serve(params["page"])
 
     @router.get("/assets/{path...}")

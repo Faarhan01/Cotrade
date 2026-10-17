@@ -128,7 +128,7 @@ def get_research():
         except Exception as exc:                      # noqa: BLE001
             # A missing or unwritable database is not fatal; research still
             # works, results just do not persist between restarts.
-            print(f"[cony] research running without a database: {exc}",
+            print(f"[cotrade] research running without a database: {exc}",
                   file=sys.stderr)
         _research = Research(fetch=_gateway_fetch, store=store)
         return _research
@@ -198,7 +198,7 @@ def register(router, engine, base: Optional[str] = None):
             if r["pattern"].startswith("/research")
         }
         return {
-            "service": "cony research",
+            "service": "cotrade research",
             "description": "Strategy creation, pattern scanning, indicators "
                            "and backtesting.",
             "endpoints": endpoints,

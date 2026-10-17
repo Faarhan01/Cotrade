@@ -1,6 +1,6 @@
 # Gateway reference
 
-API reference for the cony gateway daemon.
+API reference for the Cotrade gateway daemon.
 
 > For basic project facts (tech stack, database, API counts, architecture), see [`docs/context.md`](docs/context.md).
 
@@ -56,7 +56,7 @@ Daemon state and MT5 connection details.
 ```json
 {
   "status": "ok",
-  "service": "cony-gateway",
+  "service": "cotrade-gateway",
   "mt5_connected": true,
   "connection": {
     "connected": true,

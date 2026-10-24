@@ -128,6 +128,13 @@ export class TradingBot {
     const wasRunning = this.isRunning;
     if (wasRunning) this.stop();
 
+    // If mode changed without explicit timeframe, adopt mode target timeframe
+    if (updates.mode && !updates.timeframe) {
+      if (updates.mode === 'SCALPER') updates.timeframe = updates.scalperSettings?.targetTimeframe || 'M1';
+      else if (updates.mode === 'DAY_TRADES') updates.timeframe = updates.dayTradeSettings?.targetTimeframe || 'M15';
+      else if (updates.mode === 'SWING_TRADES') updates.timeframe = updates.swingTradeSettings?.targetTimeframe || 'H1';
+    }
+
     this.config = { ...this.config, ...updates };
     setBotConfig(updates);
     this.signalWatcher.updateConfig({
@@ -143,7 +150,22 @@ export class TradingBot {
 
     if (wasRunning && this.config.enabled) this.start();
 
-    return { success: true, message: 'Bot config updated' };
+    return { success: true, message: `Bot config updated (Mode: ${this.config.mode})` };
+  }
+
+  public async evaluateNow(): Promise<{ evaluated: number; signals: BotSignal[] }> {
+    const signals = await this.signalWatcher.watchAll();
+    this.state.lastRunAt = Date.now();
+    tradeStore.addLog(
+      'info',
+      'Manual Bot Strategy Scan Triggered',
+      `Evaluated ${this.config.symbols.length} symbols [${this.config.timeframe}]. Formulated ${signals.length} market signal(s).`,
+      'BOT'
+    );
+    return {
+      evaluated: this.config.symbols.length,
+      signals,
+    };
   }
 
   private async runCycle(): Promise<void> {
@@ -157,10 +179,16 @@ export class TradingBot {
 
     const signals = await this.signalWatcher.watchAll();
 
+    const modeCooldown = this.config.mode === 'SCALPER'
+      ? (this.config.scalperSettings?.cooldownMs || 60000)
+      : this.config.mode === 'SWING_TRADES'
+      ? (this.config.swingTradeSettings?.cooldownMs || 1800000)
+      : this.config.cooldownMs;
+
     for (const signal of signals) {
       if (signal.direction !== 'HOLD' && signal.confidence >= this.config.minConfidence) {
         const lastTrade = this.state.lastTradeAt[signal.symbol] || 0;
-        if (Date.now() - lastTrade < this.config.cooldownMs) continue;
+        if (Date.now() - lastTrade < modeCooldown) continue;
 
         const existingOnSymbol = positions.filter((p: any) => p.symbol === signal.symbol);
         if (existingOnSymbol.length >= this.config.maxTradesPerSymbol) continue;

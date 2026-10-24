@@ -1389,7 +1389,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case 'mt5_backtest_strategy': {
       const { dbGetStrategyById, dbGetCandles, dbSaveBacktestResult } = await import('../database/db.js');
-      const { runStrategyBacktest } = await import('../services/strategyEngine.js');
+      const { runStrategyBacktest } = await import('../knowledgebase/core/strategyEngine.js');
 
       const strategy = await dbGetStrategyById(args.strategyId);
       if (!strategy) throw new Error(`Strategy ${args.strategyId} not found`);
@@ -1817,7 +1817,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case 'mt5_backtest_with_knowledge': {
       const { dbGetStrategyById, dbGetCandles, dbSaveBacktestResult } = await import('../database/db.js');
-      const { runKnowledgeEnhancedBacktest } = await import('../services/strategyEngine.js');
+      const { runKnowledgeEnhancedBacktest } = await import('../knowledgebase/core/strategyEngine.js');
 
       const strategy = await dbGetStrategyById(args.strategyId);
       if (!strategy) {

@@ -35,6 +35,12 @@ export async function loadBotConfigFromDb(): Promise<BotConfig> {
 export function validateBotConfig(config: Partial<BotConfig>): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
+  if (config.mode !== undefined) {
+    const validModes = ['SCALPER', 'DAY_TRADES', 'SWING_TRADES', 'MIXED_OPTIONS'];
+    if (!validModes.includes(config.mode)) {
+      errors.push(`mode must be one of: ${validModes.join(', ')}`);
+    }
+  }
   if (config.minConfidence !== undefined && (config.minConfidence < 0 || config.minConfidence > 100)) {
     errors.push('minConfidence must be between 0 and 100');
   }

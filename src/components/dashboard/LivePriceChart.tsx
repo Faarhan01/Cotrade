@@ -70,6 +70,59 @@ export const LivePriceChart: React.FC<LivePriceChartProps> = ({
     }
   }, [candles]);
 
+  // Real-time MT5 bar builder from live tick stream
+  useEffect(() => {
+    if (!currentTick || !currentTick.bid || currentTick.symbol.toUpperCase() !== symbol.toUpperCase()) {
+      return;
+    }
+    setLocalCandles((prev) => {
+      if (!prev || prev.length === 0) return prev;
+      const lastIdx = prev.length - 1;
+      const lastBar = { ...prev[lastIdx] };
+
+      // Calculate timeframe period seconds
+      const tfSecsMap: Record<string, number> = {
+        M1: 60,
+        M5: 300,
+        M15: 900,
+        M30: 1800,
+        H1: 3600,
+        H4: 14400,
+        D1: 86400,
+      };
+      const pSecs = tfSecsMap[activeTf] || 60;
+      const tickTs = currentTick.timeMsc ? Math.floor(currentTick.timeMsc / 1000) : (currentTick.time || Math.floor(Date.now() / 1000));
+      const expectedBarTime = Math.floor(tickTs / pSecs) * pSecs;
+
+      if (lastBar.time === expectedBarTime) {
+        lastBar.close = currentTick.bid;
+        if (currentTick.bid > lastBar.high) lastBar.high = currentTick.bid;
+        if (currentTick.bid < lastBar.low) lastBar.low = currentTick.bid;
+        lastBar.volume = (lastBar.volume || 0) + 1;
+        const updated = [...prev];
+        updated[lastIdx] = lastBar;
+        return updated;
+      } else if (expectedBarTime > lastBar.time) {
+        lastBar.isClosed = true;
+        const newBar: CandleData = {
+          time: expectedBarTime,
+          timeIso: new Date(expectedBarTime * 1000).toISOString(),
+          open: currentTick.bid,
+          high: currentTick.bid,
+          low: currentTick.bid,
+          close: currentTick.bid,
+          volume: 1,
+          tickCount: 1,
+          spread: currentTick.spread || 0,
+          isClosed: false,
+        };
+        const updated = [...prev.slice(1), newBar];
+        return updated;
+      }
+      return prev;
+    });
+  }, [currentTick, symbol, activeTf]);
+
   // Handle switching timeframe & requesting from MT5 EA
   const handleTimeframeChange = async (tf: string) => {
     setActiveTf(tf);
@@ -514,11 +567,52 @@ export const LivePriceChart: React.FC<LivePriceChartProps> = ({
                 }
                 return null;
               })}
+
+              {/* MT5 Real-time Live Bid Line */}
+              {(() => {
+                const livePrice = currentTick?.bid || (activeCandleToDisplay ? activeCandleToDisplay.close : null);
+                if (livePrice && candleChartData) {
+                  const liveY = candleChartData.priceToY(livePrice);
+                  if (liveY >= 0 && liveY <= 175) {
+                    return (
+                      <g>
+                        <line
+                          x1="0"
+                          y1={liveY}
+                          x2="650"
+                          y2={liveY}
+                          stroke="#38bdf8"
+                          strokeWidth="1.2"
+                          strokeDasharray="4 2"
+                        />
+                        <circle cx="645" cy={liveY} r="3" fill="#38bdf8" />
+                      </g>
+                    );
+                  }
+                }
+                return null;
+              })()}
             </svg>
 
             {/* Price labels on right edge */}
             <div className="absolute right-2 top-2 bg-slate-900/90 border border-slate-700/80 px-1.5 py-0.5 rounded text-[10px] font-mono text-cyan-300">
               High: {candleChartData.maxPrice.toFixed(digits)}
+            </div>
+            {/* Live MT5 Bid & Bar Countdown Badge */}
+            <div className="absolute right-2 top-8 bg-cyan-950/90 border border-cyan-500/80 px-2 py-0.5 rounded text-[11px] font-mono font-bold text-cyan-300 shadow-md flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Bid: {(currentTick?.bid || activeCandleToDisplay?.close || 0).toFixed(digits)}</span>
+              {(() => {
+                const secs = chartDiagnostics?.barRemainingSeconds ?? chartDiagnostics?.currentBarSecondsRemaining;
+                if (secs !== undefined && secs > 0) {
+                  return (
+                    <span className="text-[9px] text-cyan-400/80 border-l border-cyan-700 pl-1.5">
+                      {secs}s
+                    </span>
+                  );
+                }
+                return null;
+              })()}
             </div>
             <div className="absolute right-2 bottom-7 bg-slate-900/90 border border-slate-700/80 px-1.5 py-0.5 rounded text-[10px] font-mono text-slate-400">
               Low: {candleChartData.minPrice.toFixed(digits)}

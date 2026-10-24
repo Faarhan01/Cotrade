@@ -40,9 +40,10 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
   // Bot Config Form State
   const [config, setConfig] = useState({
     enabled: false,
+    mode: 'DAY_TRADES' as 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' | 'MIXED_OPTIONS',
     symbols: ['EURUSD', 'GBPUSD', 'XAUUSD'],
-    timeframe: 'M1',
-    higherTimeframes: ['M5', 'H1'],
+    timeframe: 'M15',
+    higherTimeframes: ['M30', 'H1'],
     multiTimeframeConsensus: true,
     minConfidence: 70,
     riskPercent: 1.0,
@@ -54,6 +55,48 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
     trailingStop: true,
     newsRiskFilter: true,
     shockProtectionFilter: true,
+    scalperSettings: {
+      targetTimeframe: 'M1',
+      maxSpreadPoints: 20,
+      slAtrMultiplier: 1.0,
+      tpAtrMultiplier: 1.5,
+      quickBreakevenTriggerPoints: 60,
+      quickBreakevenLockPoints: 15,
+      tightTrailingDistancePoints: 80,
+      tightTrailingStepPoints: 20,
+      maxHoldBars: 10,
+      cooldownMs: 60000,
+    },
+    dayTradeSettings: {
+      targetTimeframe: 'M15',
+      higherTimeframe: 'H1',
+      slAtrMultiplier: 1.5,
+      tpAtrMultiplier: 2.5,
+      breakevenTriggerPoints: 120,
+      breakevenLockPoints: 25,
+      trailingDistancePoints: 150,
+      trailingStepPoints: 30,
+      sessionFilter: true,
+      cooldownMs: 300000,
+    },
+    swingTradeSettings: {
+      targetTimeframe: 'H1',
+      higherTimeframe: 'H4',
+      slAtrMultiplier: 2.2,
+      tpAtrMultiplier: 4.0,
+      breakevenTriggerPoints: 250,
+      breakevenLockPoints: 40,
+      trailingDistancePoints: 300,
+      trailingStepPoints: 60,
+      cooldownMs: 1800000,
+    },
+    mixedOptionsSettings: {
+      adaptiveRegimeRouting: true,
+      trancheExecution: true,
+      scalperWeight: 40,
+      dayTradeWeight: 40,
+      swingWeight: 20,
+    },
   });
 
   const [newSymbolInput, setNewSymbolInput] = useState('');
@@ -78,6 +121,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
           setConfig((prev) => ({
             ...prev,
             enabled: statusRes.enabled ?? prev.enabled,
+            mode: statusRes.config.mode || prev.mode,
             symbols: statusRes.config.symbols || prev.symbols,
             timeframe: statusRes.config.timeframe || prev.timeframe,
             higherTimeframes: statusRes.config.higherTimeframes || prev.higherTimeframes,
@@ -92,6 +136,10 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
             trailingStop: statusRes.config.trailingStop ?? prev.trailingStop,
             newsRiskFilter: statusRes.config.newsRiskFilter ?? prev.newsRiskFilter,
             shockProtectionFilter: statusRes.config.shockProtectionFilter ?? prev.shockProtectionFilter,
+            scalperSettings: statusRes.config.scalperSettings ? { ...prev.scalperSettings, ...statusRes.config.scalperSettings } : prev.scalperSettings,
+            dayTradeSettings: statusRes.config.dayTradeSettings ? { ...prev.dayTradeSettings, ...statusRes.config.dayTradeSettings } : prev.dayTradeSettings,
+            swingTradeSettings: statusRes.config.swingTradeSettings ? { ...prev.swingTradeSettings, ...statusRes.config.swingTradeSettings } : prev.swingTradeSettings,
+            mixedOptionsSettings: statusRes.config.mixedOptionsSettings ? { ...prev.mixedOptionsSettings, ...statusRes.config.mixedOptionsSettings } : prev.mixedOptionsSettings,
           }));
         }
       }
@@ -138,11 +186,44 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
     }
   };
 
+  const handleSelectMode = (newMode: 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' | 'MIXED_OPTIONS') => {
+    let targetTf = config.timeframe;
+    let higherTfs = config.higherTimeframes;
+    let cooldownMins = config.cooldownMinutes;
+
+    if (newMode === 'SCALPER') {
+      targetTf = config.scalperSettings?.targetTimeframe || 'M1';
+      higherTfs = ['M5', 'M15'];
+      cooldownMins = 1;
+    } else if (newMode === 'DAY_TRADES') {
+      targetTf = config.dayTradeSettings?.targetTimeframe || 'M15';
+      higherTfs = ['M30', 'H1'];
+      cooldownMins = 5;
+    } else if (newMode === 'SWING_TRADES') {
+      targetTf = config.swingTradeSettings?.targetTimeframe || 'H1';
+      higherTfs = ['H4', 'D1'];
+      cooldownMins = 30;
+    } else if (newMode === 'MIXED_OPTIONS') {
+      targetTf = 'M5';
+      higherTfs = ['M15', 'H1'];
+      cooldownMins = 3;
+    }
+
+    setConfig((prev) => ({
+      ...prev,
+      mode: newMode,
+      timeframe: targetTf,
+      higherTimeframes: higherTfs,
+      cooldownMinutes: cooldownMins,
+    }));
+  };
+
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setActionLoading(true);
       await api.updateBotConfig({
+        mode: config.mode,
         symbols: config.symbols,
         timeframe: config.timeframe,
         higherTimeframes: config.higherTimeframes,
@@ -157,6 +238,10 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
         trailingStop: config.trailingStop,
         newsRiskFilter: config.newsRiskFilter,
         shockProtectionFilter: config.shockProtectionFilter,
+        scalperSettings: config.scalperSettings,
+        dayTradeSettings: config.dayTradeSettings,
+        swingTradeSettings: config.swingTradeSettings,
+        mixedOptionsSettings: config.mixedOptionsSettings,
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -218,7 +303,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
               <Bot className="h-6 w-6" />
             </div>
             <div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
                   Automated Trading Bot
                 </h1>
@@ -229,20 +314,31 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                 }`}>
                   {isRunning ? 'PHYSICAL WORKER ACTIVE' : 'PAUSED'}
                 </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${
+                  config.mode === 'SCALPER'
+                    ? 'bg-amber-950/90 text-amber-300 border-amber-600/80 shadow-amber-950/30'
+                    : config.mode === 'DAY_TRADES'
+                    ? 'bg-cyan-950/90 text-cyan-300 border-cyan-600/80 shadow-cyan-950/30'
+                    : config.mode === 'SWING_TRADES'
+                    ? 'bg-indigo-950/90 text-indigo-300 border-indigo-600/80 shadow-indigo-950/30'
+                    : 'bg-emerald-950/90 text-emerald-300 border-emerald-600/80 shadow-emerald-950/30'
+                }`}>
+                  MODE: {config.mode.replace('_', ' ')}
+                </span>
                 {config.newsRiskFilter && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-cyan-950/80 text-cyan-300 border-cyan-700/60 flex items-center gap-1">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-cyan-950/80 text-cyan-300 border-cyan-700/60 flex items-center gap-1">
                     <Shield className="h-3 w-3 text-cyan-400" />
                     <span>NEWS SHIELD ON</span>
                   </span>
                 )}
                 {config.shockProtectionFilter && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-amber-950/80 text-amber-300 border-amber-700/60 flex items-center gap-1">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-amber-950/80 text-amber-300 border-amber-700/60 flex items-center gap-1">
                     <Zap className="h-3 w-3 text-amber-400" />
                     <span>SHOCK SHIELD ON</span>
                   </span>
                 )}
                 {config.multiTimeframeConsensus && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-indigo-950/80 text-indigo-300 border-indigo-700/60 flex items-center gap-1">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-indigo-950/80 text-indigo-300 border-indigo-700/60 flex items-center gap-1">
                     <Sliders className="h-3 w-3 text-indigo-400" />
                     <span>MTF CONFIRM ON</span>
                   </span>
@@ -255,7 +351,28 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              onClick={async () => {
+                try {
+                  setActionLoading(true);
+                  const evalRes = await api.evaluateBotNow();
+                  if (evalRes?.signals) setSignals(evalRes.signals);
+                  await fetchBotData();
+                } catch (err: any) {
+                  alert(`Evaluation notice: ${err?.message || err}`);
+                } finally {
+                  setActionLoading(false);
+                }
+              }}
+              disabled={actionLoading}
+              title="Evaluate current market signals for tracked symbols immediately"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all border border-cyan-700/60 bg-cyan-950/60 hover:bg-cyan-900/60 text-cyan-300"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>SCAN SIGNALS NOW</span>
+            </button>
+
             <button
               onClick={handleToggleBot}
               disabled={actionLoading}
@@ -351,6 +468,147 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
           </div>
         </div>
       )}
+
+      {/* 4 Dedicated Trading Modes Selector */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Scalper Card */}
+        <button
+          type="button"
+          onClick={() => handleSelectMode('SCALPER')}
+          className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between ${
+            config.mode === 'SCALPER'
+              ? 'bg-amber-950/40 border-amber-500/80 ring-1 ring-amber-500/80 shadow-lg shadow-amber-950/40'
+              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-400'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold font-mono tracking-wider text-amber-400 flex items-center gap-1.5">
+                <Zap className="h-4 w-4" /> SCALPER
+              </span>
+              {config.mode === 'SCALPER' && (
+                <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 text-[10px] font-mono font-bold border border-amber-500/40">
+                  ACTIVE
+                </span>
+              )}
+            </div>
+            <div className="text-sm font-bold text-white mt-1">Micro-Burst Scalper</div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+              Fast M1-M5 execution, spread friction guards (≤20 pts), tight 1.0x ATR SL & quick breakeven lock.
+            </p>
+          </div>
+          <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center gap-2 text-[10px] font-mono text-amber-300/90">
+            <span>TF: M1</span>
+            <span>•</span>
+            <span>SL: 1.0x ATR</span>
+            <span>•</span>
+            <span>Lock: +15 pts</span>
+          </div>
+        </button>
+
+        {/* Day Trades Card */}
+        <button
+          type="button"
+          onClick={() => handleSelectMode('DAY_TRADES')}
+          className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between ${
+            config.mode === 'DAY_TRADES'
+              ? 'bg-cyan-950/40 border-cyan-500/80 ring-1 ring-cyan-500/80 shadow-lg shadow-cyan-950/40'
+              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-400'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold font-mono tracking-wider text-cyan-400 flex items-center gap-1.5">
+                <Activity className="h-4 w-4" /> DAY TRADES
+              </span>
+              {config.mode === 'DAY_TRADES' && (
+                <span className="px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300 text-[10px] font-mono font-bold border border-cyan-500/40">
+                  ACTIVE
+                </span>
+              )}
+            </div>
+            <div className="text-sm font-bold text-white mt-1">Intraday Trend & Sessions</div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+              M5-M30 setups with H1 alignment. Focuses on peak London & NY overlap liquidity windows with 2.5:1 RR target.
+            </p>
+          </div>
+          <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center gap-2 text-[10px] font-mono text-cyan-300/90">
+            <span>TF: M15</span>
+            <span>•</span>
+            <span>TP: 2.5x ATR</span>
+            <span>•</span>
+            <span>Session Filter</span>
+          </div>
+        </button>
+
+        {/* Swing Trades Card */}
+        <button
+          type="button"
+          onClick={() => handleSelectMode('SWING_TRADES')}
+          className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between ${
+            config.mode === 'SWING_TRADES'
+              ? 'bg-indigo-950/40 border-indigo-500/80 ring-1 ring-indigo-500/80 shadow-lg shadow-indigo-950/40'
+              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-400'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold font-mono tracking-wider text-indigo-400 flex items-center gap-1.5">
+                <TrendingUp className="h-4 w-4" /> SWING TRADES
+              </span>
+              {config.mode === 'SWING_TRADES' && (
+                <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-mono font-bold border border-indigo-500/40">
+                  ACTIVE
+                </span>
+              )}
+            </div>
+            <div className="text-sm font-bold text-white mt-1">Macro Waves & Runners</div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+              H1-H4 multi-hour/day swing holds. Wide 2.2x ATR breathing room, 4.0x TP targets and patient trailing stop.
+            </p>
+          </div>
+          <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center gap-2 text-[10px] font-mono text-indigo-300/90">
+            <span>TF: H1</span>
+            <span>•</span>
+            <span>TP: 4.0x ATR</span>
+            <span>•</span>
+            <span>Deep Moves</span>
+          </div>
+        </button>
+
+        {/* Mixed Options Card */}
+        <button
+          type="button"
+          onClick={() => handleSelectMode('MIXED_OPTIONS')}
+          className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between ${
+            config.mode === 'MIXED_OPTIONS'
+              ? 'bg-emerald-950/40 border-emerald-500/80 ring-1 ring-emerald-500/80 shadow-lg shadow-emerald-950/40'
+              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 text-slate-400'
+          }`}
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold font-mono tracking-wider text-emerald-400 flex items-center gap-1.5">
+                <Brain className="h-4 w-4" /> MIXED OPTIONS
+              </span>
+              {config.mode === 'MIXED_OPTIONS' && (
+                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold border border-emerald-500/40">
+                  ACTIVE
+                </span>
+              )}
+            </div>
+            <div className="text-sm font-bold text-white mt-1">Adaptive Regime Hybrid</div>
+            <p className="text-[11px] text-slate-400 mt-1 leading-snug">
+              Autonomous dynamic routing: ranging -&gt; scalps; breakout -&gt; day trades; strong trends -&gt; swing runners with tranche TP.
+            </p>
+          </div>
+          <div className="mt-3 pt-2 border-t border-slate-800/80 flex items-center gap-2 text-[10px] font-mono text-emerald-300/90">
+            <span>Dynamic Routing</span>
+            <span>•</span>
+            <span>Tranche Exits</span>
+          </div>
+        </button>
+      </div>
 
       {/* Main 2-Column Split: Controls on Left, Signals Feed on Right */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -576,6 +834,241 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                     className="h-4 w-4 rounded accent-cyan-500"
                   />
                 </label>
+              </div>
+
+              {/* Mode-Specific Parameters Tuner */}
+              <div className="pt-3 border-t border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
+                    {config.mode.replace('_', ' ')} Tuner Settings
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Dynamic Mode Rules</span>
+                </div>
+
+                {config.mode === 'SCALPER' && (
+                  <div className="space-y-3 bg-amber-950/20 border border-amber-900/40 p-3 rounded-lg">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Max Spread (Points)</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.maxSpreadPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, maxSpreadPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Max Hold Bars</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.maxHoldBars}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, maxHoldBars: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Trigger (pts)</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.quickBreakevenTriggerPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, quickBreakevenTriggerPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Lock (pts)</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.quickBreakevenLockPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, quickBreakevenLockPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {config.mode === 'DAY_TRADES' && (
+                  <div className="space-y-3 bg-cyan-950/20 border border-cyan-900/40 p-3 rounded-lg">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div>
+                        <span className="text-cyan-300 font-bold block text-[11px]">London & NY Session Filter</span>
+                        <span className="text-[10px] text-slate-500 block">Restricts entries to peak global volume hours</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={config.dayTradeSettings.sessionFilter}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            dayTradeSettings: { ...config.dayTradeSettings, sessionFilter: e.target.checked },
+                          })
+                        }
+                        className="h-4 w-4 rounded accent-cyan-500"
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">SL ATR Multiplier</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.dayTradeSettings.slAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, slAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">TP ATR Multiplier</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.dayTradeSettings.tpAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, tpAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {config.mode === 'SWING_TRADES' && (
+                  <div className="space-y-3 bg-indigo-950/20 border border-indigo-900/40 p-3 rounded-lg">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">SL ATR Buffer (Wide)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.swingTradeSettings.slAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, slAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">TP ATR Target (Deep)</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.swingTradeSettings.tpAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, tpAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Trailing Dist (pts)</label>
+                        <input
+                          type="number"
+                          value={config.swingTradeSettings.trailingDistancePoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, trailingDistancePoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Trailing Step (pts)</label>
+                        <input
+                          type="number"
+                          value={config.swingTradeSettings.trailingStepPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, trailingStepPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {config.mode === 'MIXED_OPTIONS' && (
+                  <div className="space-y-3 bg-emerald-950/20 border border-emerald-900/40 p-3 rounded-lg">
+                    <label className="flex items-center justify-between cursor-pointer">
+                      <div>
+                        <span className="text-emerald-300 font-bold block text-[11px]">Adaptive Regime Routing</span>
+                        <span className="text-[10px] text-slate-500 block">Routes Range -&gt; Scalp, Breakout -&gt; Day, Trend -&gt; Swing</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={config.mixedOptionsSettings.adaptiveRegimeRouting}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            mixedOptionsSettings: { ...config.mixedOptionsSettings, adaptiveRegimeRouting: e.target.checked },
+                          })
+                        }
+                        className="h-4 w-4 rounded accent-emerald-500"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between cursor-pointer pt-1 border-t border-slate-800/60">
+                      <div>
+                        <span className="text-cyan-300 font-bold block text-[11px]">Tranche Partial Profit Exits</span>
+                        <span className="text-[10px] text-slate-500 block">Locks initial target while trailing remaining runner</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={config.mixedOptionsSettings.trancheExecution}
+                        onChange={(e) =>
+                          setConfig({
+                            ...config,
+                            mixedOptionsSettings: { ...config.mixedOptionsSettings, trancheExecution: e.target.checked },
+                          })
+                        }
+                        className="h-4 w-4 rounded accent-cyan-500"
+                      />
+                    </label>
+                  </div>
+                )}
               </div>
 
               <button

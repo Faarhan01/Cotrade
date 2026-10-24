@@ -35,6 +35,7 @@ import {
 import { calculateIndicators } from './indicatorEngine.js';
 import { normalizeTimeframe } from '../utils/timeframe.js';
 import { normalizeSymbol } from '../utils/symbol.js';
+import { updateKnowledgeBaseFromTelemetry } from '../knowledgebase/knowledge.js';
 
 /** How long a `dispatched` command may stay unresolved before it is reaped. */
 const DISPATCH_REAP_MS = 5 * 60 * 1000;
@@ -446,6 +447,8 @@ class TradeStore {
     if (Array.isArray(payload.ticks)) {
       dbInsertTicks(payload.ticks).catch((e) => console.error('DB insert ticks error:', e));
       pruneDatabase().catch((e) => console.error('DB prune error:', e));
+      const tickTelemetry: Array<{ velocity: number; timestamp: number }> = [];
+
       for (const tick of payload.ticks) {
         const existing = this.ticks.get(tick.symbol);
         const updated: TickData = {
@@ -454,15 +457,40 @@ class TradeStore {
           low24h: existing ? Math.min(existing.low24h || tick.bid, tick.bid) : tick.bid,
         };
         this.ticks.set(tick.symbol, updated);
+        this.applyTickToChartBars(updated);
 
-        // Update history
+        // Update history with millisecond precision
         let hist = this.tickHistory.get(tick.symbol);
         if (!hist) {
           hist = [];
           this.tickHistory.set(tick.symbol, hist);
         }
-        hist.push({ time: Date.now(), bid: tick.bid, ask: tick.ask });
+        const nowTs = tick.timeMsc || (tick.time ? tick.time * 1000 : Date.now());
+        hist.push({ time: nowTs, bid: tick.bid, ask: tick.ask });
         if (hist.length > 100) hist.shift();
+
+        // Calculate tick speed / pip velocity if previous tick exists
+        if (existing && existing.bid > 0) {
+          const prevTs = existing.timeMsc || (existing.time ? existing.time * 1000 : nowTs - 1000);
+          const dtSec = Math.max(0.1, (nowTs - prevTs) / 1000);
+          // Estimate point size from digits or default
+          const pt = this.currentChart?.symbol === tick.symbol && this.currentChart.point
+            ? this.currentChart.point
+            : (tick.bid > 100 ? 0.01 : 0.0001);
+          const pipDiff = Math.abs(tick.bid - existing.bid) / (pt * 10);
+          const velocity = pipDiff / dtSec; // pips per second
+          if (velocity > 0 && Number.isFinite(velocity)) {
+            tickTelemetry.push({ velocity: Number(velocity.toFixed(3)), timestamp: nowTs });
+          }
+        }
+      }
+
+      if (tickTelemetry.length > 0) {
+        try {
+          updateKnowledgeBaseFromTelemetry(payload.ticks[0]?.symbol || 'MARKET', tickTelemetry);
+        } catch (e) {
+          console.error('Failed to update knowledge base from tick telemetry:', e);
+        }
       }
     }
 
@@ -526,6 +554,87 @@ class TradeStore {
     this.syntheticDataActive = active;
   }
 
+  /**
+   * Applies incoming tick data to the live chart bar, matching MetaTrader 5's
+   * exact chart movement mechanics.
+   *
+   * In MT5, every tick:
+   * 1. Updates bar[0]'s close to tick.bid.
+   * 2. Expands bar[0]'s high and low as price moves.
+   * 3. Increments bar[0]'s tick_volume and updates spread.
+   * 4. When current time rolls over to a new timeframe period (e.g. at 60s for M1),
+   *    bar[0] becomes closed (isClosed = true), and a new bar[0] opens.
+   */
+  public applyTickToChartBars(tick: TickData): void {
+    if (!this.currentChart || !tick) return;
+    const currentSym = String(this.currentChart.symbol || '').toUpperCase();
+    const tickSym = String(tick.symbol || '').toUpperCase();
+    if (currentSym !== tickSym) return;
+
+    const pSecs = this.currentChart.periodSeconds || 60;
+    const tickTs = tick.timeMsc ? Math.floor(tick.timeMsc / 1000) : (tick.time || Math.floor(Date.now() / 1000));
+    const barOpenTime = Math.floor(tickTs / pSecs) * pSecs;
+
+    if (!this.chartHistory || this.chartHistory.length === 0) {
+      // First candle initialization
+      const firstBar: CandleData = {
+        time: barOpenTime,
+        timeIso: new Date(barOpenTime * 1000).toISOString(),
+        open: tick.bid,
+        high: Math.max(tick.bid, tick.ask),
+        low: Math.min(tick.bid, tick.ask),
+        close: tick.bid,
+        volume: 1,
+        tickCount: 1,
+        spread: tick.spread || 0,
+        isClosed: false,
+      };
+      this.chartHistory = [firstBar];
+      this.currentChart.currentBarTime = barOpenTime;
+      this.currentChart.bid = tick.bid;
+      this.currentChart.ask = tick.ask;
+      return;
+    }
+
+    const lastIdx = this.chartHistory.length - 1;
+    const lastBar = this.chartHistory[lastIdx];
+
+    if (lastBar.time === barOpenTime) {
+      // Live bar update
+      lastBar.close = tick.bid;
+      if (tick.bid > lastBar.high) lastBar.high = tick.bid;
+      if (tick.bid < lastBar.low) lastBar.low = tick.bid;
+      lastBar.volume = (lastBar.volume || 0) + 1;
+      lastBar.tickCount = (lastBar.tickCount || 0) + 1;
+      lastBar.spread = tick.spread || lastBar.spread;
+      lastBar.isClosed = false;
+    } else if (barOpenTime > lastBar.time) {
+      // Bar rollover: close previous bar and open new live bar
+      lastBar.isClosed = true;
+      const newBar: CandleData = {
+        time: barOpenTime,
+        timeIso: new Date(barOpenTime * 1000).toISOString(),
+        open: tick.bid,
+        high: tick.bid,
+        low: tick.bid,
+        close: tick.bid,
+        volume: 1,
+        tickCount: 1,
+        spread: tick.spread || 0,
+        isClosed: false,
+      };
+      this.chartHistory.push(newBar);
+      if (this.chartHistory.length > 500) {
+        this.chartHistory.shift();
+      }
+      this.currentChart.currentBarTime = barOpenTime;
+    }
+
+    this.currentChart.bid = tick.bid;
+    this.currentChart.ask = tick.ask;
+    this.currentChart.spread = tick.spread;
+  }
+
   // Update a single live tick (used by EA or simulation)
   public updateTick(tick: TickData) {
     const existing = this.ticks.get(tick.symbol);
@@ -535,6 +644,7 @@ class TradeStore {
       low24h: existing ? Math.min(existing.low24h || tick.bid, tick.bid) : tick.bid,
     };
     this.ticks.set(tick.symbol, updated);
+    this.applyTickToChartBars(updated);
 
     let hist = this.tickHistory.get(tick.symbol);
     if (!hist) {

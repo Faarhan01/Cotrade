@@ -143,7 +143,7 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3 font-mono text-xs">
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3 font-mono text-xs">
         {/* Bid */}
         <div className="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded-lg">
           <span className="text-[10px] text-slate-500 block uppercase">Live Bid</span>
@@ -189,6 +189,22 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
           <span className="text-[10px] text-slate-500 block uppercase">Contract Size</span>
           <div className="text-slate-300 mt-0.5 font-bold">
             {currentChart.contractSize.toLocaleString()}
+          </div>
+        </div>
+
+        {/* Stops Level */}
+        <div className="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded-lg">
+          <span className="text-[10px] text-slate-500 block uppercase">Stops Level</span>
+          <div className="text-amber-300 mt-0.5 font-bold">
+            {currentChart.stopsLevel !== undefined ? `${currentChart.stopsLevel} pts` : '—'}
+          </div>
+        </div>
+
+        {/* Freeze Level */}
+        <div className="bg-slate-950/70 border border-slate-800/80 p-2.5 rounded-lg">
+          <span className="text-[10px] text-slate-500 block uppercase">Freeze Level</span>
+          <div className="text-slate-300 mt-0.5 font-bold">
+            {currentChart.freezeLevel !== undefined ? `${currentChart.freezeLevel} pts` : '0 pts'}
           </div>
         </div>
       </div>

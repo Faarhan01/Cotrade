@@ -27,6 +27,8 @@ export interface TickData {
   last: number;
   volume: number;
   time: number;
+  timeMsc?: number;
+  flags?: number;
   high24h?: number;
   low24h?: number;
 }
@@ -164,6 +166,8 @@ export interface ChartSymbolInfo {
   sessionHigh?: number;
   sessionLow?: number;
   sessionVolume?: number;
+  stopsLevel?: number;
+  freezeLevel?: number;
   description?: string;
   currencyBase?: string;
   currencyProfit?: string;
@@ -214,6 +218,9 @@ export interface DetailedSymbolInfo {
   sessionVolume?: number;
   volume?: number;
   time?: number;
+  swapLong?: number;
+  swapShort?: number;
+  marginInitial?: number;
   isCurrentChart?: boolean;
 }
 

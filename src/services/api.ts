@@ -556,4 +556,38 @@ export const api = {
     if (!res.ok) throw new Error('Failed to evaluate multi-timeframe consensus');
     return res.json();
   },
+
+  async evaluateBotNow(): Promise<{ success: boolean; evaluated: number; signals: any[] }> {
+    const res = await fetch('/api/bot/evaluate', { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to trigger bot evaluation');
+    return res.json();
+  },
+
+  async updateBotMode(mode: string): Promise<{ success: boolean; mode: string; state: any }> {
+    const res = await fetch('/api/bot/mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode }),
+    });
+    if (!res.ok) throw new Error('Failed to update bot mode');
+    return res.json();
+  },
+
+  async getKnowledgeImbalances(symbol?: string, timeframe?: string): Promise<{ success: boolean; imbalances: any }> {
+    const params = new URLSearchParams();
+    if (symbol) params.append('symbol', symbol);
+    if (timeframe) params.append('timeframe', timeframe);
+    const res = await fetch(`/api/knowledge/imbalances?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch institutional imbalances');
+    return res.json();
+  },
+
+  async getKnowledgeSessionOrderFlow(symbol?: string, timeframe?: string): Promise<{ success: boolean; sessionOrderFlow: any }> {
+    const params = new URLSearchParams();
+    if (symbol) params.append('symbol', symbol);
+    if (timeframe) params.append('timeframe', timeframe);
+    const res = await fetch(`/api/knowledge/session-order-flow?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch session order flow');
+    return res.json();
+  },
 };

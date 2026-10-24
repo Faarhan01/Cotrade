@@ -26,6 +26,8 @@ export interface TickData {
   last: number;
   volume: number;
   time: number;
+  timeMsc?: number;
+  flags?: number;
   high24h?: number;
   low24h?: number;
 }
@@ -121,6 +123,8 @@ export interface ChartSymbolInfo {
   sessionHigh?: number;
   sessionLow?: number;
   sessionVolume?: number;
+  stopsLevel?: number;
+  freezeLevel?: number;
   description?: string;
   currencyBase?: string;
   currencyProfit?: string;
@@ -152,6 +156,7 @@ export interface MT5ChartDiagnostics {
   currentBarTimeIso: string;
   barElapsedSeconds: number;
   barRemainingSeconds: number;
+  currentBarSecondsRemaining?: number;
   barProgressPct: number;
   isBarClosed: boolean;
   spreadPoints: number;
@@ -231,6 +236,9 @@ export interface DetailedSymbolInfo {
   sessionVolume?: number;
   volume?: number;
   time?: number;
+  swapLong?: number;
+  swapShort?: number;
+  marginInitial?: number;
   isCurrentChart?: boolean;
 }
 
@@ -244,6 +252,8 @@ export interface CandleData {
   volume: number;
   tickCount?: number;
   spread?: number;
+  isClosed?: boolean;
+  realVolume?: number;
 }
 
 export type PendingOrderType = 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP' | 'BUY_STOP_LIMIT' | 'SELL_STOP_LIMIT';
@@ -506,4 +516,121 @@ export interface BacktestResult {
   };
 }
 
+export type BotTradingMode = 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' | 'MIXED_OPTIONS';
 
+export interface ScalperSettings {
+  targetTimeframe: string;
+  maxSpreadPoints: number;
+  slAtrMultiplier: number;
+  tpAtrMultiplier: number;
+  quickBreakevenTriggerPoints: number;
+  quickBreakevenLockPoints: number;
+  tightTrailingDistancePoints: number;
+  tightTrailingStepPoints: number;
+  maxHoldBars: number;
+  cooldownMs: number;
+}
+
+export interface DayTradeSettings {
+  targetTimeframe: string;
+  higherTimeframe: string;
+  slAtrMultiplier: number;
+  tpAtrMultiplier: number;
+  breakevenTriggerPoints: number;
+  breakevenLockPoints: number;
+  trailingDistancePoints: number;
+  trailingStepPoints: number;
+  sessionFilter: boolean;
+  cooldownMs: number;
+}
+
+export interface SwingTradeSettings {
+  targetTimeframe: string;
+  higherTimeframe: string;
+  slAtrMultiplier: number;
+  tpAtrMultiplier: number;
+  breakevenTriggerPoints: number;
+  breakevenLockPoints: number;
+  trailingDistancePoints: number;
+  trailingStepPoints: number;
+  cooldownMs: number;
+}
+
+export interface MixedOptionsSettings {
+  adaptiveRegimeRouting: boolean;
+  trancheExecution: boolean;
+  scalperWeight: number;
+  dayTradeWeight: number;
+  swingWeight: number;
+}
+
+export interface BotConfig {
+  enabled: boolean;
+  mode: BotTradingMode;
+  symbols: string[];
+  timeframe: string;
+  higherTimeframes: string[];
+  multiTimeframeConsensus: boolean;
+  minConfidence: number;
+  riskPercent: number;
+  maxOpenPositions: number;
+  maxTradesPerSymbol: number;
+  cooldownMs: number;
+  autoStopLoss: boolean;
+  autoTakeProfit: boolean;
+  trailingStop: boolean;
+  trailingDistancePoints: number;
+  trailingStepPoints: number;
+  dataQualityFilter: 'LIVE' | 'ANY';
+  maxSpreadPoints: number;
+  allowedSessions: string[];
+  newsRiskFilter: boolean;
+  shockProtectionFilter: boolean;
+  scalperSettings?: ScalperSettings;
+  dayTradeSettings?: DayTradeSettings;
+  swingTradeSettings?: SwingTradeSettings;
+  mixedOptionsSettings?: MixedOptionsSettings;
+}
+
+export interface BotSignal {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  action: 'BUY' | 'SELL';
+  mode: BotTradingMode;
+  confidence: number;
+  price: number;
+  sl: number;
+  tp: number;
+  reasons: string[];
+  indicators: Record<string, any>;
+  patterns: string[];
+  higherTimeframeConfirmed: boolean;
+  newsSafe: boolean;
+  shockSafe: boolean;
+  timestamp: number;
+  status: 'PENDING' | 'EXECUTED' | 'REJECTED' | 'EXPIRED';
+  rejectionReason?: string;
+  executionTicket?: number;
+}
+
+export interface BotTrade {
+  id: string;
+  signalId: string;
+  symbol: string;
+  action: 'BUY' | 'SELL';
+  mode: BotTradingMode;
+  ticket?: number;
+  volume: number;
+  entryPrice: number;
+  entryTime: number;
+  sl: number;
+  tp: number;
+  status: 'OPEN' | 'CLOSED';
+  exitPrice?: number;
+  exitTime?: number;
+  exitReason?: string;
+  profitUsd?: number;
+  profitPoints?: number;
+  trailingActive?: boolean;
+}

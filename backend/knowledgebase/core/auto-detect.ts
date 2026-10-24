@@ -1518,6 +1518,353 @@ export function autoDetectScalpingSuitability(
   };
 }
 
+export interface FairValueGap {
+  id: string;
+  type: 'BULLISH_FVG' | 'BEARISH_FVG';
+  topPrice: number;
+  bottomPrice: number;
+  midPrice: number;
+  gapPips: number;
+  gapPoints: number;
+  candleIndex: number;
+  candleTime: number;
+  candleTimeIso?: string;
+  status: 'UNMITIGATED' | 'PARTIALLY_MITIGATED' | 'FULLY_FILLED';
+  mitigationPct: number;
+  invalidationLevel: number;
+}
+
+export interface LiquidityPoolLevel {
+  type: 'BUY_SIDE_LIQUIDITY' | 'SELL_SIDE_LIQUIDITY';
+  price: number;
+  touches: number;
+  status: 'ACTIVE_POOL' | 'SWEPT_PURGED';
+  significance: 'HIGH' | 'MEDIUM';
+  description: string;
+}
+
+export interface InstitutionalImbalancesProfile {
+  symbol: string;
+  fvgs: FairValueGap[];
+  activeUnmitigatedFvgs: FairValueGap[];
+  nearestBullishFvg: FairValueGap | null;
+  nearestBearishFvg: FairValueGap | null;
+  liquidityPools: LiquidityPoolLevel[];
+  imbalanceBias: 'BULLISH_IMBALANCE' | 'BEARISH_IMBALANCE' | 'BALANCED';
+  orderFlowContext: string;
+  analyzedAt: number;
+}
+
+export interface SessionOrderFlowProfile {
+  symbol: string;
+  activeSession: 'ASIAN' | 'LONDON' | 'NEW_YORK' | 'LONDON_NY_OVERLAP' | 'ROLLOVER';
+  asianRange: {
+    high: number;
+    low: number;
+    rangePips: number;
+    highSwept: boolean;
+    lowSwept: boolean;
+  };
+  orderFlowBias: 'BULLISH_EXPANSION' | 'BEARISH_EXPANSION' | 'RANGE_ACCUMULATION' | 'LIQUIDITY_HUNT';
+  judasSwingDetected: boolean;
+  judasSwingType: 'BULL_TRAP_RUN' | 'BEAR_TRAP_RUN' | 'NONE';
+  nextInstitutionalMagnet: number;
+  tacticalGuidance: string;
+  analyzedAt: number;
+}
+
+/**
+ * Auto-detect Fair Value Gaps (FVG) and Institutional Liquidity Pools from candles
+ */
+export function autoDetectInstitutionalImbalances(
+  symbol: string,
+  candles?: CandleData[],
+  point = 0.0001
+): InstitutionalImbalancesProfile {
+  const sym = symbol ? symbol.trim() : 'EURUSD';
+  const pt = point > 0 ? point : 0.0001;
+  const pSize = pt * 10;
+  const fvgs: FairValueGap[] = [];
+  const pools: LiquidityPoolLevel[] = [];
+
+  if (!candles || candles.length < 5) {
+    return {
+      symbol: sym,
+      fvgs: [],
+      activeUnmitigatedFvgs: [],
+      nearestBullishFvg: null,
+      nearestBearishFvg: null,
+      liquidityPools: [],
+      imbalanceBias: 'BALANCED',
+      orderFlowContext: 'Insufficient candle depth for institutional imbalance scan.',
+      analyzedAt: Date.now(),
+    };
+  }
+
+  const latestCandle = candles[candles.length - 1];
+  const currentPrice = latestCandle.close;
+
+  // Scan 3-candle patterns for Fair Value Gaps
+  for (let i = 2; i < candles.length; i++) {
+    const c0 = candles[i - 2];
+    const c1 = candles[i - 1];
+    const c2 = candles[i];
+
+    // Bullish FVG: Strong upward expansion bar (c1) where c0.high < c2.low
+    if (c2.low > c0.high && (c2.low - c0.high) >= pt * 3) {
+      const top = c2.low;
+      const bottom = c0.high;
+      const gapRange = top - bottom;
+      const gapPoints = Math.round(gapRange / pt);
+      const gapPips = Number((gapRange / pSize).toFixed(1));
+
+      // Check subsequent candles to calculate mitigation
+      let lowestRetest = top;
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].low < lowestRetest) lowestRetest = candles[j].low;
+      }
+
+      let status: 'UNMITIGATED' | 'PARTIALLY_MITIGATED' | 'FULLY_FILLED' = 'UNMITIGATED';
+      let mitigationPct = 0;
+      if (lowestRetest <= bottom) {
+        status = 'FULLY_FILLED';
+        mitigationPct = 100;
+      } else if (lowestRetest < top) {
+        status = 'PARTIALLY_MITIGATED';
+        mitigationPct = Math.min(100, Math.round(((top - lowestRetest) / gapRange) * 100));
+      }
+
+      fvgs.push({
+        id: `fvg-bull-${c1.time}`,
+        type: 'BULLISH_FVG',
+        topPrice: Number(top.toFixed(5)),
+        bottomPrice: Number(bottom.toFixed(5)),
+        midPrice: Number(((top + bottom) / 2).toFixed(5)),
+        gapPips,
+        gapPoints,
+        candleIndex: i - 1,
+        candleTime: c1.time,
+        candleTimeIso: c1.timeIso,
+        status,
+        mitigationPct,
+        invalidationLevel: Number(bottom.toFixed(5)),
+      });
+    }
+
+    // Bearish FVG: Strong downward drop bar (c1) where c0.low > c2.high
+    if (c0.low > c2.high && (c0.low - c2.high) >= pt * 3) {
+      const top = c0.low;
+      const bottom = c2.high;
+      const gapRange = top - bottom;
+      const gapPoints = Math.round(gapRange / pt);
+      const gapPips = Number((gapRange / pSize).toFixed(1));
+
+      // Check subsequent candles to calculate mitigation
+      let highestRetest = bottom;
+      for (let j = i + 1; j < candles.length; j++) {
+        if (candles[j].high > highestRetest) highestRetest = candles[j].high;
+      }
+
+      let status: 'UNMITIGATED' | 'PARTIALLY_MITIGATED' | 'FULLY_FILLED' = 'UNMITIGATED';
+      let mitigationPct = 0;
+      if (highestRetest >= top) {
+        status = 'FULLY_FILLED';
+        mitigationPct = 100;
+      } else if (highestRetest > bottom) {
+        status = 'PARTIALLY_MITIGATED';
+        mitigationPct = Math.min(100, Math.round(((highestRetest - bottom) / gapRange) * 100));
+      }
+
+      fvgs.push({
+        id: `fvg-bear-${c1.time}`,
+        type: 'BEARISH_FVG',
+        topPrice: Number(top.toFixed(5)),
+        bottomPrice: Number(bottom.toFixed(5)),
+        midPrice: Number(((top + bottom) / 2).toFixed(5)),
+        gapPips,
+        gapPoints,
+        candleIndex: i - 1,
+        candleTime: c1.time,
+        candleTimeIso: c1.timeIso,
+        status,
+        mitigationPct,
+        invalidationLevel: Number(top.toFixed(5)),
+      });
+    }
+  }
+
+  // Scan Equal Highs (EQH - Buy-Side Liquidity) and Equal Lows (EQL - Sell-Side Liquidity)
+  const tolerance = pt * 8; // ~0.8 pips
+  for (let i = 0; i < candles.length - 1; i++) {
+    for (let j = i + 1; j < candles.length; j++) {
+      if (Math.abs(candles[i].high - candles[j].high) <= tolerance) {
+        const pHigh = (candles[i].high + candles[j].high) / 2;
+        const swept = candles.slice(j + 1).some((c) => c.high > pHigh + tolerance);
+        if (!pools.some((p) => p.type === 'BUY_SIDE_LIQUIDITY' && Math.abs(p.price - pHigh) <= tolerance)) {
+          pools.push({
+            type: 'BUY_SIDE_LIQUIDITY',
+            price: Number(pHigh.toFixed(5)),
+            touches: 2,
+            status: swept ? 'SWEPT_PURGED' : 'ACTIVE_POOL',
+            significance: 'HIGH',
+            description: `Equal Highs (EQH) Buy-Side Liquidity pool resting at ${pHigh.toFixed(5)}. Target for institutional stop run.`,
+          });
+        }
+      }
+
+      if (Math.abs(candles[i].low - candles[j].low) <= tolerance) {
+        const pLow = (candles[i].low + candles[j].low) / 2;
+        const swept = candles.slice(j + 1).some((c) => c.low < pLow - tolerance);
+        if (!pools.some((p) => p.type === 'SELL_SIDE_LIQUIDITY' && Math.abs(p.price - pLow) <= tolerance)) {
+          pools.push({
+            type: 'SELL_SIDE_LIQUIDITY',
+            price: Number(pLow.toFixed(5)),
+            touches: 2,
+            status: swept ? 'SWEPT_PURGED' : 'ACTIVE_POOL',
+            significance: 'HIGH',
+            description: `Equal Lows (EQL) Sell-Side Liquidity pool resting at ${pLow.toFixed(5)}. Target for institutional liquidity grab.`,
+          });
+        }
+      }
+    }
+  }
+
+  const activeUnmitigatedFvgs = fvgs.filter((f) => f.status !== 'FULLY_FILLED').slice(-8);
+  const bullishFvgsBelow = activeUnmitigatedFvgs.filter((f) => f.type === 'BULLISH_FVG' && f.topPrice <= currentPrice);
+  const bearishFvgsAbove = activeUnmitigatedFvgs.filter((f) => f.type === 'BEARISH_FVG' && f.bottomPrice >= currentPrice);
+
+  const nearestBullishFvg = bullishFvgsBelow.length > 0 ? bullishFvgsBelow[bullishFvgsBelow.length - 1] : null;
+  const nearestBearishFvg = bearishFvgsAbove.length > 0 ? bearishFvgsAbove[bearishFvgsAbove.length - 1] : null;
+
+  let imbalanceBias: 'BULLISH_IMBALANCE' | 'BEARISH_IMBALANCE' | 'BALANCED' = 'BALANCED';
+  if (bullishFvgsBelow.length > bearishFvgsAbove.length) imbalanceBias = 'BULLISH_IMBALANCE';
+  else if (bearishFvgsAbove.length > bullishFvgsBelow.length) imbalanceBias = 'BEARISH_IMBALANCE';
+
+  return {
+    symbol: sym,
+    fvgs: fvgs.slice(-15),
+    activeUnmitigatedFvgs,
+    nearestBullishFvg,
+    nearestBearishFvg,
+    liquidityPools: pools.slice(-8),
+    imbalanceBias,
+    orderFlowContext: `Detected ${activeUnmitigatedFvgs.length} active institutional imbalances and ${pools.length} liquidity pools. Price is currently ${imbalanceBias.replace('_', ' ').toLowerCase()}.`,
+    analyzedAt: Date.now(),
+  };
+}
+
+/**
+ * Auto-detect Session Range & Order Flow Bias (Asian Range, London Open, NY Expansion)
+ */
+export function autoDetectSessionOrderFlowBias(
+  symbol: string,
+  candles?: CandleData[]
+): SessionOrderFlowProfile {
+  const sym = symbol ? symbol.trim() : 'EURUSD';
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+
+  let activeSession: 'ASIAN' | 'LONDON' | 'NEW_YORK' | 'LONDON_NY_OVERLAP' | 'ROLLOVER' = 'ASIAN';
+  if (utcHour >= 21 && utcHour < 23) activeSession = 'ROLLOVER';
+  else if (utcHour >= 12 && utcHour < 16) activeSession = 'LONDON_NY_OVERLAP';
+  else if (utcHour >= 13 && utcHour < 21) activeSession = 'NEW_YORK';
+  else if (utcHour >= 7 && utcHour < 16) activeSession = 'LONDON';
+
+  if (!candles || candles.length < 15) {
+    return {
+      symbol: sym,
+      activeSession,
+      asianRange: { high: 0, low: 0, rangePips: 0, highSwept: false, lowSwept: false },
+      orderFlowBias: 'RANGE_ACCUMULATION',
+      judasSwingDetected: false,
+      judasSwingType: 'NONE',
+      nextInstitutionalMagnet: 0,
+      tacticalGuidance: 'Awaiting MT5 candle dataset to compute institutional session bias.',
+      analyzedAt: Date.now(),
+    };
+  }
+
+  // Filter candles that occurred during Asian Session (00:00 - 07:00 UTC)
+  const asianCandles = candles.filter((c) => {
+    const d = new Date(c.time * 1000);
+    const h = d.getUTCHours();
+    return h >= 0 && h < 7;
+  });
+
+  let asianHigh = 0;
+  let asianLow = Infinity;
+  if (asianCandles.length > 0) {
+    asianHigh = Math.max(...asianCandles.map((c) => c.high));
+    asianLow = Math.min(...asianCandles.map((c) => c.low));
+  } else {
+    // Fallback to first third of candles
+    const subset = candles.slice(0, Math.floor(candles.length / 3));
+    asianHigh = Math.max(...subset.map((c) => c.high));
+    asianLow = Math.min(...subset.map((c) => c.low));
+  }
+
+  const currentPrice = candles[candles.length - 1].close;
+  const pt = currentPrice > 100 ? 0.01 : 0.0001;
+  const pSize = pt * 10;
+  const rangePips = Number(((asianHigh - asianLow) / pSize).toFixed(1));
+
+  // Check if Asian High or Low was swept
+  const postAsianCandles = candles.slice(-20);
+  const highSwept = postAsianCandles.some((c) => c.high > asianHigh + pt * 5);
+  const lowSwept = postAsianCandles.some((c) => c.low < asianLow - pt * 5);
+
+  let judasSwingDetected = false;
+  let judasSwingType: 'BULL_TRAP_RUN' | 'BEAR_TRAP_RUN' | 'NONE' = 'NONE';
+  let orderFlowBias: 'BULLISH_EXPANSION' | 'BEARISH_EXPANSION' | 'RANGE_ACCUMULATION' | 'LIQUIDITY_HUNT' = 'RANGE_ACCUMULATION';
+
+  if (highSwept && currentPrice < asianHigh) {
+    judasSwingDetected = true;
+    judasSwingType = 'BULL_TRAP_RUN';
+    orderFlowBias = 'BEARISH_EXPANSION';
+  } else if (lowSwept && currentPrice > asianLow) {
+    judasSwingDetected = true;
+    judasSwingType = 'BEAR_TRAP_RUN';
+    orderFlowBias = 'BULLISH_EXPANSION';
+  } else if (currentPrice > asianHigh) {
+    orderFlowBias = 'BULLISH_EXPANSION';
+  } else if (currentPrice < asianLow) {
+    orderFlowBias = 'BEARISH_EXPANSION';
+  }
+
+  const nextInstitutionalMagnet = orderFlowBias === 'BULLISH_EXPANSION'
+    ? Number((asianHigh + (asianHigh - asianLow) * 0.618).toFixed(5))
+    : Number((asianLow - (asianHigh - asianLow) * 0.618).toFixed(5));
+
+  let tacticalGuidance = `Asian session range established (${rangePips} pips). `;
+  if (judasSwingDetected) {
+    tacticalGuidance += `Institutional Judas Swing liquidity sweep detected (${judasSwingType.replace('_', ' ')}). Anticipate rapid reversal toward opposite liquidity pool.`;
+  } else if (orderFlowBias === 'BULLISH_EXPANSION') {
+    tacticalGuidance += `Price expanded above Asian high. Favor buying dips toward ${asianHigh.toFixed(5)} order block.`;
+  } else if (orderFlowBias === 'BEARISH_EXPANSION') {
+    tacticalGuidance += `Price expanded below Asian low. Favor selling rallies toward ${asianLow.toFixed(5)} rejection block.`;
+  } else {
+    tacticalGuidance += 'Price remains inside session range. Trade mean reversion or await London breakout confirmation.';
+  }
+
+  return {
+    symbol: sym,
+    activeSession,
+    asianRange: {
+      high: Number(asianHigh.toFixed(5)),
+      low: Number(asianLow.toFixed(5)),
+      rangePips,
+      highSwept,
+      lowSwept,
+    },
+    orderFlowBias,
+    judasSwingDetected,
+    judasSwingType,
+    nextInstitutionalMagnet,
+    tacticalGuidance,
+    analyzedAt: Date.now(),
+  };
+}
+
 export interface ComprehensiveSymbolAnalysis {
   symbol: string;
   specs: SymbolAutoDetectProfile;
@@ -1529,6 +1876,8 @@ export interface ComprehensiveSymbolAnalysis {
   pivotsAndLevels: SupportResistancePivotProfile;
   executionSafety: ExecutionSafetyProfile;
   scalpingSuitability: ScalpingSuitabilityProfile;
+  imbalances: InstitutionalImbalancesProfile;
+  sessionOrderFlow: SessionOrderFlowProfile;
   analyzedAt: number;
 }
 
@@ -1552,6 +1901,8 @@ export function runComprehensiveAutoDetection(
   const pivotsAndLevels = autoDetectSupportResistanceAndPivots(targetSymbol, candles);
   const executionSafety = autoDetectExecutionSafetyScore(targetSymbol, accountInfo, symbolInfo, candles, ticks);
   const scalpingSuitability = autoDetectScalpingSuitability(targetSymbol, candles, ticks);
+  const imbalances = autoDetectInstitutionalImbalances(targetSymbol, candles, specs.point);
+  const sessionOrderFlow = autoDetectSessionOrderFlowBias(targetSymbol, candles);
 
   return {
     symbol: targetSymbol,
@@ -1564,6 +1915,9 @@ export function runComprehensiveAutoDetection(
     pivotsAndLevels,
     executionSafety,
     scalpingSuitability,
+    imbalances,
+    sessionOrderFlow,
     analyzedAt: Date.now(),
   };
 }
+

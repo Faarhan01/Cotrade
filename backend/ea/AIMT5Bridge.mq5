@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI MT5 Bridge"
 #property link      "http://127.0.0.1:7777"
-#property version   "2.20"
+#property version   "2.40"
 #property description "Connects MetaTrader 5 to external AI via Local MCP/REST Bridge (http://127.0.0.1:7777 or :3000)"
 #property description "Enables asynchronous AI trade execution, real-time tick streaming, spread protection, and position management."
 
@@ -430,6 +430,8 @@ string BuildSyncJson()
    json += "\"lotStep\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP), 2) + ",";
    json += "\"contractSize\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE), 2) + ",";
    json += "\"tickValue\":" + DoubleToString(SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE), 4) + ",";
+   json += "\"stopsLevel\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+   json += "\"freezeLevel\":" + IntegerToString((int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL)) + ",";
    json += "\"tradeAllowed\":" + ((SymbolInfoInteger(_Symbol, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED) ? "true" : "false") + ",";
    json += "\"sessionOpen\":" + DoubleToString(cSessionOpen, _Digits) + ",";
    json += "\"sessionHigh\":" + DoubleToString(cSessionHigh, _Digits) + ",";
@@ -494,6 +496,9 @@ string BuildSyncJson()
          json += "\"sessionHigh\":" + DoubleToString(sHigh, sDigits) + ",";
          json += "\"sessionLow\":" + DoubleToString(sLow, sDigits) + ",";
          json += "\"isCurrentChart\":" + (sym == _Symbol ? "true" : "false") + ",";
+         json += "\"swapLong\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_SWAP_LONG), 2) + ",";
+         json += "\"swapShort\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_SWAP_SHORT), 2) + ",";
+         json += "\"marginInitial\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_MARGIN_INITIAL), 2) + ",";
          json += "\"description\":\"" + EscapeJson(SymbolInfoString(sym, SYMBOL_DESCRIPTION)) + "\",";
          json += "\"currencyBase\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_BASE) + "\",";
          json += "\"currencyProfit\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT) + "\"";
@@ -646,14 +651,17 @@ string BuildSyncJson()
          {
             if(addedTicks > 0) json += ",";
             int spread = (int)SymbolInfoInteger(sym, SYMBOL_SPREAD);
+            int tDigits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
             json += "{";
             json += "\"symbol\":\"" + sym + "\",";
-            json += "\"bid\":" + DoubleToString(tick.bid, 5) + ",";
-            json += "\"ask\":" + DoubleToString(tick.ask, 5) + ",";
-            json += "\"last\":" + DoubleToString(tick.last, 5) + ",";
+            json += "\"bid\":" + DoubleToString(tick.bid, tDigits) + ",";
+            json += "\"ask\":" + DoubleToString(tick.ask, tDigits) + ",";
+            json += "\"last\":" + DoubleToString(tick.last, tDigits) + ",";
             json += "\"spread\":" + IntegerToString(spread) + ",";
             json += "\"volume\":" + IntegerToString((long)tick.volume) + ",";
             json += "\"time\":" + IntegerToString((long)tick.time) + ",";
+            json += "\"timeMsc\":" + IntegerToString((long)tick.time_msc) + ",";
+            json += "\"flags\":" + IntegerToString((int)tick.flags) + ",";
             json += "\"timeIso\":\"" + TimeToISO(tick.time) + "\"";
             json += "}";
             addedTicks++;

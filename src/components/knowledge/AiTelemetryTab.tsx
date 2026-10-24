@@ -79,7 +79,7 @@ export const AiTelemetryTab: React.FC = () => {
             <Database className="h-4 w-4 text-cyan-400" />
           </div>
           <div className="text-2xl font-bold text-white mt-1">
-            {telemetry?.totalObservations?.toLocaleString() || '1,420'}
+            {telemetry?.totalObservations !== undefined ? telemetry.totalObservations.toLocaleString() : '0'}
           </div>
           <div className="text-[10px] text-slate-500 mt-1">Aggregated across MT5 tick events</div>
         </div>
@@ -90,7 +90,8 @@ export const AiTelemetryTab: React.FC = () => {
             <Activity className="h-4 w-4 text-emerald-400" />
           </div>
           <div className="text-2xl font-bold text-emerald-400 mt-1">
-            {telemetry?.globalAverageSpeed || '14.8'} <span className="text-xs text-slate-400">pts/s</span>
+            {telemetry?.globalAverageSpeed !== undefined ? Number(telemetry.globalAverageSpeed).toFixed(1) : '0.0'}{' '}
+            <span className="text-xs text-slate-400">pts/s</span>
           </div>
           <div className="text-[10px] text-slate-500 mt-1">Average market displacement rate</div>
         </div>
@@ -101,7 +102,8 @@ export const AiTelemetryTab: React.FC = () => {
             <Zap className="h-4 w-4 text-amber-400" />
           </div>
           <div className="text-2xl font-bold text-amber-400 mt-1">
-            {telemetry?.peakVelocityRegistered || '68.4'} <span className="text-xs text-slate-400">pts/s</span>
+            {telemetry?.peakVelocityRegistered !== undefined ? Number(telemetry.peakVelocityRegistered).toFixed(1) : '0.0'}{' '}
+            <span className="text-xs text-slate-400">pts/s</span>
           </div>
           <div className="text-[10px] text-slate-500 mt-1">Maximum news expansion spike</div>
         </div>
@@ -148,16 +150,19 @@ export const AiTelemetryTab: React.FC = () => {
         <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-12 gap-2 text-xs">
           {hours.map((h) => {
             const entry = telemetry?.timeOfDayPatterns?.[h];
-            const avgSpeed = entry?.avgSpeed ? Number(entry.avgSpeed).toFixed(1) : '12.0';
             const sampleCount = entry?.sampleCount || 0;
+            const avgSpeed = entry?.avgSpeed ? Number(entry.avgSpeed).toFixed(1) : (sampleCount > 0 ? '0.0' : '-');
             const isCurrent = h === currentUtcHour;
-            const speedVal = parseFloat(avgSpeed);
+            const speedVal = avgSpeed !== '-' ? parseFloat(avgSpeed) : 0;
 
             // Heatmap color intensity
-            let heatBg = 'bg-slate-950/60 border-slate-800/60 text-slate-400';
-            if (speedVal >= 35) heatBg = 'bg-rose-950/40 border-rose-800 text-rose-300';
-            else if (speedVal >= 25) heatBg = 'bg-amber-950/40 border-amber-800 text-amber-300';
-            else if (speedVal >= 18) heatBg = 'bg-cyan-950/40 border-cyan-800 text-cyan-300';
+            let heatBg = 'bg-slate-950/60 border-slate-800/60 text-slate-500';
+            if (sampleCount > 0) {
+              if (speedVal >= 35) heatBg = 'bg-rose-950/40 border-rose-800 text-rose-300';
+              else if (speedVal >= 25) heatBg = 'bg-amber-950/40 border-amber-800 text-amber-300';
+              else if (speedVal >= 18) heatBg = 'bg-cyan-950/40 border-cyan-800 text-cyan-300';
+              else heatBg = 'bg-slate-900/60 border-slate-700/60 text-slate-300';
+            }
 
             return (
               <div

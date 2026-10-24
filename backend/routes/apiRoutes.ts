@@ -495,7 +495,7 @@ apiRouter.delete('/strategies/:id', async (req, res) => {
 apiRouter.post('/strategies/:id/backtest', async (req, res) => {
   try {
     const { dbGetStrategyById, dbGetCandles, dbSaveBacktestResult } = await import('../database/db.js');
-    const { runStrategyBacktest } = await import('../services/strategyEngine.js');
+    const { runStrategyBacktest } = await import('../knowledgebase/core/strategyEngine.js');
 
     const strategy = await dbGetStrategyById(req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -528,7 +528,7 @@ apiRouter.post('/strategies/:id/backtest', async (req, res) => {
     const useKnowledge = req.body?.useKnowledgeTools !== false;
     let result;
     if (useKnowledge) {
-      const { runKnowledgeEnhancedBacktest } = await import('../services/strategyEngine.js');
+      const { runKnowledgeEnhancedBacktest } = await import('../knowledgebase/core/strategyEngine.js');
       result = await runKnowledgeEnhancedBacktest(
         strategy,
         candles,
@@ -564,7 +564,7 @@ apiRouter.post('/strategies/:id/backtest', async (req, res) => {
 apiRouter.post('/strategies/:id/knowledge-backtest', async (req, res) => {
   try {
     const { dbGetStrategyById, dbGetCandles, dbSaveBacktestResult } = await import('../database/db.js');
-    const { runKnowledgeEnhancedBacktest } = await import('../services/strategyEngine.js');
+    const { runKnowledgeEnhancedBacktest } = await import('../knowledgebase/core/strategyEngine.js');
 
     const strategy = await dbGetStrategyById(req.params.id);
     if (!strategy) return res.status(404).json({ error: 'Strategy not found' });
@@ -733,6 +733,24 @@ apiRouter.post('/bot/stop', (req, res) => {
 apiRouter.post('/bot/config', (req, res) => {
   const result = tradingBot.updateConfig(req.body || {});
   res.json({ success: result.success, message: result.message, state: tradingBot.getState() });
+});
+
+apiRouter.post('/bot/evaluate', async (_req, res) => {
+  try {
+    const result = await tradingBot.evaluateNow();
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+apiRouter.post('/bot/mode', (req, res) => {
+  const { mode } = req.body;
+  if (!['SCALPER', 'DAY_TRADES', 'SWING_TRADES', 'MIXED_OPTIONS'].includes(mode)) {
+    return res.status(400).json({ success: false, error: 'Invalid mode. Must be SCALPER, DAY_TRADES, SWING_TRADES, or MIXED_OPTIONS' });
+  }
+  const result = tradingBot.updateConfig({ mode });
+  res.json({ success: result.success, message: result.message, mode, state: tradingBot.getState() });
 });
 
 apiRouter.get('/bot/trades', async (req, res) => {
@@ -1120,6 +1138,49 @@ apiRouter.get('/knowledge/auto-detect/scalping', async (req, res) => {
 
     const scalping = autoDetectScalpingSuitability(targetSymbol, candles, ticks);
     res.json({ success: true, scalping });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Auto-detect Institutional Fair Value Gaps (FVG) and Liquidity Pools
+apiRouter.get(['/knowledge/auto-detect/imbalances', '/knowledge/imbalances'], async (req, res) => {
+  try {
+    const currentChart = tradeStore.getCurrentChart();
+    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
+    const targetSymbol = symbolParam.trim();
+    const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
+
+    let candles = tradeStore.getChartHistory();
+    if (!candles || candles.length < 10) {
+      const { dbGetCandles } = await import('../database/db.js');
+      candles = await dbGetCandles(targetSymbol, tf, 100);
+    }
+    const { autoDetectInstitutionalImbalances } = await import('../knowledgebase/core/auto-detect.js');
+    const point = currentChart?.point || 0.0001;
+    const imbalances = autoDetectInstitutionalImbalances(targetSymbol, candles, point);
+    res.json({ success: true, imbalances });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Auto-detect Session Order Flow Bias & Asian Range Liquidity Sweeps
+apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-order-flow'], async (req, res) => {
+  try {
+    const currentChart = tradeStore.getCurrentChart();
+    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
+    const targetSymbol = symbolParam.trim();
+    const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
+
+    let candles = tradeStore.getChartHistory();
+    if (!candles || candles.length < 15) {
+      const { dbGetCandles } = await import('../database/db.js');
+      candles = await dbGetCandles(targetSymbol, tf, 100);
+    }
+    const { autoDetectSessionOrderFlowBias } = await import('../knowledgebase/core/auto-detect.js');
+    const sessionOrderFlow = autoDetectSessionOrderFlowBias(targetSymbol, candles);
+    res.json({ success: true, sessionOrderFlow });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }

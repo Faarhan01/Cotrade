@@ -78,7 +78,55 @@ export function detectShapePatterns(candles: CandleData[]): ShapePatternMatch[] 
     }
   }
 
-  // 3. 20-bar Donchian Range Breakout
+  // 3. Head and Shoulders Top Reversal
+  if (swingHighs.length >= 3) {
+    const leftShoulder = swingHighs[swingHighs.length - 3];
+    const head = swingHighs[swingHighs.length - 2];
+    const rightShoulder = swingHighs[swingHighs.length - 1];
+
+    if (
+      head.price > leftShoulder.price &&
+      head.price > rightShoulder.price &&
+      Math.abs(leftShoulder.price - rightShoulder.price) / leftShoulder.price < 0.003 &&
+      rightShoulder.index > head.index &&
+      head.index > leftShoulder.index
+    ) {
+      matches.push({
+        pattern: 'HEAD_AND_SHOULDERS',
+        name: 'Head & Shoulders Reversal',
+        bias: 'BEARISH',
+        confidence: 91,
+        levelPrice: Number(head.price.toFixed(5)),
+        description: `Classic institutional Head & Shoulders top confirmed: Left Shoulder (${leftShoulder.price.toFixed(5)}), Peak Head (${head.price.toFixed(5)}), Right Shoulder (${rightShoulder.price.toFixed(5)}). Signals major trend exhaustion.`,
+      });
+    }
+  }
+
+  // 4. Inverted Head and Shoulders Bottom Reversal
+  if (swingLows.length >= 3) {
+    const leftShoulder = swingLows[swingLows.length - 3];
+    const head = swingLows[swingLows.length - 2];
+    const rightShoulder = swingLows[swingLows.length - 1];
+
+    if (
+      head.price < leftShoulder.price &&
+      head.price < rightShoulder.price &&
+      Math.abs(leftShoulder.price - rightShoulder.price) / leftShoulder.price < 0.003 &&
+      rightShoulder.index > head.index &&
+      head.index > leftShoulder.index
+    ) {
+      matches.push({
+        pattern: 'INVERTED_HEAD_AND_SHOULDERS',
+        name: 'Inverted Head & Shoulders',
+        bias: 'BULLISH',
+        confidence: 91,
+        levelPrice: Number(head.price.toFixed(5)),
+        description: `Bullish Inverted Head & Shoulders bottom confirmed: Left trough (${leftShoulder.price.toFixed(5)}), Deep Head (${head.price.toFixed(5)}), Right trough (${rightShoulder.price.toFixed(5)}). Signals major accumulation breakout.`,
+      });
+    }
+  }
+
+  // 5. 20-bar Donchian Range Breakout
   const past20High = Math.max(...recent.slice(-21, -1).map((c) => c.high));
   const past20Low = Math.min(...recent.slice(-21, -1).map((c) => c.low));
 

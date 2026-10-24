@@ -7,6 +7,7 @@ interface AllTrackedSymbolsTableProps {
   ticks: TickData[];
   selectedSymbol: string;
   onSelectSymbol: (symbol: string) => void;
+  onViewAllSymbolsPage?: () => void;
 }
 
 export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
@@ -14,6 +15,7 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
   ticks,
   selectedSymbol,
   onSelectSymbol,
+  onViewAllSymbolsPage,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -56,15 +58,27 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
           </div>
         </div>
 
-        <div className="relative">
-          <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
-          <input
-            type="text"
-            placeholder="Search symbols..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white focus:border-cyan-500 focus:outline-none w-48"
-          />
+        <div className="flex items-center gap-2">
+          {onViewAllSymbolsPage && (
+            <button
+              onClick={onViewAllSymbolsPage}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 text-cyan-300 border border-cyan-800/80 text-xs font-mono font-semibold transition-all"
+            >
+              <span>Full Directory Page</span>
+              <ExternalLink className="h-3.5 w-3.5" />
+            </button>
+          )}
+
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search symbols..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white focus:border-cyan-500 focus:outline-none w-44"
+            />
+          </div>
         </div>
       </div>
 

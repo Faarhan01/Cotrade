@@ -1,9 +1,15 @@
-import { AppState, MCPToolDefinition, RiskGuardConfig, TradeCommand } from '../types';
+import { AppState, DetailedSymbolInfo, MCPToolDefinition, RiskGuardConfig, TradeCommand } from '../types';
 
 export const api = {
   async getState(): Promise<AppState> {
     const res = await fetch('/api/state');
     if (!res.ok) throw new Error('Failed to fetch state');
+    return res.json();
+  },
+
+  async getSymbols(): Promise<{ success: boolean; count: number; symbols: DetailedSymbolInfo[] }> {
+    const res = await fetch('/api/symbols');
+    if (!res.ok) throw new Error('Failed to fetch symbols');
     return res.json();
   },
 
@@ -194,6 +200,41 @@ export const api = {
       body: JSON.stringify(options || {}),
     });
     if (!res.ok) throw new Error('Failed to run knowledge-assisted backtest');
+    return res.json();
+  },
+
+  async runIsolatedBacktest(options: {
+    strategyId?: string;
+    strategyName?: string;
+    strategyType: string;
+    symbol: string;
+    timeframe: string;
+    candleCount?: number;
+    parameters?: Record<string, any>;
+    initialBalance?: number;
+    riskMode?: 'FIXED_LOT' | 'RISK_PERCENT';
+    fixedLotSize?: number;
+    riskPercent?: number;
+    spreadPoints?: number;
+    slippagePoints?: number;
+    commissionPerLot?: number;
+    knowledgeAssisted?: boolean;
+  }): Promise<{ success: boolean; result: any; error?: string }> {
+    const res = await fetch('/api/backtest/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options),
+    });
+    return res.json();
+  },
+
+  async getIsolatedBacktests(): Promise<{ success: boolean; count: number; results: any[] }> {
+    const res = await fetch('/api/backtest/results');
+    return res.json();
+  },
+
+  async getIsolatedBacktestById(id: string): Promise<{ success: boolean; result: any }> {
+    const res = await fetch(`/api/backtest/results/${encodeURIComponent(id)}`);
     return res.json();
   },
 

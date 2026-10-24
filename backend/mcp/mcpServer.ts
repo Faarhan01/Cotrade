@@ -351,26 +351,23 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     },
   },
   {
-    name: 'mt5_simulate_candles',
-    description: 'Seed synthetic historical OHLCV candlestick data into the database and precalculate indicators for immediate backtesting or strategy testing without waiting for live ticks.',
+    name: 'mt5_knowledge_multi_timeframe',
+    description: 'Perform comprehensive multi-timeframe consensus evaluation (e.g. M1 execution aligned with M5 and H1 trends). Evaluates EMA alignment, MACD momentum, RSI zones, and market regime concordance across multiple time horizons.',
     inputSchema: {
       type: 'object',
       properties: {
         symbol: {
           type: 'string',
-          description: 'Symbol to simulate (default: EURUSD)',
+          description: 'Symbol ticker (e.g. EURUSD, GBPUSD, XAUUSD). Defaults to active chart symbol.',
         },
-        timeframe: {
+        primaryTimeframe: {
           type: 'string',
-          description: 'Timeframe: M1, M5, M15, H1 (default: M1)',
+          description: 'Primary execution timeframe: M1, M5, M15, M30, H1 (default: M1)',
         },
-        count: {
-          type: 'number',
-          description: 'Number of candles to generate (default: 60)',
-        },
-        basePrice: {
-          type: 'number',
-          description: 'Starting price (default: 1.0850)',
+        higherTimeframes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional higher timeframes to evaluate (e.g. ["M5", "H1"]). Defaults to standard cascading timeframes.',
         },
       },
     },
@@ -1212,13 +1209,34 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         }
       }
 
-      // 3. If still no candles are present yet, automatically seed test bars so analysis works immediately.
-      //    `seedCandles` keeps the bars in memory only (synthetic data must never be
-      //    persisted into the real candle archive), so use the returned candles
-      //    directly instead of re-reading from SQLite, which would still be empty.
+      // 3. If no candles are present yet, request real historical candles from MT5 EA if connected
       if (result.candles.length === 0) {
-        const seeded = await tradeStore.seedCandles(sym, tf, Math.min(limit, 60));
-        result.candles = seeded.candles;
+        if (tradeStore.getState().connection.isEaConnected) {
+          commandDispatcher.requestHistory({ symbol: sym, timeframe: tf, count: limit, source: 'AI_MCP' });
+          return {
+            symbol: sym,
+            timeframe: tf,
+            count: 0,
+            candles: [],
+            stats: null,
+            indicators: null,
+            tickMovements: [],
+            message: `Requested ${limit} real historical bars for ${sym} [${tf}] from MT5 EA. Data will arrive on next sync.`,
+            awaitingEa: true,
+          };
+        } else {
+          return {
+            symbol: sym,
+            timeframe: tf,
+            count: 0,
+            candles: [],
+            stats: null,
+            indicators: null,
+            tickMovements: [],
+            message: `No candlestick history in database for ${sym} [${tf}]. Awaiting MetaTrader 5 EA connection.`,
+            awaitingEa: true,
+          };
+        }
       }
 
       // 4. Calculate indicators
@@ -1326,12 +1344,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       };
     }
 
-    case 'mt5_simulate_candles': {
-      const sym = args.symbol || 'EURUSD';
-      const tf = args.timeframe || 'M1';
-      const count = args.count ? Number(args.count) : 60;
-      const basePrice = args.basePrice ? Number(args.basePrice) : 1.085;
-      return await tradeStore.seedCandles(sym, tf, count, basePrice);
+    case 'mt5_knowledge_multi_timeframe': {
+      const sym = args.symbol ? String(args.symbol).trim() : (tradeStore.getCurrentChart()?.symbol || 'EURUSD');
+      const tf = args.primaryTimeframe ? String(args.primaryTimeframe).trim() : (tradeStore.getCurrentChart()?.timeframe || 'M1');
+      const htf = Array.isArray(args.higherTimeframes) ? args.higherTimeframes : undefined;
+      const { evaluateMultiTimeframeConsensus } = await import('../knowledgebase/signals/multiTimeframe.js');
+      return await evaluateMultiTimeframeConsensus(sym, tf, htf);
     }
 
     case 'mt5_list_strategies': {
@@ -1675,24 +1693,23 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const tf = args.timeframe ? String(args.timeframe).trim() : (tradeStore.getCurrentChart()?.timeframe || 'M1');
       const count = args.count ? Math.min(Number(args.count), 500) : 100;
 
-      // Queue command to EA
-      const eaRes = tradeStore.requestHistoryFromEA(sym, tf, count);
+      const eaRes = commandDispatcher.requestHistory({
+        symbol: sym,
+        timeframe: tf,
+        count,
+        source: 'AI_MCP',
+      });
 
-      // Also pull whatever is stored or seed immediate candles
       const { dbGetCandleHistoryWithStats, dbGetRecentTickMovements } = await import('../database/db.js');
-      let result = await dbGetCandleHistoryWithStats(sym, tf, count);
-
-      if (result.candles.length === 0) {
-        const seeded = await tradeStore.seedCandles(sym, tf, Math.min(count, 60));
-        result.candles = seeded.candles;
-      }
-
+      const result = await dbGetCandleHistoryWithStats(sym, tf, count);
       const tickMovements = await dbGetRecentTickMovements(sym, 50);
 
       return {
         status: 'success',
         eaCommandId: eaRes.commandId,
-        message: `Chart history and tick stream pulled for ${sym} [${tf}]`,
+        message: result.candles.length > 0
+          ? `Chart history and tick stream retrieved for ${sym} [${tf}]. EA refresh queued.`
+          : `History pull requested from MT5 EA for ${sym} [${tf}]. Awaiting next sync for candle data.`,
         symbol: sym,
         timeframe: tf,
         candleCount: result.candles.length,
@@ -1700,6 +1717,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         stats: result.stats,
         tickMovements: tickMovements.ticks,
         tickStats: tickMovements.stats,
+        awaitingEaData: result.candles.length === 0,
       };
     }
 

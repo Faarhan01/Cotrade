@@ -14,10 +14,20 @@ const AuditLogPage = lazy(() => import('./pages/AuditLogPage').then((m) => ({ de
 const DatabaseExplorer = lazy(() => import('./components/database/DatabaseExplorer').then((m) => ({ default: m.DatabaseExplorer })));
 const KnowledgeBasePage = lazy(() => import('./components/knowledge/KnowledgeBasePage').then((m) => ({ default: m.KnowledgeBasePage })));
 const BotTradingPage = lazy(() => import('./pages/BotTradingPage').then((m) => ({ default: m.BotTradingPage })));
+const AllSymbolsPage = lazy(() => import('./pages/AllSymbolsPage').then((m) => ({ default: m.AllSymbolsPage })));
+const BacktestPage = lazy(() => import('./pages/BacktestPage').then((m) => ({ default: m.BacktestPage })));
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
   const { state, wsStatus, lastPingMs, reloadState } = useBridgeData();
+
+  const handleNavigateToTab = (tab: string, symbol?: string) => {
+    if (symbol) {
+      setSelectedSymbol(symbol);
+    }
+    setActiveTab(tab);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-slate-950">
@@ -41,15 +51,30 @@ export default function App() {
               </div>
             }
           >
-            {activeTab === 'dashboard' && <DashboardPage state={state} onRefresh={reloadState} onNavigateToTab={setActiveTab} />}
+            {activeTab === 'dashboard' && (
+              <DashboardPage
+                state={state}
+                initialSymbol={selectedSymbol}
+                onRefresh={reloadState}
+                onNavigateToTab={handleNavigateToTab}
+              />
+            )}
+            {activeTab === 'symbols' && (
+              <AllSymbolsPage
+                state={state}
+                onRefresh={reloadState}
+                onNavigateToTab={handleNavigateToTab}
+              />
+            )}
             {activeTab === 'bot' && <BotTradingPage state={state} onRefresh={reloadState} />}
+            {activeTab === 'backtest' && <BacktestPage state={state} onNavigateToTab={handleNavigateToTab} />}
             {(activeTab === 'knowledgebase' || activeTab === 'strategies') && <KnowledgeBasePage />}
             {activeTab === 'mcp' && <McpConsole />}
             {activeTab === 'risk' && <RiskManagementPage state={state} />}
             {activeTab === 'database' && <DatabaseExplorer />}
             {activeTab === 'ea' && <EaSetupGuide />}
             {activeTab === 'logs' && <AuditLogPage state={state} />}
-            {!['dashboard', 'bot', 'knowledgebase', 'strategies', 'mcp', 'risk', 'database', 'ea', 'logs'].includes(activeTab) && (
+            {!['dashboard', 'symbols', 'bot', 'backtest', 'knowledgebase', 'strategies', 'mcp', 'risk', 'database', 'ea', 'logs'].includes(activeTab) && (
               <div className="text-center py-20 text-slate-400">
                 <p className="text-lg font-bold text-white mb-2">Page not found</p>
                 <p className="text-sm">The requested view does not exist.</p>

@@ -63,6 +63,8 @@ export interface TradeCommand {
   magic?: number;
   comment?: string;
   slippage?: number;
+  timeframe?: string;
+  count?: number;
   status: CommandStatus;
   createdAt: number;
   dispatchedAt?: number;

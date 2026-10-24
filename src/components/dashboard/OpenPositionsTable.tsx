@@ -6,10 +6,13 @@ import {
   XCircle,
   TrendingUp,
   Shield,
+  ShieldCheck,
+  Zap,
   Layers,
   Check,
   AlertCircle,
 } from 'lucide-react';
+import { getSymbolDigits, getSymbolPoint } from '../../utils/symbolEconomics';
 
 interface OpenPositionsTableProps {
   positions: Position[];
@@ -26,6 +29,34 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
   const [isModifying, setIsModifying] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [closingTickets, setClosingTickets] = useState<Record<number, boolean>>({});
+  const [lockingTickets, setLockingTickets] = useState<Record<number, boolean>>({});
+
+  const handleQuickBreakeven = async (pos: Position) => {
+    try {
+      setLockingTickets((prev) => ({ ...prev, [pos.ticket]: true }));
+      const digits = getSymbolDigits(pos.symbol);
+      const point = getSymbolPoint(pos.symbol);
+      const lockOffset = point * 20; // 2 pips
+      const bePrice =
+        pos.type === 'BUY'
+          ? Number((pos.openPrice + lockOffset).toFixed(digits))
+          : Number((pos.openPrice - lockOffset).toFixed(digits));
+
+      await api.sendCommand({
+        action: 'MODIFY_POSITION',
+        ticket: pos.ticket,
+        sl: bePrice,
+        tp: pos.tp > 0 ? pos.tp : undefined,
+        source: 'MANUAL_UI',
+      });
+    } catch (e) {
+      console.error('Failed to set breakeven:', e);
+    } finally {
+      setTimeout(() => {
+        setLockingTickets((prev) => ({ ...prev, [pos.ticket]: false }));
+      }, 1500);
+    }
+  };
 
   const handleOpenModifyModal = (pos: Position) => {
     setSelectedPosition(pos);
@@ -33,6 +64,7 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
     setModifyTP(pos.tp > 0 ? pos.tp.toString() : '');
     setActionMessage(null);
   };
+
 
   const handleSaveModification = async () => {
     if (!selectedPosition) return;
@@ -215,6 +247,17 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {isProfit && (
+                          <button
+                            onClick={() => handleQuickBreakeven(pos)}
+                            disabled={lockingTickets[pos.ticket]}
+                            title="Lock Breakeven (+2 pips in profit direction)"
+                            className="px-2 py-1 rounded bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                          >
+                            <ShieldCheck className="h-3 w-3" />
+                            <span>{lockingTickets[pos.ticket] ? 'Locking...' : 'B/E'}</span>
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenModifyModal(pos)}
                           title="Modify Stop Loss & Take Profit"
@@ -277,6 +320,54 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                 <div>
                   <span className="text-slate-500 block text-[10px]">Current Price</span>
                   <span className="font-bold text-cyan-400">{selectedPosition.currentPrice}</span>
+                </div>
+              </div>
+
+              {/* Quick Presets */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Quick Protective Presets</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = getSymbolDigits(selectedPosition.symbol);
+                      const point = getSymbolPoint(selectedPosition.symbol);
+                      const lockOffset = point * 20;
+                      const be = selectedPosition.type === 'BUY'
+                        ? Number((selectedPosition.openPrice + lockOffset).toFixed(digits))
+                        : Number((selectedPosition.openPrice - lockOffset).toFixed(digits));
+                      setModifySL(be.toString());
+                    }}
+                    className="px-2 py-1.5 rounded bg-emerald-950/60 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-[10px] font-bold text-center"
+                  >
+                    Lock B/E (+2p)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = getSymbolDigits(selectedPosition.symbol);
+                      const halfway = (selectedPosition.openPrice + selectedPosition.currentPrice) / 2;
+                      setModifySL(Number(halfway.toFixed(digits)).toString());
+                    }}
+                    className="px-2 py-1.5 rounded bg-cyan-950/60 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-[10px] font-bold text-center"
+                  >
+                    Lock 50% Profit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const digits = getSymbolDigits(selectedPosition.symbol);
+                      const point = getSymbolPoint(selectedPosition.symbol);
+                      const trailOffset = point * 150;
+                      const trailSL = selectedPosition.type === 'BUY'
+                        ? Number((selectedPosition.currentPrice - trailOffset).toFixed(digits))
+                        : Number((selectedPosition.currentPrice + trailOffset).toFixed(digits));
+                      setModifySL(trailSL.toString());
+                    }}
+                    className="px-2 py-1.5 rounded bg-purple-950/60 hover:bg-purple-900 border border-purple-800 text-purple-300 text-[10px] font-bold text-center"
+                  >
+                    Trail -150 pts
+                  </button>
                 </div>
               </div>
 

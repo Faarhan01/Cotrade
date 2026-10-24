@@ -1,8 +1,8 @@
 import { BotSignal, BotTrade, BotConfig } from './types.js';
 import { tradeStore } from '../services/tradeStore.js';
 import { commandDispatcher } from '../services/commandDispatcher.js';
-import { calculatePositionSize } from '../knowledgebase/core/tradeSignal.js';
 import { dbInsertOrder } from '../database/db.js';
+import { calculatePositionSizeByRisk, validateAndAdjustStops } from '../utils/symbolEconomics.js';
 
 export class TradeExecutor {
   private config: BotConfig;
@@ -29,30 +29,65 @@ export class TradeExecutor {
     // Check max open positions
     if (positions.length >= this.config.maxOpenPositions) return null;
 
-    // Get contract size
+    // Get live symbol specifications from MT5
     const symbolInfo = tradeStore.getAllSymbols().find((s: any) => s.symbol === signal.symbol);
-    const contractSize = symbolInfo?.contractSize || 100000;
+    
+    // Spread Guard: avoid opening trades during spread blowout (e.g. rollover or news spikes)
+    const currentSpread = symbolInfo?.spread || 0;
+    const maxAllowedSpread = (symbolInfo?.symbol?.includes('XAU') ? 100 : symbolInfo?.symbol?.includes('JPY') ? 40 : 35);
+    if (currentSpread > maxAllowedSpread) {
+      tradeStore.addLog(
+        'warn',
+        'Bot Spread Protection Triggered',
+        `Skipped trade for ${signal.symbol}: live spread (${currentSpread} pts) exceeds threshold (${maxAllowedSpread} pts)`,
+        'BOT'
+      );
+      return null;
+    }
 
-    // Calculate position size
-    const sizing = calculatePositionSize(
-      signal.symbol,
-      tradeStore.getAccount().balance,
-      this.config.riskPercent,
-      signal.entryPrice,
-      signal.stopLoss,
-      contractSize
-    );
+    const orderType = (signal.direction === 'BUY' ? 'BUY' : 'SELL') as 'BUY' | 'SELL';
+    const entryPrice = signal.entryPrice;
+
+    // Symbol-aware position sizing
+    const sizing = calculatePositionSizeByRisk({
+      symbol: signal.symbol,
+      balance: tradeStore.getAccount().balance || 10000,
+      riskPercent: this.config.riskPercent,
+      entryPrice,
+      stopLossPrice: signal.stopLoss,
+      takeProfitPrice: signal.takeProfit,
+      symbolInfo,
+    });
 
     if (sizing.recommendedLots <= 0) return null;
 
+    // Validate and adjust SL/TP so MT5 never rejects with error 10016
+    let targetSl = this.config.autoStopLoss ? signal.stopLoss : 0;
+    let targetTp = this.config.autoTakeProfit ? signal.takeProfit : 0;
+
+    if (targetSl > 0 || targetTp > 0) {
+      const stopsCheck = validateAndAdjustStops({
+        symbol: signal.symbol,
+        orderType,
+        entryPrice,
+        sl: targetSl,
+        tp: targetTp,
+        symbolInfo,
+      });
+      targetSl = stopsCheck.sl;
+      targetTp = stopsCheck.tp;
+      if (stopsCheck.adjusted) {
+        tradeStore.addLog('info', 'Stops Auto-Adjusted', `${signal.symbol}: ${stopsCheck.reason}`, 'BOT');
+      }
+    }
+
     // Execute physical trade via unified command dispatcher
-    const orderType = signal.direction === 'BUY' ? 'BUY' : 'SELL';
     const result = commandDispatcher.executeTrade({
       symbol: signal.symbol,
-      orderType: orderType as any,
+      orderType,
       volume: sizing.recommendedLots,
-      sl: this.config.autoStopLoss ? signal.stopLoss : 0,
-      tp: this.config.autoTakeProfit ? signal.takeProfit : 0,
+      sl: targetSl,
+      tp: targetTp,
       source: 'BOT',
       comment: `BOT_${signal.direction}_${signal.confidence}`,
     });

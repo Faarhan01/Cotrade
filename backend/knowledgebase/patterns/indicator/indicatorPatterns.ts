@@ -2,6 +2,7 @@ import { CandleData } from '../../../types/mt5.js';
 import { computeRSI } from '../../indicators/momentum/rsi.js';
 import { computeMACD } from '../../indicators/momentum/macd.js';
 import { computeBollinger } from '../../indicators/volatility/bollinger.js';
+import { computeEMA } from '../../indicators/trend/ema.js';
 
 export interface IndicatorPatternMatch {
   pattern: string;
@@ -82,6 +83,56 @@ export function detectIndicatorPatterns(candles: CandleData[]): IndicatorPattern
       confidence: 80,
       description: 'Bandwidth has tightened to historically narrow levels, indicating imminent high-volatility expansion.',
     });
+  }
+
+  // 4. RSI Extreme Exhaustion
+  const rsi = computeRSI(closes, 14);
+  if (rsi !== null) {
+    if (rsi >= 75) {
+      matches.push({
+        pattern: 'RSI_EXTREME_OVERBOUGHT',
+        name: 'RSI Extreme Overbought Exhaustion',
+        bias: 'BEARISH',
+        confidence: 82,
+        description: `RSI printed ${rsi.toFixed(1)} (>75), signaling severe bullish extension and elevated risk of pullback.`,
+      });
+    } else if (rsi <= 25) {
+      matches.push({
+        pattern: 'RSI_EXTREME_OVERSOLD',
+        name: 'RSI Extreme Oversold Exhaustion',
+        bias: 'BULLISH',
+        confidence: 82,
+        description: `RSI dropped to ${rsi.toFixed(1)} (<25), signaling deep liquidation climax and high odds of relief bounce.`,
+      });
+    }
+  }
+
+  // 5. EMA Crossover (9 / 21)
+  if (n >= 22) {
+    const ema9 = computeEMA(closes, 9);
+    const ema21 = computeEMA(closes, 21);
+    const prevEma9 = computeEMA(closes.slice(0, -1), 9);
+    const prevEma21 = computeEMA(closes.slice(0, -1), 21);
+
+    if (ema9 !== null && ema21 !== null && prevEma9 !== null && prevEma21 !== null) {
+      if (prevEma9 <= prevEma21 && ema9 > ema21) {
+        matches.push({
+          pattern: 'EMA_BULLISH_CROSS',
+          name: 'EMA 9/21 Bullish Golden Cross',
+          bias: 'BULLISH',
+          confidence: 86,
+          description: 'Fast 9-period EMA crossed above the 21-period EMA, validating new short-term bullish trend inception.',
+        });
+      } else if (prevEma9 >= prevEma21 && ema9 < ema21) {
+        matches.push({
+          pattern: 'EMA_BEARISH_CROSS',
+          name: 'EMA 9/21 Bearish Death Cross',
+          bias: 'BEARISH',
+          confidence: 86,
+          description: 'Fast 9-period EMA crossed below the 21-period EMA, confirming short-term trend reversal to the downside.',
+        });
+      }
+    }
   }
 
   return matches;

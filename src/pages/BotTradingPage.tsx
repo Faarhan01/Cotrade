@@ -376,21 +376,29 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                   Tracked Trading Symbols
                 </label>
                 <div className="flex flex-wrap gap-1.5 mb-2">
-                  {config.symbols.map((sym) => (
-                    <span
-                      key={sym}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200 text-xs"
-                    >
-                      {sym}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveSymbol(sym)}
-                        className="text-slate-400 hover:text-rose-400 ml-1"
+                  {config.symbols.map((sym) => {
+                    const symObj = state?.allSymbols?.find((s) => s.symbol === sym);
+                    return (
+                      <span
+                        key={sym}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-200 text-xs"
                       >
-                        ×
-                      </button>
-                    </span>
-                  ))}
+                        <span className="font-bold">{sym}</span>
+                        {symObj && (
+                          <span className="text-[10px] text-cyan-300 font-mono">
+                            {symObj.spread} pts
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSymbol(sym)}
+                          className="text-slate-400 hover:text-rose-400 ml-1"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
                 <div className="flex gap-2">
                   <input
@@ -760,6 +768,25 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                           <span className="text-cyan-400 font-semibold">{sig.riskRewardRatio ? `${sig.riskRewardRatio}R` : 'N/A'}</span>
                         </div>
                       </div>
+
+                      {/* Protective Trailing & Breakeven Architecture */}
+                      {sig.trailingProtection && (
+                        <div className="mt-2.5 p-2 rounded-lg bg-indigo-950/30 border border-indigo-800/40 text-[10px] font-mono flex flex-wrap items-center justify-between gap-1.5 text-indigo-200">
+                          <div className="flex items-center gap-1.5">
+                            <Shield className="h-3 w-3 text-cyan-400 shrink-0" />
+                            <span className="font-semibold text-white">Trailing Protection:</span>
+                            <span>Breakeven triggers at +{sig.trailingProtection.breakevenTriggerPoints} pts (locks +{sig.trailingProtection.breakevenLockPoints} pts)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400">•</span>
+                            <span>Trail buffer: {sig.trailingProtection.trailingDistancePoints} pts (step {sig.trailingProtection.trailingStepPoints} pts)</span>
+                            <span className="px-1.5 py-0.2 bg-indigo-900/60 rounded text-[9px] text-cyan-300 font-bold">
+                              {sig.trailingProtection.recommendedTrailingType}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
 
                       {/* Rationale Bullet tags */}
                       {Array.isArray(sig.reasons) && sig.reasons.length > 0 && (

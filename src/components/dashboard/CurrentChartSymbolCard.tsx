@@ -9,7 +9,6 @@ import {
   Layers,
   DollarSign,
   Download,
-  Sparkles,
   CheckCircle2,
   RefreshCw,
   Clock,
@@ -60,27 +59,6 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
     }
   };
 
-  const handleSimulateCandles = async (symbol: string) => {
-    try {
-      setLoadingAction('simulate');
-      const res = await fetch('/api/candles/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, timeframe: 'M1', count: 80, basePrice: currentChart?.bid || 1.085 }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setFeedback(`Generated ${data.count} test candles & indicators for ${symbol}`);
-        onRefresh?.();
-      }
-    } catch {
-      setFeedback('Simulation failed');
-    } finally {
-      setLoadingAction(null);
-      setTimeout(() => setFeedback(null), 3500);
-    }
-  };
-
   if (!currentChart) {
     return (
       <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm">
@@ -104,17 +82,6 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
             Attach <code className="text-cyan-400 font-bold">AIMT5Bridge.mq5</code> to any chart in MetaTrader 5 (e.g. EURUSD M1).
             This section will immediately display the active symbol specifications, live quotes, and session boundaries.
           </p>
-
-          <div className="pt-2 flex items-center justify-center gap-3">
-            <button
-              onClick={() => handleSimulateCandles('EURUSD')}
-              disabled={loadingAction === 'simulate'}
-              className="px-3.5 py-1.5 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-2 transition-all shadow-sm"
-            >
-              <Sparkles className="h-3.5 w-3.5" />
-              <span>{loadingAction === 'simulate' ? 'Seeding...' : 'Test With Synthetic Candles'}</span>
-            </button>
-          </div>
         </div>
       </div>
     );

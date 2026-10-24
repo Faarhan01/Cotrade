@@ -67,9 +67,13 @@ export class SignalWatcher {
       if (!candles || candles.length < 20) {
         // Fallback to in-memory chart history if available
         const inMem = tradeStore.getChartHistory();
-        if (inMem && inMem.length >= 20) {
+        if (inMem && inMem.length >= 20 && tradeStore.getCurrentChart()?.symbol?.toUpperCase() === sym) {
           candles = inMem;
         } else {
+          // If EA is connected, proactively request real candle history from MT5
+          if (tradeStore.getState().connection.isEaConnected) {
+            tradeStore.requestHistoryFromEA(sym, this.config.timeframe, 100);
+          }
           return null;
         }
       }
@@ -82,7 +86,8 @@ export class SignalWatcher {
         candles,
         currentPrice,
         tradeStore.getAccount().balance,
-        dataQuality
+        dataQuality,
+        this.config.timeframe
       );
 
       // Evaluate Multi-Timeframe Concordance

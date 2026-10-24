@@ -49,3 +49,13 @@ When the EA is running, external AI agents (such as Claude Desktop, Cursor, Open
 - `mt5_close_all`: Instant liquidation or symbol-specific panic close.
 - `mt5_configure_risk`: Manage global drawdown protection, trailing stop distance, and lot caps.
 - `mt5_get_execution_queue`: Inspect asynchronous order status.
+- `mt5_pull_chart_history_now`: Request real historical candlestick bars directly from MetaTrader 5 on demand.
+
+## ⚡ Architecture & Real-Time Intelligence (v2.30)
+- **Zero Synthetic / Demo Fallbacks**: All charts, patterns, backtests, and signals operate strictly on authentic broker quotes and real MT5 candles.
+- **Escaped JSON Field Extraction**: Robust string parser in `AIMT5Bridge.mq5` handles escaped quotes without truncation, enabling reliable parameterized commands (`FETCH_HISTORY`, dynamic comments).
+- **Proactive Symbol Auto-Discovery**: As soon as the EA connects, all symbols from the MT5 Market Watch are analyzed and profiled for volatility, tick value, spread hazard, and session boundaries.
+- **Confluence Signal Engine**: Integrates multi-candlestick patterns (Engulfing, Pinbars, Evening/Morning Stars, Harami, Three Soldiers/Crows), shape structures (Double Tops/Bottoms, Head & Shoulders, Donchian Channels), and multi-timeframe EMA/RSI indicators.
+- **Dynamic Volatility Stops (ATR-14)**: Stop Loss and Take Profit levels automatically calibrate to the true ATR of the symbol rather than static percentage approximations.
+- **Unified Command Dispatcher**: The Auto-Trader Bot, Model Context Protocol (MCP), and web UI share the exact same asynchronous queue, validation, and risk guard system.
+

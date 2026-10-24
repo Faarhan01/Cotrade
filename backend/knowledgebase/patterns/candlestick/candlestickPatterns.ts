@@ -154,6 +154,157 @@ export function detectCandlestickPatterns(candles: CandleData[]): CandlestickPat
           description: 'Three-candle reversal pattern confirming transition from strong selling to fresh bull control.',
         });
       }
+
+      // 7. Evening Star (3-candle bearish reversal)
+      if (
+        c1.close > c1.open && // Bullish first candle
+        c2Body < c1Body * 0.4 && // Small middle star
+        c3.close < c3.open && // Bearish third candle
+        c3.close < (c1.open + c1.close) / 2 // Closes deep into first candle
+      ) {
+        matches.push({
+          pattern: 'EVENING_STAR',
+          name: 'Evening Star',
+          bias: 'BEARISH',
+          confidence: 90,
+          candleIndex: i,
+          timeIso: c.timeIso,
+          description: 'Three-candle top reversal confirming exhaustion of buyers and aggressive seller takeover.',
+        });
+      }
+
+      // 8. Three White Soldiers (Bullish Continuation / Inception)
+      if (
+        c1.close > c1.open &&
+        c2.close > c2.open &&
+        c3.close > c3.open &&
+        c2.close > c1.close &&
+        c3.close > c2.close &&
+        c2.open > c1.open &&
+        c3.open > c2.open
+      ) {
+        matches.push({
+          pattern: 'THREE_WHITE_SOLDIERS',
+          name: 'Three White Soldiers',
+          bias: 'BULLISH',
+          confidence: 92,
+          candleIndex: i,
+          timeIso: c.timeIso,
+          description: 'Three consecutive strong bullish candles printing higher closes with minimal upper wicks, confirming robust upward trend inception.',
+        });
+      }
+
+      // 9. Three Black Crows (Bearish Continuation / Breakdown)
+      if (
+        c1.close < c1.open &&
+        c2.close < c2.open &&
+        c3.close < c3.open &&
+        c2.close < c1.close &&
+        c3.close < c2.close &&
+        c2.open < c1.open &&
+        c3.open < c2.open
+      ) {
+        matches.push({
+          pattern: 'THREE_BLACK_CROWS',
+          name: 'Three Black Crows',
+          bias: 'BEARISH',
+          confidence: 92,
+          candleIndex: i,
+          timeIso: c.timeIso,
+          description: 'Three consecutive strong bearish candles with progressive lower closes, signaling intense institutional liquidation.',
+        });
+      }
+    }
+
+    // 10. Bullish Harami (Inside Bar Bullish Turn)
+    if (
+      prevIsBearish &&
+      isBullishCandle &&
+      c.open > prev.close &&
+      c.close < prev.open &&
+      body < prevBody * 0.6
+    ) {
+      matches.push({
+        pattern: 'BULLISH_HARAMI',
+        name: 'Bullish Harami (Inside Bar)',
+        bias: 'BULLISH',
+        confidence: 78,
+        candleIndex: i,
+        timeIso: c.timeIso,
+        description: 'Small bullish inside bar contained completely within the prior bearish body, signaling downward momentum deceleration.',
+      });
+    }
+
+    // 11. Bearish Harami (Inside Bar Bearish Turn)
+    if (
+      prevIsBullish &&
+      isBearishCandle &&
+      c.open < prev.close &&
+      c.close > prev.open &&
+      body < prevBody * 0.6
+    ) {
+      matches.push({
+        pattern: 'BEARISH_HARAMI',
+        name: 'Bearish Harami (Inside Bar)',
+        bias: 'BEARISH',
+        confidence: 78,
+        candleIndex: i,
+        timeIso: c.timeIso,
+        description: 'Small bearish inside bar contained within the prior bullish expansion candle, indicating buyer pause and possible distribution.',
+      });
+    }
+
+    // 12. Bullish & Bearish Marubozu (Strong Conviction Candle)
+    if (range > 0 && body / range >= 0.88) {
+      if (isBullishCandle) {
+        matches.push({
+          pattern: 'BULLISH_MARUBOZU',
+          name: 'Bullish Marubozu',
+          bias: 'BULLISH',
+          confidence: 86,
+          candleIndex: i,
+          timeIso: c.timeIso,
+          description: 'Solid green candle with virtually no shadows; buyers dominated the entire session from open to close.',
+        });
+      } else if (isBearishCandle) {
+        matches.push({
+          pattern: 'BEARISH_MARUBOZU',
+          name: 'Bearish Marubozu',
+          bias: 'BEARISH',
+          confidence: 86,
+          candleIndex: i,
+          timeIso: c.timeIso,
+          description: 'Solid red candle with minimal shadows; sellers exerted total directional control throughout.',
+        });
+      }
+    }
+
+    // 13. Tweezer Bottoms (Double Low Defense)
+    const lowDiffPct = Math.abs(c.low - prev.low) / Math.max(c.low, 0.00001);
+    if (lowDiffPct < 0.0003 && prevIsBearish && isBullishCandle && (lowerWick > body * 0.8)) {
+      matches.push({
+        pattern: 'TWEEZER_BOTTOM',
+        name: 'Tweezer Bottom Reversal',
+        bias: 'BULLISH',
+        confidence: 84,
+        candleIndex: i,
+        timeIso: c.timeIso,
+        description: `Matching lows at ${c.low.toFixed(5)} with buyer rejection shadows confirm institutional floor defense.`,
+      });
+    }
+
+    // 14. Tweezer Tops (Double High Defense)
+    const highDiffPct = Math.abs(c.high - prev.high) / Math.max(c.high, 0.00001);
+    if (highDiffPct < 0.0003 && prevIsBullish && isBearishCandle && (upperWick > body * 0.8)) {
+      matches.push({
+        pattern: 'TWEEZER_TOP',
+        name: 'Tweezer Top Reversal',
+        bias: 'BEARISH',
+        confidence: 84,
+        candleIndex: i,
+        timeIso: c.timeIso,
+        description: `Matching highs at ${c.high.toFixed(5)} with upper rejection wicks indicate strong resistance barrier.`,
+      });
     }
   }
 

@@ -16,6 +16,8 @@ import {
   Menu,
   X,
   Bot,
+  Layers,
+  FlaskConical,
 } from 'lucide-react';
 import { AppState } from '../../types';
 import { api } from '../../services/api';
@@ -64,9 +66,13 @@ export const Navbar: React.FC<NavbarProps> = ({
     setMobileMenuOpen(false);
   };
 
+  const symbolsCount = state?.allSymbols?.length || state?.ticks?.length || 0;
+
   const navItems = [
     { id: 'dashboard', label: 'Live Terminal', icon: Terminal },
+    { id: 'symbols', label: 'All Symbols', icon: Layers, badge: symbolsCount > 0 ? `${symbolsCount}` : undefined },
     { id: 'bot', label: 'Auto-Trader Bot', icon: Bot },
+    { id: 'backtest', label: 'Backtest Lab', icon: FlaskConical },
     { id: 'knowledgebase', label: 'Knowledge Base', icon: BookOpen },
     { id: 'mcp', label: 'AI MCP Hub', icon: Cpu },
     { id: 'risk', label: 'Risk & Trailing', icon: ShieldAlert },
@@ -125,6 +131,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Icon className={`h-4 w-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                   {item.label}
+                  {item.badge && (
+                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700/80 text-cyan-300 font-mono border border-slate-600">
+                      {item.badge}
+                    </span>
+                  )}
                   {item.id === 'mcp' && (
                     <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
                       AI Ready
@@ -227,6 +238,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 >
                   <Icon className={`h-4 w-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                   {item.label}
+                  {item.badge && (
+                    <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700/80 text-cyan-300 font-mono border border-slate-600">
+                      {item.badge}
+                    </span>
+                  )}
                   {item.id === 'mcp' && (
                     <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
                       AI Ready

@@ -52,6 +52,17 @@ apiRouter.get('/state', (req, res) => {
   res.json(tradeStore.getState());
 });
 
+// All tracked symbols transmitted by MT5 EA
+apiRouter.get('/symbols', (req, res) => {
+  const symbols = tradeStore.getAllSymbols();
+  res.json({
+    success: true,
+    count: symbols.length,
+    symbols,
+  });
+});
+
+
 // Enqueue order command from UI or API via unified commandDispatcher
 apiRouter.post('/commands', (req, res) => {
   const result = commandDispatcher.dispatchGeneric(req.body, 'MANUAL_UI');
@@ -342,17 +353,18 @@ apiRouter.post('/candles/simulate', async (req, res) => {
   }
 });
 
-// Request historical candles from EA on demand
+// Request historical candles from EA on demand via unified commandDispatcher
 apiRouter.post('/candles/request', (req, res) => {
   try {
     const { symbol, timeframe, count } = req.body;
     if (!symbol) return res.status(400).json({ error: 'Missing symbol' });
-    const result = tradeStore.requestHistoryFromEA(
+    const dispatchRes = commandDispatcher.requestHistory({
       symbol,
-      timeframe || 'M1',
-      Number(count) || 100
-    );
-    res.json({ success: true, result });
+      timeframe: timeframe || 'M1',
+      count: Number(count) || 100,
+      source: 'MANUAL_UI',
+    });
+    res.json(dispatchRes);
   } catch (err: any) {
     res.status(500).json({ error: err?.message });
   }
@@ -496,41 +508,20 @@ apiRouter.post('/strategies/:id/backtest', async (req, res) => {
     let candles = await dbGetCandles(strategy.symbol, strategy.timeframe, candleLimit);
     let dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE' = candles.length >= 20 ? 'LIVE' : 'NONE';
 
-    // If local DB doesn't have enough candles, fall back to currently active
-    // chart history or generate synthetic candles.
+    // If local DB doesn't have enough candles, fall back to currently active chart history if matching
     if (candles.length < 20) {
       const liveHistory = tradeStore.getChartHistory();
-      if (liveHistory && liveHistory.length >= 20) {
+      if (
+        liveHistory &&
+        liveHistory.length >= 20 &&
+        tradeStore.getCurrentChart()?.symbol?.toUpperCase() === strategy.symbol.toUpperCase()
+      ) {
         candles = liveHistory;
-        dataQuality = tradeStore.getDataQuality();
+        dataQuality = 'LIVE';
       } else {
-        // Generate test bars so backtesting works immediately. These are a
-        // random walk with no market information; they must never be written
-        // into `candles_history`, which is the archive of real MT5 data.
-        const synthCandles = [];
-        let price = strategy.symbol.includes('JPY') ? 154.5 : strategy.symbol.includes('XAU') ? 2650.0 : 1.085;
-        const now = Math.floor(Date.now() / 1000);
-        for (let i = 100; i >= 0; i--) {
-          const t = now - i * 60;
-          const open = price;
-          const delta = (Math.random() - 0.49) * (price * 0.0008);
-          const close = open + delta;
-          const high = Math.max(open, close) + Math.random() * (price * 0.0004);
-          const low = Math.min(open, close) - Math.random() * (price * 0.0004);
-          const vol = Math.floor(50 + Math.random() * 200);
-          synthCandles.push({
-            time: t,
-            timeIso: new Date(t * 1000).toISOString(),
-            open: Number(open.toFixed(5)),
-            high: Number(high.toFixed(5)),
-            low: Number(low.toFixed(5)),
-            close: Number(close.toFixed(5)),
-            volume: vol,
-          });
-          price = close;
-        }
-        candles = synthCandles;
-        dataQuality = 'SYNTHETIC';
+        return res.status(400).json({
+          error: `Insufficient historical candlestick data for ${strategy.symbol} [${strategy.timeframe}] (${candles.length} bars available in database). Please pull real historical candles from MetaTrader 5 via the History Pull dock or connect the MT5 EA.`,
+        });
       }
     }
 
@@ -559,7 +550,7 @@ apiRouter.post('/strategies/:id/backtest', async (req, res) => {
     tradeStore.addLog({
       level: 'trade',
       title: useKnowledge ? 'KnowledgeBase-Assisted Backtest Completed' : 'Strategy Backtest Completed',
-      details: `Backtested "${strategy.name}" on ${strategy.symbol} (${candles.length} bars${dataQuality === 'SYNTHETIC' ? ', SYNTHETIC data' : ''}). Net Profit: $${result.netProfit}, Win Rate: ${result.winRatePct}%, Trades: ${result.totalTrades}${result.proofSummary ? ` • Proof: ${result.proofSummary}` : ''}`,
+      details: `Backtested "${strategy.name}" on ${strategy.symbol} (${candles.length} bars MT5 real history). Net Profit: $${result.netProfit}, Win Rate: ${result.winRatePct}%, Trades: ${result.totalTrades}${result.proofSummary ? ` • Proof: ${result.proofSummary}` : ''}`,
       source: 'STRATEGY_ENGINE',
     });
 
@@ -1147,7 +1138,7 @@ apiRouter.get('/chart/history', async (req, res) => {
     const { dbGetCandleHistoryWithStats, dbGetRecentTickMovements } = await import('../database/db.js');
     let candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
 
-    // If no candles stored yet, seed or take in-memory chart history
+    // If no candles stored yet, check in-memory chart history or trigger pull from MT5 EA
     if (candleResult.candles.length === 0) {
       if (currentChart && currentChart.symbol.toLowerCase() === sym.toLowerCase()) {
         const inMem = tradeStore.getChartHistory();
@@ -1157,14 +1148,14 @@ apiRouter.get('/chart/history', async (req, res) => {
           candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
         }
       }
-      if (candleResult.candles.length === 0) {
-        await tradeStore.seedCandles(sym, tf, Math.min(limit, 60));
-        candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
+      // If still empty and EA is connected, automatically request real candles from MT5
+      if (candleResult.candles.length === 0 && tradeStore.getState().connection.isEaConnected) {
+        commandDispatcher.requestHistory({ symbol: sym, timeframe: tf, count: limit, source: 'MANUAL_UI' });
       }
     }
 
     let indicators = null;
-    if (includeIndicators) {
+    if (includeIndicators && candleResult.candles.length > 0) {
       const { calculateIndicators } = await import('../services/indicatorEngine.js');
       indicators = calculateIndicators(candleResult.candles, sym, tf);
     }
@@ -1184,13 +1175,15 @@ apiRouter.get('/chart/history', async (req, res) => {
       indicators,
       tickMovements: tickMovements?.ticks || [],
       tickStats: tickMovements?.stats || null,
+      awaitingEaData: candleResult.candles.length === 0,
+      isEaConnected: tradeStore.getState().connection.isEaConnected,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }
 });
 
-// Trigger chart history pull from MT5 EA
+// Trigger chart history pull from MT5 EA via unified commandDispatcher
 apiRouter.post('/chart/pull', async (req, res) => {
   try {
     const currentChart = tradeStore.getCurrentChart();
@@ -1198,12 +1191,14 @@ apiRouter.post('/chart/pull', async (req, res) => {
     const tf = (req.body.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
     const count = Math.min(Number(req.body.count) || 100, 500);
 
-    const queueRes = tradeStore.requestHistoryFromEA(sym, tf, count);
-    res.json({
-      success: true,
-      commandId: queueRes.commandId,
-      message: `Chart pull request queued for MT5 EA: ${sym} [${tf}], ${count} bars.`,
+    const dispatchRes = commandDispatcher.requestHistory({
+      symbol: sym,
+      timeframe: tf,
+      count,
+      source: 'MANUAL_UI',
     });
+
+    res.json(dispatchRes);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }
@@ -1409,7 +1404,7 @@ apiRouter.get('/knowledge/chart-diagnostics', async (_req, res) => {
 });
 
 // Multi-Timeframe Trend & Signal Concordance
-apiRouter.get('/bot/multitimeframe', async (req, res) => {
+apiRouter.get(['/bot/multitimeframe', '/knowledge/multi-timeframe'], async (req, res) => {
   try {
     const currentChart = tradeStore.getCurrentChart();
     const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';

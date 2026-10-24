@@ -13,11 +13,18 @@ import { DashboardBotWidget } from '../components/dashboard/DashboardBotWidget';
 interface DashboardPageProps {
   state: AppState | null;
   onRefresh?: () => void;
-  onNavigateToTab?: (tab: string) => void;
+  onNavigateToTab?: (tab: string, symbol?: string) => void;
+  initialSymbol?: string;
 }
 
-export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, onNavigateToTab }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
+export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, onNavigateToTab, initialSymbol }) => {
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'EURUSD');
+
+  React.useEffect(() => {
+    if (initialSymbol) {
+      setSelectedSymbol(initialSymbol);
+    }
+  }, [initialSymbol]);
 
   const ticks = state?.ticks || [];
   const currentTick = ticks.find((t) => t.symbol === selectedSymbol) || ticks[0];
@@ -61,8 +68,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
           <LivePriceChart
             symbol={selectedSymbol}
             history={history}
+            candles={state?.chartHistory}
+            indicators={state?.indicators}
+            chartDiagnostics={state?.chartDiagnostics}
             currentTick={currentTick}
             positions={positions}
+            currentTimeframe={state?.currentChart?.timeframe || 'M1'}
+            onRefresh={onRefresh}
           />
         </div>
         <div className="lg:col-span-4">
@@ -87,6 +99,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
         ticks={ticks}
         selectedSymbol={selectedSymbol}
         onSelectSymbol={setSelectedSymbol}
+        onViewAllSymbolsPage={() => onNavigateToTab?.('symbols')}
       />
     </div>
   );

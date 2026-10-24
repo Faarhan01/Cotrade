@@ -38,6 +38,8 @@ input group "=== Trailing Stop & Risk Guard ==="
 input bool     InpEnableTrailing    = true;                    // Enable Trailing Stop Engine
 input int      InpTrailingPoints    = 150;                     // Trailing Stop Distance (points)
 input int      InpTrailingStep      = 30;                      // Trailing Step (points)
+input bool     InpTrailAllPositions = true;                    // Trail ALL positions (including manual & Web UI)
+input bool     InpAdaptiveTrailing  = true;                    // Automatically adapt trailing distance to symbol scale
 input bool     InpAutoSyncTicks     = true;                    // Stream live tick data to Bridge
 
 //--- Global objects
@@ -232,12 +234,17 @@ void OnTimer()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // OnTick serves as immediate trigger if timer is slow
-   if(InpAutoSyncTicks && (TimeCurrent() - g_lastSyncTime >= 1))
+   // Sub-millisecond tick execution: trail stops and lock in profits the instant price moves favorably
+   if(InpEnableBreakeven)
    {
-      // Optional fast tick emit
+      ProcessBreakevenProtection();
+   }
+   if(InpEnableTrailing)
+   {
+      ProcessTrailingStops();
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| Parse comma-separated symbols                                    |
@@ -269,9 +276,9 @@ void ParseSymbols()
       g_trackedCount++;
    }
 
-   // Auto-discover Market Watch symbols from terminal (up to 30 symbols)
+   // Auto-discover Market Watch symbols from terminal (up to 60 symbols)
    int totalMW = SymbolsTotal(true);
-   for(int m = 0; m < totalMW && g_trackedCount < 30; m++)
+   for(int m = 0; m < totalMW && g_trackedCount < 60; m++)
    {
       string mwSym = SymbolName(m, true);
       bool alreadyAdded = false;
@@ -478,6 +485,10 @@ string BuildSyncJson()
          json += "\"maxLot\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_MAX), 2) + ",";
          json += "\"lotStep\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP), 2) + ",";
          json += "\"contractSize\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_TRADE_CONTRACT_SIZE), 2) + ",";
+         json += "\"stopsLevel\":" + IntegerToString((int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL)) + ",";
+         json += "\"freezeLevel\":" + IntegerToString((int)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL)) + ",";
+         json += "\"tickValue\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE), 4) + ",";
+         json += "\"tickSize\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE), sDigits) + ",";
          json += "\"tradeAllowed\":" + ((SymbolInfoInteger(sym, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED) ? "true" : "false") + ",";
          json += "\"sessionOpen\":" + DoubleToString(sOpen, sDigits) + ",";
          json += "\"sessionHigh\":" + DoubleToString(sHigh, sDigits) + ",";
@@ -785,7 +796,8 @@ void ExecuteSingleCommand(string cmd)
          if(stepLot > 0) volume = MathFloor(volume / stepLot) * stepLot;
          if(volume < minLot) volume = minLot;
          if(volume > maxLot) volume = maxLot;
-         volume = NormalizeDouble(volume, 2);
+         int lotDec = (stepLot < 0.01) ? 3 : (stepLot < 0.1 ? 2 : (stepLot < 1.0 ? 1 : 0));
+         volume = NormalizeDouble(volume, lotDec);
 
          if(sl > 0) sl = NormalizeDouble(sl, digits);
          if(tp > 0) tp = NormalizeDouble(tp, digits);
@@ -793,14 +805,22 @@ void ExecuteSingleCommand(string cmd)
          MqlTick tick;
          SymbolInfoTick(symbol, tick);
 
+         int stopsLevel = (int)SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL);
+         double pt = SymbolInfoDouble(symbol, SYMBOL_POINT);
+         double minStopDist = MathMax(stopsLevel, 10) * pt;
+
          if(orderType == "BUY")
          {
             execPrice = tick.ask;
+            if(sl > 0 && (execPrice - sl) < minStopDist) sl = NormalizeDouble(execPrice - minStopDist * 1.5, digits);
+            if(tp > 0 && (tp - execPrice) < minStopDist) tp = NormalizeDouble(execPrice + minStopDist * 1.5, digits);
             success = m_trade.Buy(volume, symbol, execPrice, sl, tp, comment);
          }
          else if(orderType == "SELL")
          {
             execPrice = tick.bid;
+            if(sl > 0 && (sl - execPrice) < minStopDist) sl = NormalizeDouble(execPrice + minStopDist * 1.5, digits);
+            if(tp > 0 && (execPrice - tp) < minStopDist) tp = NormalizeDouble(execPrice - minStopDist * 1.5, digits);
             success = m_trade.Sell(volume, symbol, execPrice, sl, tp, comment);
          }
          else if(orderType == "BUY_LIMIT")
@@ -937,8 +957,11 @@ void ExecuteSingleCommand(string cmd)
    }
    else if(action == "FETCH_HISTORY")
    {
-      string tfStr = "M1";
+      string tfStr = ExtractJsonField(cmd, "timeframe");
+      if(tfStr == "") tfStr = "M1";
+      string cntStr = ExtractJsonField(cmd, "count");
       int count = 100;
+      if(cntStr != "") count = (int)StringToInteger(cntStr);
       if(comment != "")
       {
          string tfExt = ExtractJsonField(comment, "timeframe");
@@ -988,9 +1011,18 @@ void ExecuteSingleCommand(string cmd)
       if(trExt != "") InpTrailingPoints = (int)StringToInteger(trExt);
       string stExt = ExtractJsonField(comment, "trailingStepPoints");
       if(stExt != "") InpTrailingStep = (int)StringToInteger(stExt);
+      string enExt = ExtractJsonField(comment, "trailingStopEnabled");
+      if(enExt != "") InpEnableTrailing = (enExt == "true" || enExt == "1");
+      string beExt = ExtractJsonField(comment, "enableBreakeven");
+      if(beExt != "") InpEnableBreakeven = (beExt == "true" || beExt == "1");
+      string beTrig = ExtractJsonField(comment, "breakevenTriggerPoints");
+      if(beTrig != "") InpBreakevenTrigger = (int)StringToInteger(beTrig);
+      string beLock = ExtractJsonField(comment, "breakevenLockPoints");
+      if(beLock != "") InpBreakevenLock = (int)StringToInteger(beLock);
       success = true;
-      Print("RISK GUARD SYNCED TO EA: Trailing Distance = ", InpTrailingPoints, " pts, Step = ", InpTrailingStep, " pts");
+      Print("RISK GUARD SYNCED TO EA: Trailing = ", InpEnableTrailing, " (Dist: ", InpTrailingPoints, " pts, Step: ", InpTrailingStep, " pts), Breakeven = ", InpEnableBreakeven, " (Trig: ", InpBreakevenTrigger, " pts, Lock: ", InpBreakevenLock, " pts)");
    }
+
 
    // Calculate execution slippage in points if applicable
    int slippagePts = 0;
@@ -1076,7 +1108,15 @@ string ExtractJsonField(string json, string key)
    while(end < len)
    {
       ushort c = StringGetCharacter(json, end);
-      if(inQuotes && c == '\"') break;
+      if(inQuotes && c == '\"')
+      {
+         if(end > start && StringGetCharacter(json, end - 1) == '\\')
+         {
+            end++;
+            continue;
+         }
+         break;
+      }
       if(!inQuotes && (c == ',' || c == '}' || c == ']' || c == '\r' || c == '\n' || c == ' ')) break;
       end++;
    }
@@ -1085,46 +1125,92 @@ string ExtractJsonField(string json, string key)
 }
 
 //+------------------------------------------------------------------+
-//| Dynamic Trailing Stop Engine                                     |
+//| Dynamic Trailing Stop Engine (Adaptive & Resilient)              |
 //+------------------------------------------------------------------+
 void ProcessTrailingStops()
 {
+   if(!InpEnableTrailing) return;
    int total = PositionsTotal();
    for(int i = 0; i < total; i++)
    {
       ulong ticket = PositionGetTicket(i);
       if(ticket > 0 && m_position.SelectByTicket(ticket))
       {
+         // Verify magic number permission
+         if(!InpTrailAllPositions && InpMagicNumber > 0 && m_position.Magic() != InpMagicNumber) continue;
+
          string sym = m_position.Symbol();
          double point = SymbolInfoDouble(sym, SYMBOL_POINT);
          int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
-         
-         double distance = InpTrailingPoints * point;
-         double step = InpTrailingStep * point;
-         
+         int stopsLevel = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
+         int freezeLevel = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL);
+         double minStopDist = MathMax(stopsLevel + 5, 10) * point;
+
+         // Adaptive trailing scaling based on symbol scale
+         int effTrailingPts = InpTrailingPoints;
+         int effStepPts = InpTrailingStep;
+         if(InpAdaptiveTrailing)
+         {
+            if(StringFind(sym, "XAU") >= 0 || StringFind(sym, "GOLD") >= 0)
+            {
+               effTrailingPts = MathMax(InpTrailingPoints, 300);
+               effStepPts = MathMax(InpTrailingStep, 50);
+            }
+            else if(StringFind(sym, "US30") >= 0 || StringFind(sym, "NAS") >= 0 || StringFind(sym, "SPX") >= 0 || StringFind(sym, "GER40") >= 0)
+            {
+               effTrailingPts = MathMax(InpTrailingPoints, 250);
+               effStepPts = MathMax(InpTrailingStep, 40);
+            }
+            else if(StringFind(sym, "BTC") >= 0 || StringFind(sym, "ETH") >= 0)
+            {
+               effTrailingPts = MathMax(InpTrailingPoints, 600);
+               effStepPts = MathMax(InpTrailingStep, 100);
+            }
+         }
+
+         double distance = effTrailingPts * point;
+         double step = effStepPts * point;
+         double openPrice = m_position.PriceOpen();
+
          if(m_position.PositionType() == POSITION_TYPE_BUY)
          {
             double bid = SymbolInfoDouble(sym, SYMBOL_BID);
-            if(bid - m_position.PriceOpen() > distance)
+            // Check if price has moved favorably past the trailing threshold
+            if(bid - openPrice > distance)
             {
                double newSL = NormalizeDouble(bid - distance, digits);
-               if(m_position.StopLoss() == 0 || (newSL - m_position.StopLoss() >= step))
+               // Only move forward and ensure minimum step advancement
+               if((m_position.StopLoss() == 0 || (newSL - m_position.StopLoss() >= step)) && (newSL > openPrice))
                {
-                  m_trade.PositionModify(ticket, newSL, m_position.TakeProfit());
-                  Print("BUY Trailing Stop updated for #", ticket, " New SL: ", newSL);
+                  // Obey broker stopsLevel
+                  if(bid - newSL >= minStopDist)
+                  {
+                     if(m_trade.PositionModify(ticket, newSL, m_position.TakeProfit()))
+                     {
+                        Print("BUY Trailing Stop updated for #", ticket, " [", sym, "] New SL: ", newSL, " Locked Gain: +", DoubleToString((newSL - openPrice) / point, 0), " pts");
+                     }
+                  }
                }
             }
          }
          else if(m_position.PositionType() == POSITION_TYPE_SELL)
          {
             double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
-            if(m_position.PriceOpen() - ask > distance)
+            // Check if price has dropped favorably past the trailing threshold
+            if(openPrice - ask > distance)
             {
                double newSL = NormalizeDouble(ask + distance, digits);
-               if(m_position.StopLoss() == 0 || (m_position.StopLoss() - newSL >= step))
+               // Only move downward and ensure minimum step advancement
+               if((m_position.StopLoss() == 0 || (m_position.StopLoss() - newSL >= step)) && (newSL < openPrice))
                {
-                  m_trade.PositionModify(ticket, newSL, m_position.TakeProfit());
-                  Print("SELL Trailing Stop updated for #", ticket, " New SL: ", newSL);
+                  // Obey broker stopsLevel
+                  if(newSL - ask >= minStopDist)
+                  {
+                     if(m_trade.PositionModify(ticket, newSL, m_position.TakeProfit()))
+                     {
+                        Print("SELL Trailing Stop updated for #", ticket, " [", sym, "] New SL: ", newSL, " Locked Gain: +", DoubleToString((openPrice - newSL) / point, 0), " pts");
+                     }
+                  }
                }
             }
          }
@@ -1133,7 +1219,7 @@ void ProcessTrailingStops()
 }
 
 //+------------------------------------------------------------------+
-//| Automatic Breakeven Protection Engine                            |
+//| Automatic Breakeven Protection Engine (Risk-Free Trade Lock)     |
 //+------------------------------------------------------------------+
 void ProcessBreakevenProtection()
 {
@@ -1144,12 +1230,14 @@ void ProcessBreakevenProtection()
       ulong ticket = PositionGetTicket(i);
       if(ticket > 0 && m_position.SelectByTicket(ticket))
       {
-         // Only apply to EA positions or all if magic is 0
-         if(InpMagicNumber > 0 && m_position.Magic() != InpMagicNumber) continue;
+         if(!InpTrailAllPositions && InpMagicNumber > 0 && m_position.Magic() != InpMagicNumber) continue;
 
          string sym = m_position.Symbol();
          double point = SymbolInfoDouble(sym, SYMBOL_POINT);
          int digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+         int stopsLevel = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
+         double minStopDist = MathMax(stopsLevel + 5, 10) * point;
+
          double triggerDist = InpBreakevenTrigger * point;
          double lockDist = InpBreakevenLock * point;
          double openPrice = m_position.PriceOpen();
@@ -1160,11 +1248,11 @@ void ProcessBreakevenProtection()
             if(bid - openPrice >= triggerDist)
             {
                double beSL = NormalizeDouble(openPrice + lockDist, digits);
-               if(m_position.StopLoss() < beSL)
+               if(m_position.StopLoss() < beSL && (bid - beSL >= minStopDist))
                {
                   if(m_trade.PositionModify(ticket, beSL, m_position.TakeProfit()))
                   {
-                     Print("BREAKEVEN ACTIVATED for BUY #", ticket, " SL moved to: ", beSL);
+                     Print("BREAKEVEN ACTIVATED for BUY #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", InpBreakevenLock, " pts)");
                   }
                }
             }
@@ -1175,11 +1263,11 @@ void ProcessBreakevenProtection()
             if(openPrice - ask >= triggerDist)
             {
                double beSL = NormalizeDouble(openPrice - lockDist, digits);
-               if(m_position.StopLoss() == 0 || m_position.StopLoss() > beSL)
+               if((m_position.StopLoss() == 0 || m_position.StopLoss() > beSL) && (beSL - ask >= minStopDist))
                {
                   if(m_trade.PositionModify(ticket, beSL, m_position.TakeProfit()))
                   {
-                     Print("BREAKEVEN ACTIVATED for SELL #", ticket, " SL moved to: ", beSL);
+                     Print("BREAKEVEN ACTIVATED for SELL #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", InpBreakevenLock, " pts)");
                   }
                }
             }
@@ -1187,6 +1275,7 @@ void ProcessBreakevenProtection()
       }
    }
 }
+
 
 //+------------------------------------------------------------------+
 //| Translate MT5 Retcode to human-readable diagnostic description   |

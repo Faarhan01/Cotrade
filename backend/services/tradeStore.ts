@@ -213,8 +213,30 @@ class TradeStore {
     if (payload.terminalPermissions) {
       this.terminalPermissions = payload.terminalPermissions;
     }
-    if (Array.isArray(payload.allSymbols)) {
+    if (Array.isArray(payload.allSymbols) && payload.allSymbols.length > 0) {
       this.allSymbols = payload.allSymbols;
+      // Proactively auto-detect and profile all symbols in Market Watch so the KnowledgeBase
+      // understands every symbol transmitted by MetaTrader 5 immediately
+      if (!wasConnected) {
+        import('../knowledgebase/core/auto-detect.js').then(({ runComprehensiveAutoDetection }) => {
+          import('../database/db.js').then(({ dbSaveSymbolAutoDetectProfile, dbSaveSymbolRegime }) => {
+            for (const symInfo of payload.allSymbols!) {
+              if (!symInfo || !symInfo.symbol) continue;
+              try {
+                const prof = runComprehensiveAutoDetection(
+                  symInfo.symbol,
+                  this.account,
+                  symInfo,
+                  symInfo.symbol === this.currentChart?.symbol ? this.chartHistory : [],
+                  Array.from(this.ticks.values())
+                );
+                dbSaveSymbolAutoDetectProfile(prof).catch(() => {});
+                if (prof.regime) dbSaveSymbolRegime(prof.regime).catch(() => {});
+              } catch {}
+            }
+          }).catch(() => {});
+        }).catch(() => {});
+      }
     }
     if (Array.isArray(payload.chartHistory) && payload.chartHistory.length > 0) {
       this.chartHistory = payload.chartHistory;
@@ -237,7 +259,7 @@ class TradeStore {
         }).catch(() => {});
       }
 
-      // KnowledgeBase Automatic Symbol Behavior Detector: Run and persist
+      // KnowledgeBase Automatic Symbol Behavior Detector: Run, persist and generate real-time trade signal
       import('../knowledgebase/core/auto-detect.js')
         .then(({ runComprehensiveAutoDetection }) => {
           const profile = runComprehensiveAutoDetection(
@@ -254,6 +276,36 @@ class TradeStore {
           import('./websocketServer.js').then(({ broadcast }) => {
             broadcast({ type: 'knowledge:autodetect', payload: profile });
           });
+
+          // Generate instantaneous trade signal on real MT5 bars
+          import('../knowledgebase/core/tradeSignal.js').then(({ generateTradeSignal }) => {
+            const currentBid = this.currentChart?.bid || (this.ticks.get(currentSym)?.bid ?? profile.specs.currentPrice);
+            generateTradeSignal(currentSym, this.chartHistory, currentBid, this.account.balance, 'LIVE', currentTf)
+              .then((signal) => {
+                import('../database/db.js').then(({ dbInsertBotSignal }) => {
+                  dbInsertBotSignal({
+                    id: `sig-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    symbol: signal.symbol,
+                    timeframe: signal.timeframe,
+                    direction: signal.direction,
+                    confidence: signal.confidence,
+                    entryPrice: signal.entryPrice,
+                    stopLoss: signal.stopLoss,
+                    takeProfit: signal.takeProfit,
+                    riskRewardRatio: signal.riskRewardRatio,
+                    reasons: signal.reasons,
+                    warnings: signal.warnings,
+                    dataQuality: 'LIVE',
+                    generatedAt: signal.generatedAt,
+                    actedOn: false,
+                  }).catch(() => {});
+                });
+                import('./websocketServer.js').then(({ broadcast }) => {
+                  broadcast({ type: 'knowledge:signal', payload: signal });
+                });
+              })
+              .catch((e) => console.error('KnowledgeBase signal generation error:', e));
+          }).catch(() => {});
         })
         .catch((e) => console.error('KnowledgeBase auto-detection error:', e));
 
@@ -305,6 +357,37 @@ class TradeStore {
           import('./websocketServer.js').then(({ broadcast }) => {
             broadcast({ type: 'knowledge:autodetect', payload: profile });
           });
+
+          // Generate instantaneous trade signal on pulled historical dataset
+          import('../knowledgebase/core/tradeSignal.js').then(({ generateTradeSignal }) => {
+            const lastCandle = histCandles[histCandles.length - 1];
+            const currentBid = lastCandle ? lastCandle.close : profile.specs.currentPrice;
+            generateTradeSignal(histSym, histCandles, currentBid, this.account.balance, 'LIVE', histTf)
+              .then((signal) => {
+                import('../database/db.js').then(({ dbInsertBotSignal }) => {
+                  dbInsertBotSignal({
+                    id: `sig-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    symbol: signal.symbol,
+                    timeframe: signal.timeframe,
+                    direction: signal.direction,
+                    confidence: signal.confidence,
+                    entryPrice: signal.entryPrice,
+                    stopLoss: signal.stopLoss,
+                    takeProfit: signal.takeProfit,
+                    riskRewardRatio: signal.riskRewardRatio,
+                    reasons: signal.reasons,
+                    warnings: signal.warnings,
+                    dataQuality: 'LIVE',
+                    generatedAt: signal.generatedAt,
+                    actedOn: false,
+                  }).catch(() => {});
+                });
+                import('./websocketServer.js').then(({ broadcast }) => {
+                  broadcast({ type: 'knowledge:signal', payload: signal });
+                });
+              })
+              .catch(() => {});
+          }).catch(() => {});
         })
         .catch((e) => console.error('KnowledgeBase history auto-detection error:', e));
     }
@@ -499,6 +582,8 @@ class TradeStore {
     magic?: number;
     comment?: string;
     slippage?: number;
+    timeframe?: string;
+    count?: number;
     source: TradeCommand['source'];
   }): { success: boolean; commandId?: string; error?: string } {
     // Reject a non-trade action without a symbol/volume check.
@@ -572,6 +657,8 @@ class TradeStore {
       magic: params.magic || 889900,
       comment: params.comment ? String(params.comment) : `${params.source}_CMD`,
       slippage: params.slippage || 10,
+      timeframe: params.timeframe,
+      count: params.count,
       status: 'pending',
       createdAt: Date.now(),
       source: params.source,
@@ -885,13 +972,29 @@ class TradeStore {
       ...sanitized,
     };
     dbSaveRiskSettings(this.riskGuard).catch((e) => console.error('DB save risk error:', e));
+
+    // Propagate risk guard & trailing parameters directly to MT5 EA
+    this.enqueueCommand({
+      action: 'SET_RISK_GUARD',
+      source: 'RISK_GUARD',
+      comment: JSON.stringify({
+        trailingStopEnabled: this.riskGuard.trailingStopEnabled,
+        trailingDistancePoints: this.riskGuard.trailingStopDistancePoints,
+        trailingStepPoints: this.riskGuard.trailingStopStepPoints,
+        enableBreakeven: true,
+        breakevenTriggerPoints: Math.round(this.riskGuard.trailingStopDistancePoints * 0.8),
+        breakevenLockPoints: Math.max(15, Math.round(this.riskGuard.trailingStopStepPoints * 0.5)),
+      }),
+    });
+
     this.addLog(
       'info',
-      'Risk Guard Parameters Updated',
-      `TP: $${this.riskGuard.globalTakeProfitUSD} | SL: $${this.riskGuard.globalStopLossUSD} | Trailing: ${this.riskGuard.trailingStopEnabled ? 'ON' : 'OFF'}`,
+      'Risk Guard Parameters Updated & Synced to EA',
+      `TP: $${this.riskGuard.globalTakeProfitUSD} | SL: $${this.riskGuard.globalStopLossUSD} | Trailing: ${this.riskGuard.trailingStopEnabled ? 'ON' : 'OFF'} (${this.riskGuard.trailingStopDistancePoints} pts)`,
       'USER_CONTROL'
     );
   }
+
 
   public triggerKillSwitch(active: boolean) {
     this.riskGuard.emergencyKillSwitch = active;
@@ -1091,6 +1194,8 @@ class TradeStore {
     return this.enqueueCommand({
       action: 'FETCH_HISTORY',
       symbol: symbol.toUpperCase(),
+      timeframe,
+      count,
       comment: JSON.stringify({ timeframe, count }),
       source: 'AI_MCP',
     });

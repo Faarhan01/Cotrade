@@ -7,7 +7,9 @@ import { createServer as createViteServer } from 'vite';
 import { setupWebSocketServer } from './backend/services/websocketServer.js';
 import { mt5Router } from './backend/routes/mt5Routes.js';
 import { apiRouter } from './backend/routes/apiRoutes.js';
+import { backtestRouter } from './backend/routes/backtestRoutes.js';
 import { bearerTokenGuard, corsMiddleware, describeExposure, getBindHost } from './backend/security.js';
+import { tradingBot } from './backend/bot/index.js';
 
 dotenv.config();
 
@@ -41,6 +43,7 @@ async function startServer() {
 
   // Mount API & MCP routes
   app.use('/api', apiRouter);
+  app.use('/api/backtest', backtestRouter);
 
   // Global error handler: convert unhandled route errors into JSON instead of
   // an HTML stack trace (which would break the SPA's fetch() callers).
@@ -54,6 +57,11 @@ async function startServer() {
 
   // Attach WebSocket server for real-time tick streaming and order events
   setupWebSocketServer(server);
+
+  // Initialize Trading Bot and restore configuration from SQLite
+  tradingBot.initialize().catch((err) => {
+    console.warn('[TradingBot] Failed to hydrate initial bot configuration:', err?.message || err);
+  });
 
   // Vite middleware in dev or static files in production
   if (!isProd) {

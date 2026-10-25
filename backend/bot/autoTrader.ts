@@ -264,6 +264,44 @@ export class TradingBot {
   }
 
 
+  public handleExecutionResult(cmd: any, res: any): void {
+    const trades = this.tradeExecutor.getTrades();
+    const trade = trades.find((t) => t.commandId === cmd.id);
+    if (trade) {
+      if (res.success) {
+        trade.status = 'EXECUTED';
+        if (res.executionPrice) trade.entryPrice = res.executionPrice;
+        if (res.dealTicket) (trade as any).ticket = res.dealTicket;
+      } else {
+        trade.status = 'FAILED';
+        trade.closedAt = Date.now();
+        (trade as any).errorMessage = res.errorMessage || `Error ${res.errorCode}`;
+      }
+      broadcast({
+        type: 'bot:trade_update',
+        payload: { trade, result: res },
+      });
+    }
+  }
+
+  public reconcilePositions(openPositions: any[]): void {
+    if (!Array.isArray(openPositions)) return;
+    const openTickets = new Set(openPositions.map((p) => p.ticket));
+    const trades = this.tradeExecutor.getTrades();
+    for (const trade of trades) {
+      const ticket = (trade as any).ticket;
+      if (trade.status === 'EXECUTED' && ticket && !trade.closedAt) {
+        if (!openTickets.has(ticket)) {
+          trade.closedAt = Date.now();
+          broadcast({
+            type: 'bot:trade_closed',
+            payload: { trade },
+          });
+        }
+      }
+    }
+  }
+
   public getTrades(): any[] {
     return this.tradeExecutor.getTrades();
   }

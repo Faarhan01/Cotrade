@@ -144,7 +144,10 @@ class TradeStore {
     // risk limits. `risk_settings` used to be write-only, so every restart
     // silently reset the limits to the hardcoded defaults.
     getDatabase()
-      .then(() => this.hydrateRiskGuardFromDb())
+      .then(async () => {
+        await this.hydrateRiskGuardFromDb();
+        await this.hydrateChartHistoryFromDb();
+      })
       .catch((err) => console.error('Failed to init SQLite DB:', err));
   }
 
@@ -182,6 +185,29 @@ class TradeStore {
       }
     } catch (err: any) {
       console.warn('Failed to restore risk settings from DB:', err?.message);
+    }
+  }
+
+  /** Restore the most recent real MT5 chart history across server restarts */
+  private async hydrateChartHistoryFromDb(): Promise<void> {
+    try {
+      const { dbGetCandles } = await import('../database/db.js');
+      const currentSym = this.currentChart?.symbol || 'EURUSD';
+      const currentTf = this.currentChart?.timeframe || 'M1';
+      const candles = await dbGetCandles(currentSym, currentTf, 120);
+      if (candles && candles.length > 0) {
+        this.chartHistory = candles;
+        this.syntheticDataActive = false;
+        this.indicators = calculateIndicators(this.chartHistory, currentSym, currentTf);
+        this.addLog(
+          'info',
+          'Historical Candles Restored Across Restart',
+          `Restored ${candles.length} real MT5 candles for ${currentSym} [${currentTf}]. Latest candle: ${candles[candles.length - 1].timeIso}`,
+          'SYSTEM'
+        );
+      }
+    } catch (err: any) {
+      console.warn('Failed to restore chart history from DB:', err?.message);
     }
   }
 
@@ -411,6 +437,11 @@ class TradeStore {
       for (const pos of payload.positions) {
         this.positions.set(pos.ticket, pos);
       }
+      import('../bot/autoTrader.js')
+        .then(({ tradingBot }) => {
+          tradingBot.reconcilePositions(payload.positions!);
+        })
+        .catch(() => {});
     }
 
     // 3. Update Pending Orders
@@ -910,6 +941,15 @@ class TradeStore {
       // Update SQLite Database with execution results
       dbInsertOrder(cmd).catch((e) => console.error('DB update order error:', e));
 
+      // Feed result into bot execution ledger (Gap 13 feedback loop)
+      if (cmd.source === 'BOT') {
+        import('../bot/autoTrader.js')
+          .then(({ tradingBot }) => {
+            tradingBot.handleExecutionResult(cmd, res);
+          })
+          .catch((err) => console.error('Failed to notify tradingBot:', err));
+      }
+
       const slipNote = typeof res.slippagePoints === 'number' && res.slippagePoints > 0 ? ` [Slippage: ${res.slippagePoints} pts]` : '';
       this.addLog(
         res.success ? 'trade' : 'error',
@@ -1299,15 +1339,40 @@ class TradeStore {
     return this.riskGuard;
   }
 
-  // Request on-demand history from EA via command queue
-  public requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100) {
+  // Request on-demand history from EA via command queue (supports count or absolute dates)
+  public requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100, from?: number, to?: number) {
+    const payload: any = { timeframe, count };
+    if (from && to) {
+      payload.from = from;
+      payload.to = to;
+    }
     return this.enqueueCommand({
       action: 'FETCH_HISTORY',
       symbol: symbol.toUpperCase(),
       timeframe,
       count,
-      comment: JSON.stringify({ timeframe, count }),
+      comment: JSON.stringify(payload),
       source: 'AI_MCP',
+    });
+  }
+
+  // Instruct EA to track an additional symbol dynamically
+  public trackSymbolInEA(symbol: string) {
+    return this.enqueueCommand({
+      action: 'TRACK_SYMBOL',
+      symbol: symbol.toUpperCase(),
+      source: 'MANUAL_UI',
+      comment: JSON.stringify({ symbol: symbol.toUpperCase() }),
+    });
+  }
+
+  // Instruct EA to activate authoritative breakeven protection on a specific position ticket
+  public protectPositionViaEA(ticket: number) {
+    return this.enqueueCommand({
+      action: 'PROTECT_POSITION',
+      ticket,
+      source: 'MANUAL_UI',
+      comment: JSON.stringify({ ticket }),
     });
   }
 

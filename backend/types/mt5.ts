@@ -1,7 +1,7 @@
 export type OrderType = 'BUY' | 'SELL' | 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP';
 export type PendingOrderType = 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP' | 'BUY_STOP_LIMIT' | 'SELL_STOP_LIMIT';
 export type CommandStatus = 'pending' | 'dispatched' | 'executed' | 'failed' | 'cancelled';
-export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CANCEL_PENDING' | 'FETCH_HISTORY' | 'SET_RISK_GUARD';
+export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CANCEL_PENDING' | 'FETCH_HISTORY' | 'SET_RISK_GUARD' | 'TRACK_SYMBOL' | 'PROTECT_POSITION';
 
 export interface AccountInfo {
   login: number;
@@ -48,6 +48,9 @@ export interface Position {
   comment: string;
   openTime: number;
   trailingEnabled?: boolean;
+  trailingActive?: boolean;
+  breakevenLocked?: boolean;
+  stopDistancePoints?: number;
   trailingDistance?: number;
   trailingStep?: number;
 }
@@ -115,6 +118,12 @@ export interface MT5TerminalPermissions {
   accountTradeAllowed: boolean;
   accountExpertAllowed: boolean;
   accountLimitOrders?: number;
+  terminalMaxBars?: number;
+  terminalDllsAllowed?: boolean;
+  terminalTradeApiDisabled?: boolean;
+  terminalPingLast?: number;
+  totalBrokerSymbols?: number;
+  marketWatchSymbolsCount?: number;
 }
 
 export interface MT5ChartDiagnostics {
@@ -207,6 +216,12 @@ export interface DetailedSymbolInfo {
   stopsLevel?: number;
   freezeLevel?: number;
   tradeMode?: string;
+  spreadFloat?: boolean;
+  fillingMode?: number;
+  tickSize?: number;
+  tickValue?: number;
+  marginMaintenance?: number;
+  bookDepth?: boolean;
   currencyBase?: string;
   currencyProfit?: string;
   description?: string;

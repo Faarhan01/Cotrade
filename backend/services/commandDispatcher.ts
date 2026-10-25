@@ -390,6 +390,38 @@ export class CommandDispatcher {
           source,
         });
 
+      case 'PROTECT_POSITION': {
+        const ticket = Number(body.ticket);
+        if (!ticket || ticket <= 0) {
+          return { success: false, error: 'Valid position ticket required for breakeven protection', status: 'rejected', timestamp: Date.now() };
+        }
+        const res = tradeStore.protectPositionViaEA(ticket);
+        this.notifyCommandQueued(res.commandId!);
+        return {
+          success: true,
+          commandId: res.commandId,
+          message: `EA-Authoritative Breakeven Protection requested for position #${ticket}`,
+          status: 'queued',
+          timestamp: Date.now(),
+        };
+      }
+
+      case 'TRACK_SYMBOL': {
+        const sym = normalizeSymbol(body.symbol);
+        if (!sym) {
+          return { success: false, error: 'Valid symbol required to track in EA', status: 'rejected', timestamp: Date.now() };
+        }
+        const res = tradeStore.trackSymbolInEA(sym);
+        this.notifyCommandQueued(res.commandId!);
+        return {
+          success: true,
+          commandId: res.commandId,
+          message: `Dispatched tracking request for ${sym} to MT5 EA`,
+          status: 'queued',
+          timestamp: Date.now(),
+        };
+      }
+
       default:
         return {
           success: false,

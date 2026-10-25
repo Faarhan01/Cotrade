@@ -27,6 +27,7 @@ input ulong    InpMagicNumber       = 889900;                  // EA Magic Numbe
 input ulong    InpDefaultSlippage   = 10;                      // Slippage points
 input string   InpSymbolsToTrack    = "EURUSD,GBPUSD,USDJPY,XAUUSD,BTCUSD"; // Symbols for live stream (comma-separated)
 input int      InpHistoryCandles    = 60;                      // Past chart candles (OHLCV) to transmit
+input int      InpMaxTrackedSymbols = 300;                     // Max Market Watch & auto-discovered symbols to track
 
 input group "=== Risk & Spread Guard ==="
 input int      InpMaxSpreadPoints   = 80;                      // Max allowable spread (points) for execution (0 to disable)
@@ -287,9 +288,9 @@ void ParseSymbols()
       g_trackedCount++;
    }
 
-   // Auto-discover Market Watch symbols from terminal (up to 60 symbols)
+   // Auto-discover Market Watch symbols from terminal (up to InpMaxTrackedSymbols)
    int totalMW = SymbolsTotal(true);
-   for(int m = 0; m < totalMW && g_trackedCount < 60; m++)
+   for(int m = 0; m < totalMW && g_trackedCount < InpMaxTrackedSymbols; m++)
    {
       string mwSym = SymbolName(m, true);
       bool alreadyAdded = false;
@@ -304,6 +305,26 @@ void ParseSymbols()
          g_trackedCount++;
       }
    }
+}
+
+//+------------------------------------------------------------------+
+//| Add a symbol to the tracked list dynamically                     |
+//+------------------------------------------------------------------+
+bool AddTrackedSymbol(string sym)
+{
+   if(sym == "") return false;
+   StringTrimLeft(sym);
+   StringTrimRight(sym);
+   for(int i = 0; i < g_trackedCount; i++)
+   {
+      if(g_trackedSymbols[i] == sym) return true;
+   }
+   // Select symbol into Market Watch if not already there
+   SymbolSelect(sym, true);
+   ArrayResize(g_trackedSymbols, g_trackedCount + 1);
+   g_trackedSymbols[g_trackedCount] = sym;
+   g_trackedCount++;
+   return true;
 }
 
 //+------------------------------------------------------------------+
@@ -377,6 +398,12 @@ string BuildSyncJson()
    json += "\"terminalName\":\"" + EscapeJson(TerminalInfoString(TERMINAL_NAME)) + "\",";
    json += "\"terminalCompany\":\"" + EscapeJson(TerminalInfoString(TERMINAL_COMPANY)) + "\",";
    json += "\"terminalBuild\":" + IntegerToString(TerminalInfoInteger(TERMINAL_BUILD)) + ",";
+   json += "\"terminalMaxBars\":" + IntegerToString(TerminalInfoInteger(TERMINAL_MAXBARS)) + ",";
+   json += "\"terminalDllsAllowed\":" + ((TerminalInfoInteger(TERMINAL_DLLS_ALLOWED) != 0) ? "true" : "false") + ",";
+   json += "\"terminalTradeApiDisabled\":" + ((TerminalInfoInteger(TERMINAL_TRADEAPI_DISABLED) != 0) ? "true" : "false") + ",";
+   json += "\"terminalPingLast\":" + IntegerToString(TerminalInfoInteger(TERMINAL_PING_LAST)) + ",";
+   json += "\"totalBrokerSymbols\":" + IntegerToString(SymbolsTotal(false)) + ",";
+   json += "\"marketWatchSymbolsCount\":" + IntegerToString(SymbolsTotal(true)) + ",";
 
    // Terminal Permissions & Operational Safeguards
    json += "\"terminalPermissions\":{";
@@ -385,7 +412,13 @@ string BuildSyncJson()
    json += "\"mqlTradeAllowed\":" + ((MQLInfoInteger(MQL_TRADE_ALLOWED) != 0) ? "true" : "false") + ",";
    json += "\"accountTradeAllowed\":" + ((AccountInfoInteger(ACCOUNT_TRADE_ALLOWED) != 0) ? "true" : "false") + ",";
    json += "\"accountExpertAllowed\":" + ((AccountInfoInteger(ACCOUNT_TRADE_EXPERT) != 0) ? "true" : "false") + ",";
-   json += "\"accountLimitOrders\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LIMIT_ORDERS));
+   json += "\"accountLimitOrders\":" + IntegerToString((int)AccountInfoInteger(ACCOUNT_LIMIT_ORDERS)) + ",";
+   json += "\"terminalMaxBars\":" + IntegerToString(TerminalInfoInteger(TERMINAL_MAXBARS)) + ",";
+   json += "\"terminalDllsAllowed\":" + ((TerminalInfoInteger(TERMINAL_DLLS_ALLOWED) != 0) ? "true" : "false") + ",";
+   json += "\"terminalTradeApiDisabled\":" + ((TerminalInfoInteger(TERMINAL_TRADEAPI_DISABLED) != 0) ? "true" : "false") + ",";
+   json += "\"terminalPingLast\":" + IntegerToString(TerminalInfoInteger(TERMINAL_PING_LAST)) + ",";
+   json += "\"totalBrokerSymbols\":" + IntegerToString(SymbolsTotal(false)) + ",";
+   json += "\"marketWatchSymbolsCount\":" + IntegerToString(SymbolsTotal(true));
    json += "},";
 
    // Current Active Chart Info & Microstructure Telemetry
@@ -502,7 +535,19 @@ string BuildSyncJson()
          json += "\"freezeLevel\":" + IntegerToString((int)SymbolInfoInteger(sym, SYMBOL_TRADE_FREEZE_LEVEL)) + ",";
          json += "\"tickValue\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_VALUE), 4) + ",";
          json += "\"tickSize\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_TRADE_TICK_SIZE), sDigits) + ",";
-         json += "\"tradeAllowed\":" + ((SymbolInfoInteger(sym, SYMBOL_TRADE_MODE) != SYMBOL_TRADE_MODE_DISABLED) ? "true" : "false") + ",";
+         
+         ENUM_SYMBOL_TRADE_MODE sTradeMode = (ENUM_SYMBOL_TRADE_MODE)SymbolInfoInteger(sym, SYMBOL_TRADE_MODE);
+         string sTradeModeStr = "FULL";
+         if(sTradeMode == SYMBOL_TRADE_MODE_DISABLED) sTradeModeStr = "DISABLED";
+         else if(sTradeMode == SYMBOL_TRADE_MODE_LONGONLY) sTradeModeStr = "LONGONLY";
+         else if(sTradeMode == SYMBOL_TRADE_MODE_SHORTONLY) sTradeModeStr = "SHORTONLY";
+         else if(sTradeMode == SYMBOL_TRADE_MODE_CLOSEONLY) sTradeModeStr = "CLOSEONLY";
+
+         json += "\"tradeAllowed\":" + ((sTradeMode != SYMBOL_TRADE_MODE_DISABLED && sTradeMode != SYMBOL_TRADE_MODE_CLOSEONLY) ? "true" : "false") + ",";
+         json += "\"tradeMode\":\"" + sTradeModeStr + "\",";
+         json += "\"spreadFloat\":" + ((SymbolInfoInteger(sym, SYMBOL_SPREAD_FLOAT) != 0) ? "true" : "false") + ",";
+         json += "\"fillingMode\":" + IntegerToString((int)SymbolInfoInteger(sym, SYMBOL_FILLING_MODE)) + ",";
+         json += "\"bookDepth\":" + ((SymbolInfoInteger(sym, SYMBOL_TICKS_BOOKDEPTH) > 0) ? "true" : "false") + ",";
          json += "\"sessionOpen\":" + DoubleToString(sOpen, sDigits) + ",";
          json += "\"sessionHigh\":" + DoubleToString(sHigh, sDigits) + ",";
          json += "\"sessionLow\":" + DoubleToString(sLow, sDigits) + ",";
@@ -510,6 +555,7 @@ string BuildSyncJson()
          json += "\"swapLong\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_SWAP_LONG), 2) + ",";
          json += "\"swapShort\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_SWAP_SHORT), 2) + ",";
          json += "\"marginInitial\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_MARGIN_INITIAL), 2) + ",";
+         json += "\"marginMaintenance\":" + DoubleToString(SymbolInfoDouble(sym, SYMBOL_MARGIN_MAINTENANCE), 2) + ",";
          json += "\"description\":\"" + EscapeJson(SymbolInfoString(sym, SYMBOL_DESCRIPTION)) + "\",";
          json += "\"currencyBase\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_BASE) + "\",";
          json += "\"currencyProfit\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT) + "\"";
@@ -538,12 +584,15 @@ string BuildSyncJson()
    }
    json += "]},";
 
-   // Chart History (transmits past candles on startup and every 5 seconds)
+   // Chart History (transmits full history on initial sync, then latest bars every 5 seconds to eliminate duplicate payload waste)
    static datetime s_lastHistorySend = 0;
+   static bool s_initialHistoryDone = false;
    if(TimeCurrent() - s_lastHistorySend >= 5)
    {
       s_lastHistorySend = TimeCurrent();
-      json += "\"chartHistory\":" + BuildChartHistoryJson(InpHistoryCandles) + ",";
+      int barsToSend = (!s_initialHistoryDone) ? InpHistoryCandles : 5;
+      s_initialHistoryDone = true;
+      json += "\"chartHistory\":" + BuildChartHistoryJson(barsToSend) + ",";
    }
 
    // On-demand history payload if requested by Bridge
@@ -585,11 +634,21 @@ string BuildSyncJson()
       ulong ticket = PositionGetTicket(i);
       if(ticket > 0 && m_position.SelectByTicket(ticket))
       {
+         bool isPosBuy = (m_position.PositionType() == POSITION_TYPE_BUY);
+         double pSl = m_position.StopLoss();
+         double pOpen = m_position.PriceOpen();
+         double pCurr = m_position.PriceCurrent();
+         bool isBeLocked = isPosBuy ? (pSl >= pOpen && pSl > 0) : (pSl <= pOpen && pSl > 0);
+         string posSym = m_position.Symbol();
+         double pPt = SymbolInfoDouble(posSym, SYMBOL_POINT);
+         if(pPt <= 0) pPt = _Point;
+         int stopDistPts = (pSl > 0) ? (int)MathRound(MathAbs(pCurr - pSl) / pPt) : 0;
+
          if(addedPositions > 0) json += ",";
          json += "{";
          json += "\"ticket\":" + IntegerToString(ticket) + ",";
          json += "\"symbol\":\"" + m_position.Symbol() + "\",";
-         json += "\"type\":\"" + (m_position.PositionType() == POSITION_TYPE_BUY ? "BUY" : "SELL") + "\",";
+         json += "\"type\":\"" + (isPosBuy ? "BUY" : "SELL") + "\",";
          json += "\"volume\":" + DoubleToString(m_position.Volume(), 2) + ",";
          json += "\"openPrice\":" + DoubleToString(m_position.PriceOpen(), 5) + ",";
          json += "\"currentPrice\":" + DoubleToString(m_position.PriceCurrent(), 5) + ",";
@@ -600,7 +659,10 @@ string BuildSyncJson()
          json += "\"magic\":" + IntegerToString(m_position.Magic()) + ",";
          json += "\"comment\":\"" + EscapeJson(m_position.Comment()) + "\",";
          json += "\"openTime\":" + IntegerToString((long)m_position.Time()) + ",";
-         json += "\"openTimeIso\":\"" + TimeToISO((datetime)m_position.Time()) + "\"";
+         json += "\"openTimeIso\":\"" + TimeToISO((datetime)m_position.Time()) + "\",";
+         json += "\"trailingActive\":" + (g_EnableTrailing ? "true" : "false") + ",";
+         json += "\"breakevenLocked\":" + (isBeLocked ? "true" : "false") + ",";
+         json += "\"stopDistancePoints\":" + IntegerToString(stopDistPts);
          json += "}";
          addedPositions++;
       }
@@ -976,9 +1038,15 @@ void ExecuteSingleCommand(string cmd)
    }
    else if(action == "FETCH_HISTORY")
    {
+      // Ensure symbol is active in Market Watch
+      SymbolSelect(symbol, true);
+
       string tfStr = ExtractJsonField(cmd, "timeframe");
       if(tfStr == "") tfStr = "M1";
       string cntStr = ExtractJsonField(cmd, "count");
+      string fromStr = ExtractJsonField(cmd, "from");
+      string toStr = ExtractJsonField(cmd, "to");
+
       int count = 100;
       if(cntStr != "") count = (int)StringToInteger(cntStr);
       if(comment != "")
@@ -987,13 +1055,32 @@ void ExecuteSingleCommand(string cmd)
          if(tfExt != "") tfStr = tfExt;
          string cntExt = ExtractJsonField(comment, "count");
          if(cntExt != "") count = (int)StringToInteger(cntExt);
+         string fromExt = ExtractJsonField(comment, "from");
+         if(fromExt != "") fromStr = fromExt;
+         string toExt = ExtractJsonField(comment, "to");
+         if(toExt != "") toStr = toExt;
       }
       if(count <= 0) count = 100;
       ENUM_TIMEFRAMES tfEnum = StringToTimeframe(tfStr);
 
       MqlRates reqRates[];
       ArraySetAsSeries(reqRates, false);
-      int copied = CopyRates(symbol, tfEnum, 0, count, reqRates);
+      int copied = 0;
+      datetime fromTime = (fromStr != "") ? (datetime)StringToInteger(fromStr) : 0;
+      datetime toTime = (toStr != "") ? (datetime)StringToInteger(toStr) : 0;
+
+      if(fromTime > 0)
+      {
+         if(toTime <= 0) toTime = TimeCurrent();
+         datetime startTime = MathMin(fromTime, toTime);
+         datetime stopTime = MathMax(fromTime, toTime);
+         copied = CopyRates(symbol, tfEnum, startTime, stopTime, reqRates);
+      }
+      else
+      {
+         copied = CopyRates(symbol, tfEnum, 0, count, reqRates);
+      }
+
       if(copied > 0)
       {
          int sDigits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
@@ -1024,23 +1111,106 @@ void ExecuteSingleCommand(string cmd)
          errMsg = "Failed to copy rates for " + symbol + " [code: " + IntegerToString(errCode) + "]";
       }
    }
-else if(action == "SET_RISK_GUARD")
-    {
-       string trExt = ExtractJsonField(comment, "trailingDistancePoints");
-       if(trExt != "") g_TrailingPoints = (int)StringToInteger(trExt);
-       string stExt = ExtractJsonField(comment, "trailingStepPoints");
-       if(stExt != "") g_TrailingStep = (int)StringToInteger(stExt);
-       string enExt = ExtractJsonField(comment, "trailingStopEnabled");
-       if(enExt != "") g_EnableTrailing = (enExt == "true" || enExt == "1");
-       string beExt = ExtractJsonField(comment, "enableBreakeven");
-       if(beExt != "") g_EnableBreakeven = (beExt == "true" || beExt == "1");
-       string beTrig = ExtractJsonField(comment, "breakevenTriggerPoints");
-       if(beTrig != "") g_BreakevenTrigger = (int)StringToInteger(beTrig);
-       string beLock = ExtractJsonField(comment, "breakevenLockPoints");
-       if(beLock != "") g_BreakevenLock = (int)StringToInteger(beLock);
-       success = true;
-       Print("RISK GUARD SYNCED TO EA: Trailing = ", g_EnableTrailing, " (Dist: ", g_TrailingPoints, " pts, Step: ", g_TrailingStep, " pts), Breakeven = ", g_EnableBreakeven, " (Trig: ", g_BreakevenTrigger, " pts, Lock: ", g_BreakevenLock, " pts)");
-    }
+   else if(action == "SET_RISK_GUARD")
+   {
+      string trExt = ExtractJsonField(comment, "trailingDistancePoints");
+      if(trExt != "") g_TrailingPoints = (int)StringToInteger(trExt);
+      string stExt = ExtractJsonField(comment, "trailingStepPoints");
+      if(stExt != "") g_TrailingStep = (int)StringToInteger(stExt);
+      string enExt = ExtractJsonField(comment, "trailingStopEnabled");
+      if(enExt != "") g_EnableTrailing = (enExt == "true" || enExt == "1");
+      string beExt = ExtractJsonField(comment, "enableBreakeven");
+      if(beExt != "") g_EnableBreakeven = (beExt == "true" || beExt == "1");
+      string beTrig = ExtractJsonField(comment, "breakevenTriggerPoints");
+      if(beTrig != "") g_BreakevenTrigger = (int)StringToInteger(beTrig);
+      string beLock = ExtractJsonField(comment, "breakevenLockPoints");
+      if(beLock != "") g_BreakevenLock = (int)StringToInteger(beLock);
+      success = true;
+      Print("RISK GUARD SYNCED TO EA: Trailing = ", g_EnableTrailing, " (Dist: ", g_TrailingPoints, " pts, Step: ", g_TrailingStep, " pts), Breakeven = ", g_EnableBreakeven, " (Trig: ", g_BreakevenTrigger, " pts, Lock: ", g_BreakevenLock, " pts)");
+   }
+   else if(action == "TRACK_SYMBOL")
+   {
+      if(symbol != "")
+      {
+         bool added = AddTrackedSymbol(symbol);
+         if(added)
+         {
+            success = true;
+            dealTicket = 1;
+            Print("TRACK_SYMBOL: Added ", symbol, " to EA tracking universe. Total symbols: ", g_trackedCount);
+         }
+         else
+         {
+            errCode = 404;
+            errMsg = "Failed to select symbol: " + symbol;
+         }
+      }
+      else
+      {
+         errCode = 400;
+         errMsg = "Missing symbol name";
+      }
+   }
+   else if(action == "PROTECT_POSITION")
+   {
+      string ticketStr = ExtractJsonField(cmd, "ticket");
+      ulong ticket = (ulong)StringToInteger(ticketStr);
+      if(ticket > 0 && m_position.SelectByTicket(ticket))
+      {
+         string posSymbol = m_position.Symbol();
+         double openPrice = m_position.PriceOpen();
+         double currentPrice = m_position.PriceCurrent();
+         double point = SymbolInfoDouble(posSymbol, SYMBOL_POINT);
+         if(point <= 0) point = _Point;
+         int stopsLevel = (int)SymbolInfoInteger(posSymbol, SYMBOL_TRADE_STOPS_LEVEL);
+         double minStopDist = MathMax(stopsLevel + 5, 10) * point;
+         double lockDist = g_BreakevenLock * point;
+         if(lockDist < minStopDist) lockDist = minStopDist;
+
+         double newSL = 0.0;
+         if(m_position.PositionType() == POSITION_TYPE_BUY)
+         {
+            newSL = NormalizeDouble(openPrice + lockDist, (int)SymbolInfoInteger(posSymbol, SYMBOL_DIGITS));
+            if(currentPrice - newSL >= minStopDist && newSL > m_position.StopLoss())
+            {
+               success = m_trade.PositionModify(ticket, newSL, m_position.TakeProfit());
+            }
+            else
+            {
+               errCode = 10016;
+               errMsg = "Price too close to stopsLevel for Breakeven";
+            }
+         }
+         else
+         {
+            newSL = NormalizeDouble(openPrice - lockDist, (int)SymbolInfoInteger(posSymbol, SYMBOL_DIGITS));
+            if(newSL - currentPrice >= minStopDist && (m_position.StopLoss() == 0 || newSL < m_position.StopLoss()))
+            {
+               success = m_trade.PositionModify(ticket, newSL, m_position.TakeProfit());
+            }
+            else
+            {
+               errCode = 10016;
+               errMsg = "Price too close to stopsLevel for Breakeven";
+            }
+         }
+         if(success)
+         {
+            dealTicket = ticket;
+            Print("PROTECT_POSITION: Breakeven applied by EA for ticket #", ticket, " SL=", newSL);
+         }
+         else if(errCode == 0)
+         {
+            errCode = (int)m_trade.ResultRetcode();
+            errMsg = m_trade.ResultComment();
+         }
+      }
+      else
+      {
+         errCode = 4753;
+         errMsg = "Position ticket not found";
+      }
+   }
 
 
    // Calculate execution slippage in points if applicable

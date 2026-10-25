@@ -19,6 +19,7 @@ import {
   BarChart3,
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { SymbolIntelligenceProfile } from '../../types';
 
 interface SymbolIntelligenceTabProps {
   onSelectStrategyTemplate?: (template: any) => void;
@@ -34,6 +35,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
   const [activeSymbols, setActiveSymbols] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'US30']);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<any | null>(null);
+  const [learnedIntel, setLearnedIntel] = useState<SymbolIntelligenceProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [appliedNotice, setAppliedNotice] = useState<string | null>(null);
   const [impactData, setImpactData] = useState<any | null>(null);
@@ -57,14 +59,18 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
     try {
       setLoading(true);
       setError(null);
-      const [profRes, impactRes, imbRes, sessRes] = await Promise.all([
+      const [profRes, impactRes, imbRes, sessRes, intelRes] = await Promise.all([
         api.getKnowledgeAutoDetect(symbolToFetch).catch(() => ({ success: false, profile: null })),
         api.getKnowledgeImpact(symbolToFetch).catch(() => ({ success: false, impact: null })),
         api.getKnowledgeImbalances(symbolToFetch).catch(() => ({ success: false, imbalances: null })),
         api.getKnowledgeSessionOrderFlow(symbolToFetch).catch(() => ({ success: false, sessionOrderFlow: null })),
+        api.getSymbolIntelligence(symbolToFetch).catch(() => ({ success: false, intelligence: null })),
       ]);
       if (profRes.success && profRes.profile) {
         setProfile(profRes.profile);
+      }
+      if (intelRes.success && intelRes.intelligence) {
+        setLearnedIntel(intelRes.intelligence);
       }
       if (impactRes.success && impactRes.impact) {
         setImpactData(impactRes.impact);
@@ -303,6 +309,197 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Continuous Symbol Learning Engine & Market DNA Exposure */}
+          {learnedIntel && (
+            <div className="bg-slate-900/90 border border-cyan-800/60 rounded-xl p-5 space-y-4 font-mono shadow-lg shadow-cyan-950/20">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-cyan-400" />
+                  <h3 className="font-bold text-sm text-white">
+                    Learned Market DNA & Pattern Edge Exposure
+                  </h3>
+                  <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-cyan-950 text-cyan-300 border border-cyan-800/80">
+                    {learnedIntel.analyzedCandlesCount} Bars Analyzed
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                    learnedIntel.volatilityState === 'COMPRESSED' ? 'text-sky-300 bg-sky-950/60 border-sky-800' :
+                    learnedIntel.volatilityState === 'ELEVATED' || learnedIntel.volatilityState === 'EXTREME' ? 'text-amber-300 bg-amber-950/60 border-amber-800' :
+                    'text-emerald-300 bg-emerald-950/60 border-emerald-800'
+                  }`}>
+                    {learnedIntel.volatilityState} VOLATILITY REGIME
+                  </span>
+                </div>
+              </div>
+
+              {/* Summary quote */}
+              <div className="p-3 bg-slate-950/70 border border-slate-800/80 rounded-lg text-xs text-slate-300 leading-relaxed font-sans">
+                {learnedIntel.summary}
+              </div>
+
+              {/* Multi-Timeframe Volatility & Spread DNA */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                  <span className="text-[10px] text-slate-500 block uppercase">Typical Spread DNA</span>
+                  <div className="text-base font-bold text-cyan-300 mt-0.5">{learnedIntel.typicalSpread} pts</div>
+                  <span className="text-[10px] text-slate-500 mt-1 block">Min: {learnedIntel.spreadMin} • Max: {learnedIntel.spreadMax} pts</span>
+                </div>
+
+                <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                  <span className="text-[10px] text-slate-500 block uppercase">Rollover Expansion</span>
+                  <div className={`text-base font-bold mt-0.5 ${learnedIntel.spreadRolloverExpansion > 2.0 ? 'text-rose-400' : 'text-amber-400'}`}>
+                    {learnedIntel.spreadRolloverExpansion}x
+                  </div>
+                  <span className="text-[10px] text-slate-500 mt-1 block">21:00 - 23:00 UTC Spread Surge</span>
+                </div>
+
+                <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                  <span className="text-[10px] text-slate-500 block uppercase">Multi-TF ATR Profile</span>
+                  <div className="text-sm font-bold text-white mt-0.5">
+                    M1: {learnedIntel.atrM1} • M15: {learnedIntel.atrM15}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">H1: {learnedIntel.atrH1} • D1: {learnedIntel.atrD1} pts</span>
+                </div>
+
+                <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                  <span className="text-[10px] text-slate-500 block uppercase">Institutional Liquidity</span>
+                  <div className="text-xs font-bold text-emerald-400 mt-0.5 truncate">
+                    {learnedIntel.keyLevels.institutionalLiquidityZone}
+                  </div>
+                  <span className="text-[10px] text-slate-400 mt-1 block">Pivot: {learnedIntel.keyLevels.pivot}</span>
+                </div>
+              </div>
+
+              {/* Pattern Win Rates Matrix */}
+              {learnedIntel.patternPerformance && Object.keys(learnedIntel.patternPerformance).length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <Target className="h-3.5 w-3.5 text-cyan-400" /> Learned Pattern Win Rates on {learnedIntel.symbol}
+                    </span>
+                    <span className="text-[10px]">Ranked by statistical edge</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {Object.values(learnedIntel.patternPerformance).map((pat) => (
+                      <div
+                        key={pat.pattern}
+                        className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-xs text-white truncate max-w-[140px]">{pat.name}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                            pat.bias === 'BULLISH' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' :
+                            pat.bias === 'BEARISH' ? 'bg-rose-950 text-rose-300 border-rose-800' :
+                            'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}>
+                            {pat.bias}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-slate-400">Win Rate:</span>
+                          <span className={`font-bold ${pat.winRatePct >= 55 ? 'text-emerald-400' : pat.winRatePct >= 45 ? 'text-amber-400' : 'text-rose-400'}`}>
+                            {pat.winRatePct}% ({pat.winCount}/{pat.occurrences})
+                          </span>
+                        </div>
+
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              pat.winRatePct >= 55 ? 'bg-emerald-500' : pat.winRatePct >= 45 ? 'bg-amber-500' : 'bg-rose-500'
+                            }`}
+                            style={{ width: `${pat.winRatePct}%` }}
+                          />
+                        </div>
+
+                        <div className="flex items-center justify-between text-[10px] text-slate-500">
+                          <span>Avg R:R: <strong className="text-slate-300">{pat.avgRewardRisk}:1</strong></span>
+                          <span className="text-cyan-400 font-medium truncate max-w-[120px]">{pat.recommendedAction}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Protective Trailing & Institutional Levels */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                {/* Protective Parameters */}
+                <div className="p-3.5 bg-slate-950/60 border border-slate-800/80 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Shield className="h-3.5 w-3.5 text-cyan-400" /> Calibrated Protective Parameters
+                    </span>
+                    <button
+                      onClick={() => handleApplyRisk({
+                        stopLossPoints: learnedIntel.protectiveParameters.recommendedSlPoints,
+                        takeProfitPoints: learnedIntel.protectiveParameters.recommendedTpPoints,
+                        trailingStopPoints: learnedIntel.protectiveParameters.trailingDistancePoints,
+                        trailingStepPoints: learnedIntel.protectiveParameters.trailingStepPoints,
+                      })}
+                      className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 font-bold transition-all"
+                    >
+                      Apply To Bot
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Recommended SL</span>
+                      <strong className="text-rose-400">{learnedIntel.protectiveParameters.recommendedSlPoints} pts</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Recommended TP</span>
+                      <strong className="text-emerald-400">{learnedIntel.protectiveParameters.recommendedTpPoints} pts</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">B/E Trigger / Lock</span>
+                      <strong className="text-cyan-300">+{learnedIntel.protectiveParameters.breakevenTriggerPoints} / +{learnedIntel.protectiveParameters.breakevenLockPoints} pts</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Trailing Distance / Step</span>
+                      <strong className="text-cyan-300">{learnedIntel.protectiveParameters.trailingDistancePoints} / {learnedIntel.protectiveParameters.trailingStepPoints} pts</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Key Institutional Levels */}
+                <div className="p-3.5 bg-slate-950/60 border border-slate-800/80 rounded-lg space-y-2">
+                  <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <Crosshair className="h-3.5 w-3.5 text-emerald-400" /> Institutional Daily Levels
+                  </span>
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Pivot</span>
+                      <strong className="text-white">{learnedIntel.keyLevels.pivot}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-rose-400/80 block">Resistance 1</span>
+                      <strong className="text-rose-300">{learnedIntel.keyLevels.resistance1}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-rose-400 block">Resistance 2</span>
+                      <strong className="text-rose-400">{learnedIntel.keyLevels.resistance2}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-emerald-400/80 block">Support 1</span>
+                      <strong className="text-emerald-300">{learnedIntel.keyLevels.support1}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-emerald-400 block">Support 2</span>
+                      <strong className="text-emerald-400">{learnedIntel.keyLevels.support2}</strong>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 block">Updated</span>
+                      <span className="text-slate-400 text-[10px]">{new Date(learnedIntel.updatedAt).toLocaleTimeString()}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Macro News Impact & Catalyst Radar */}
           {impactData && (

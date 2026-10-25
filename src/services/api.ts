@@ -1,4 +1,4 @@
-import { AppState, DetailedSymbolInfo, MCPToolDefinition, RiskGuardConfig, TradeCommand } from '../types';
+import { AppState, DetailedSymbolInfo, MCPToolDefinition, RiskGuardConfig, TradeCommand, SymbolIntelligenceProfile } from '../types';
 
 export const api = {
   async getState(): Promise<AppState> {
@@ -367,7 +367,9 @@ export const api = {
     timeframe?: string,
     limit = 100,
     includeTicks = true,
-    includeIndicators = true
+    includeIndicators = true,
+    from?: number,
+    to?: number
   ): Promise<{
     success: boolean;
     symbol: string;
@@ -375,6 +377,7 @@ export const api = {
     count: number;
     candles: any[];
     stats: any;
+    gapDiagnosis?: any;
     indicators: any;
     tickMovements: any[];
     tickStats: any;
@@ -385,21 +388,34 @@ export const api = {
     params.append('limit', String(limit));
     params.append('includeTicks', String(includeTicks));
     params.append('includeIndicators', String(includeIndicators));
+    if (from !== undefined) params.append('from', String(from));
+    if (to !== undefined) params.append('to', String(to));
 
     const res = await fetch(`/api/chart/history?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch chart history');
     return res.json();
   },
 
+  async getChartGapStatus(symbol?: string, timeframe?: string): Promise<any> {
+    const params = new URLSearchParams();
+    if (symbol) params.append('symbol', symbol);
+    if (timeframe) params.append('timeframe', timeframe);
+    const res = await fetch(`/api/chart/gap-status?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch chart gap status');
+    return res.json();
+  },
+
   async pullChartHistory(
     symbol: string,
     timeframe = 'M1',
-    count = 100
+    count = 100,
+    from?: number,
+    to?: number
   ): Promise<{ success: boolean; commandId: string; message: string }> {
     const res = await fetch('/api/chart/pull', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, timeframe, count }),
+      body: JSON.stringify({ symbol, timeframe, count, from, to }),
     });
     if (!res.ok) throw new Error('Failed to trigger chart history pull');
     return res.json();
@@ -588,6 +604,49 @@ export const api = {
     if (timeframe) params.append('timeframe', timeframe);
     const res = await fetch(`/api/knowledge/session-order-flow?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch session order flow');
+    return res.json();
+  },
+
+  async protectPosition(ticket: number): Promise<{ success: boolean; message?: string; commandId?: string }> {
+    const res = await fetch('/api/position/protect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket }),
+    });
+    if (!res.ok) throw new Error(`Failed to protect position #${ticket}`);
+    return res.json();
+  },
+
+  async trackSymbol(symbol: string): Promise<{ success: boolean; message?: string; symbol: string }> {
+    const res = await fetch('/api/symbols/track', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol }),
+    });
+    if (!res.ok) throw new Error(`Failed to track symbol ${symbol}`);
+    return res.json();
+  },
+
+  async getSymbolIntelligence(symbol: string): Promise<{ success: boolean; intelligence: SymbolIntelligenceProfile }> {
+    const res = await fetch(`/api/knowledge/symbol-intelligence/${encodeURIComponent(symbol)}`);
+    if (!res.ok) throw new Error(`Failed to fetch intelligence for ${symbol}`);
+    return res.json();
+  },
+
+  async getAllSymbolIntelligences(): Promise<{ success: boolean; count: number; intelligences: Record<string, SymbolIntelligenceProfile> }> {
+    const res = await fetch('/api/knowledge/symbol-intelligence');
+    if (!res.ok) throw new Error('Failed to fetch symbol intelligences');
+    return res.json();
+  },
+
+  async getTicksHistory(symbol?: string, from?: number, to?: number, limit = 500): Promise<{ success: boolean; count: number; ticks: any[] }> {
+    const params = new URLSearchParams();
+    if (symbol) params.append('symbol', symbol);
+    if (from !== undefined) params.append('from', from.toString());
+    if (to !== undefined) params.append('to', to.toString());
+    if (limit !== undefined) params.append('limit', limit.toString());
+    const res = await fetch(`/api/ticks/history?${params.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch ticks history');
     return res.json();
   },
 };

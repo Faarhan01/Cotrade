@@ -1192,33 +1192,46 @@ apiRouter.get('/chart/history', async (req, res) => {
     const currentChart = tradeStore.getCurrentChart();
     const sym = (req.query.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
     const tf = (req.query.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
-    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const limit = Math.min(Number(req.query.limit) || 100, 5000);
     const includeIndicators = req.query.includeIndicators !== 'false';
     const includeTicks = req.query.includeTicks !== 'false';
+    const fromTime = req.query.from ? Number(req.query.from) : undefined;
+    const toTime = req.query.to ? Number(req.query.to) : undefined;
 
-    const { dbGetCandleHistoryWithStats, dbGetRecentTickMovements } = await import('../database/db.js');
-    let candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
+    const { dbGetCandleHistoryWithStats, dbGetCandlesRange, dbGetRecentTickMovements } = await import('../database/db.js');
+    let candles: any[] = [];
+    let stats: any = null;
+
+    if (fromTime && toTime) {
+      candles = await dbGetCandlesRange(sym, tf, fromTime, toTime, limit);
+    } else {
+      const candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
+      candles = candleResult.candles;
+      stats = candleResult.stats;
+    }
+
+    let gapDiagnosis: any = null;
+    if (!fromTime && !toTime) {
+      const { inspectAndFillChartGaps } = await import('../services/historySyncService.js');
+      gapDiagnosis = await inspectAndFillChartGaps(sym, tf, limit);
+    }
 
     // If no candles stored yet, check in-memory chart history or trigger pull from MT5 EA
-    if (candleResult.candles.length === 0) {
+    if (candles.length === 0) {
       if (currentChart && currentChart.symbol.toLowerCase() === sym.toLowerCase()) {
         const inMem = tradeStore.getChartHistory();
         if (inMem.length > 0) {
           const { dbInsertCandles } = await import('../database/db.js');
           await dbInsertCandles(sym, tf, inMem);
-          candleResult = await dbGetCandleHistoryWithStats(sym, tf, limit);
+          candles = inMem.slice(-limit);
         }
-      }
-      // If still empty and EA is connected, automatically request real candles from MT5
-      if (candleResult.candles.length === 0 && tradeStore.getState().connection.isEaConnected) {
-        commandDispatcher.requestHistory({ symbol: sym, timeframe: tf, count: limit, source: 'MANUAL_UI' });
       }
     }
 
     let indicators = null;
-    if (includeIndicators && candleResult.candles.length > 0) {
+    if (includeIndicators && candles.length > 0) {
       const { calculateIndicators } = await import('../services/indicatorEngine.js');
-      indicators = calculateIndicators(candleResult.candles, sym, tf);
+      indicators = calculateIndicators(candles, sym, tf);
     }
 
     let tickMovements = null;
@@ -1230,15 +1243,29 @@ apiRouter.get('/chart/history', async (req, res) => {
       success: true,
       symbol: sym,
       timeframe: tf,
-      count: candleResult.candles.length,
-      candles: candleResult.candles,
-      stats: candleResult.stats,
+      count: candles.length,
+      candles,
+      stats,
+      gapDiagnosis,
       indicators,
       tickMovements: tickMovements?.ticks || [],
       tickStats: tickMovements?.stats || null,
-      awaitingEaData: candleResult.candles.length === 0,
+      awaitingEaData: candles.length === 0,
       isEaConnected: tradeStore.getState().connection.isEaConnected,
     });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Explicit Chart Gap Inspector & Reconciler
+apiRouter.get('/chart/gap-status', async (req, res) => {
+  try {
+    const sym = (req.query.symbol as string)?.trim() || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
+    const tf = (req.query.timeframe as string)?.trim() || tradeStore.getCurrentChart()?.timeframe || 'M1';
+    const { inspectAndFillChartGaps } = await import('../services/historySyncService.js');
+    const result = await inspectAndFillChartGaps(sym, tf);
+    res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }
@@ -1250,16 +1277,95 @@ apiRouter.post('/chart/pull', async (req, res) => {
     const currentChart = tradeStore.getCurrentChart();
     const sym = (req.body.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
     const tf = (req.body.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
-    const count = Math.min(Number(req.body.count) || 100, 500);
+    const count = Math.min(Number(req.body.count) || 100, 2000);
+    const from = req.body.from ? Number(req.body.from) : undefined;
+    const to = req.body.to ? Number(req.body.to) : undefined;
 
-    const dispatchRes = commandDispatcher.requestHistory({
-      symbol: sym,
-      timeframe: tf,
-      count,
+    tradeStore.trackSymbolInEA(sym);
+    const resCmd = tradeStore.requestHistoryFromEA(sym, tf, count, from, to);
+
+    res.json({
+      success: true,
+      commandId: resCmd.commandId,
+      message: `Requested ${count} candles for ${sym} [${tf}] from MT5 EA`,
+      status: 'queued',
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Instruct EA to activate native authoritative breakeven on a position ticket
+apiRouter.post('/position/protect', (req, res) => {
+  try {
+    const ticket = Number(req.body.ticket);
+    if (!ticket || ticket <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid position ticket required' });
+    }
+    const result = commandDispatcher.dispatchGeneric({
+      action: 'PROTECT_POSITION',
+      ticket,
       source: 'MANUAL_UI',
     });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
 
-    res.json(dispatchRes);
+// Dynamically request EA to track any symbol from the terminal's universe
+apiRouter.post('/symbols/track', (req, res) => {
+  try {
+    const symbol = (req.body.symbol as string)?.trim();
+    if (!symbol) return res.status(400).json({ success: false, error: 'Symbol required' });
+    const result = commandDispatcher.dispatchGeneric({
+      action: 'TRACK_SYMBOL',
+      symbol,
+      source: 'MANUAL_UI',
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Learned Symbol Intelligence Profile (Symbol DNA & Pattern Exposure)
+apiRouter.get('/knowledge/symbol-intelligence/:symbol', async (req, res) => {
+  try {
+    const symbol = req.params.symbol.trim();
+    const { getLearnedSymbolIntelligence } = await import('../knowledgebase/core/symbolLearning.js');
+    const allSymbols = tradeStore.getAllSymbols();
+    const symInfo = allSymbols.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase()) || null;
+    const profile = await getLearnedSymbolIntelligence(symbol, symInfo);
+    res.json({ success: true, profile });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// All learned symbol intelligences
+apiRouter.get('/knowledge/symbol-intelligence', async (_req, res) => {
+  try {
+    const { getAllLearnedSymbolIntelligences } = await import('../knowledgebase/core/symbolLearning.js');
+    const profiles = await getAllLearnedSymbolIntelligences();
+    res.json({ success: true, count: profiles.length, profiles });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Query ticks history by symbol and date/time range
+apiRouter.get('/ticks/history', async (req, res) => {
+  try {
+    const symbol = req.query.symbol as string;
+    const fromTime = req.query.from ? Number(req.query.from) : undefined;
+    const toTime = req.query.to ? Number(req.query.to) : undefined;
+    const limit = Math.min(Number(req.query.limit) || 200, 2000);
+
+    const { dbGetTicksHistoryRange } = await import('../database/db.js');
+    const ticks = await dbGetTicksHistoryRange(symbol, fromTime, toTime, limit);
+    res.json({ success: true, count: ticks.length, ticks });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }

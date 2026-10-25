@@ -1,15 +1,20 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import initSqlJs, { Database } from 'sql.js';
 import { AccountInfo, CandleData, TickData } from '../types/mt5.js';
 import { normalizeTimeframe, timeframeCandidates } from '../utils/timeframe.js';
 import { normalizeSymbol } from '../utils/symbol.js';
 
+const DB_FILE_PATH = path.resolve(process.cwd(), 'data', 'market_data.sqlite');
+
 let dbInstance: Database | null = null;
 let dbInitPromise: Promise<Database> | null = null;
 
 /**
- * Open the in-memory SQLite database.
- * The EA is the primary authoritative source of truth.
- * The in-memory database provides fast querying, indexing, and analytics.
+ * Open the SQLite database.
+ * If data/market_data.sqlite exists on disk, it is loaded so historical candles,
+ * observations, orders, and learned symbol intelligence survive server restarts.
+ * Real MT5 data is retained and gap-filled rather than overwritten.
  */
 export function getDatabase(): Promise<Database> {
   if (!dbInitPromise) {
@@ -23,10 +28,29 @@ export function getDatabase(): Promise<Database> {
 
 async function openDatabase(): Promise<Database> {
   const SQL = await initSqlJs();
-  const db = new SQL.Database();
+  let db: Database;
+  try {
+    if (fs.existsSync(DB_FILE_PATH)) {
+      const fileBuffer = fs.readFileSync(DB_FILE_PATH);
+      if (fileBuffer.length > 0) {
+        db = new SQL.Database(fileBuffer);
+        console.log(`[DB] Loaded persistent SQLite database from ${DB_FILE_PATH} (${fileBuffer.length} bytes)`);
+      } else {
+        db = new SQL.Database();
+      }
+    } else {
+      db = new SQL.Database();
+    }
+  } catch (err: any) {
+    console.warn(`[DB] Notice loading ${DB_FILE_PATH}, creating fresh database:`, err.message);
+    db = new SQL.Database();
+  }
+
   dbInstance = db;
   initSchema(db);
   migrateSchema(db);
+  // Initial save to establish directory and schema
+  persistDatabase(false);
   return db;
 }
 
@@ -197,6 +221,8 @@ function initSchema(db: Database) {
       low REAL NOT NULL,
       close REAL NOT NULL,
       volume REAL NOT NULL,
+      spread REAL DEFAULT 0,
+      real_volume REAL DEFAULT 0,
       time_iso TEXT,
       UNIQUE(symbol, timeframe, time)
     );
@@ -474,7 +500,39 @@ function initSchema(db: Database) {
 
     CREATE INDEX IF NOT EXISTS idx_rapid_shocks_sym ON rapid_shocks_history(symbol, timestamp);
     CREATE INDEX IF NOT EXISTS idx_chart_diag_sym ON chart_diagnostics_history(symbol, recorded_at);
+
+    CREATE TABLE IF NOT EXISTS knowledge_symbol_intelligence (
+      symbol TEXT PRIMARY KEY,
+      asset_class TEXT NOT NULL,
+      typical_spread REAL DEFAULT 0,
+      spread_min REAL DEFAULT 0,
+      spread_max REAL DEFAULT 0,
+      spread_rollover_expansion REAL DEFAULT 0,
+      atr_m1 REAL DEFAULT 0,
+      atr_m15 REAL DEFAULT 0,
+      atr_h1 REAL DEFAULT 0,
+      atr_d1 REAL DEFAULT 0,
+      optimal_sessions_json TEXT,
+      pattern_performance_json TEXT,
+      key_levels_json TEXT,
+      best_trading_hours_json TEXT,
+      summary TEXT,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS knowledge_telemetry_aggregate (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      total_observations INTEGER NOT NULL,
+      global_average_speed REAL NOT NULL,
+      peak_velocity_registered REAL NOT NULL,
+      time_of_day_patterns_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
+
+  // Run dynamic schema migrations safely for existing tables
+  try { db.exec('ALTER TABLE candles_history ADD COLUMN spread REAL DEFAULT 0;'); } catch (_) {}
+  try { db.exec('ALTER TABLE candles_history ADD COLUMN real_volume REAL DEFAULT 0;'); } catch (_) {}
 }
 
 /**
@@ -514,15 +572,65 @@ function safeLimit(limit: unknown, fallback = 100, max = 5000): number {
   return Math.min(n, max);
 }
 
-/**
- * Keep in-memory database synchronized. No disk persistence needed as EA is authoritative.
- */
-export function persistDatabase() {
-  // In-memory database is always up-to-date
+let persistTimeout: NodeJS.Timeout | null = null;
+let isPersisting = false;
+
+function saveDbToDisk(): void {
+  if (!dbInstance || isPersisting) return;
+  isPersisting = true;
+  try {
+    const data = dbInstance.export();
+    const dir = path.dirname(DB_FILE_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const tempFile = `${DB_FILE_PATH}.tmp`;
+    fs.writeFileSync(tempFile, Buffer.from(data));
+    fs.renameSync(tempFile, DB_FILE_PATH);
+  } catch (err: any) {
+    console.warn('[DB] Failed to save SQLite database to disk:', err?.message);
+  } finally {
+    isPersisting = false;
+  }
 }
 
-export function flushDatabase() {
-  // In-memory database is always up-to-date
+/**
+ * Persist SQLite database to disk so candles history, observations, orders, and
+ * learned symbol intelligence survive server restarts and gaps can be accurately tracked.
+ * Debounced to 1.5 seconds for high performance without disk thrashing.
+ */
+export function persistDatabase(immediate = false): void {
+  if (!dbInstance) return;
+  if (immediate) {
+    if (persistTimeout) {
+      clearTimeout(persistTimeout);
+      persistTimeout = null;
+    }
+    saveDbToDisk();
+    return;
+  }
+  if (persistTimeout) return;
+  persistTimeout = setTimeout(() => {
+    persistTimeout = null;
+    saveDbToDisk();
+  }, 1500);
+}
+
+export function flushDatabase(): void {
+  persistDatabase(true);
+}
+
+// Clean shutdown hooks to ensure all data is flushed to disk on exit
+if (typeof process !== 'undefined') {
+  process.on('SIGINT', () => {
+    try { flushDatabase(); } catch {}
+  });
+  process.on('SIGTERM', () => {
+    try { flushDatabase(); } catch {}
+  });
+  process.on('beforeExit', () => {
+    try { flushDatabase(); } catch {}
+  });
 }
 
 // Prune old data so database stays lightweight, fast, and does not grow unbounded
@@ -711,8 +819,8 @@ export async function dbInsertCandles(symbol: string, timeframe: string, candles
   const cleanTimeframe = normalizeTimeframe(timeframe) || 'M1';
   const stmt = db.prepare(`
     INSERT OR REPLACE INTO candles_history (
-      symbol, timeframe, time, open, high, low, close, volume, time_iso
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      symbol, timeframe, time, open, high, low, close, volume, spread, real_volume, time_iso
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   for (const c of candles) {
@@ -726,6 +834,8 @@ export async function dbInsertCandles(symbol: string, timeframe: string, candles
       c.low,
       c.close,
       c.volume,
+      c.spread ?? 0,
+      c.realVolume ?? 0,
       timeIso,
     ]);
   }
@@ -769,17 +879,13 @@ export async function dbGetCandles(symbol: string, timeframe: string, limit = 10
   // `ORDER BY time ASC LIMIT n` returned the OLDEST n bars still in the
   // retention window, so every consumer (auto-detect, indicators, patterns,
   // backtests, MCP tools) was analysing stale history.
-  //
-  // `UPPER(symbol)` / `UPPER(timeframe)` are matched against the expression
-  // indexes `idx_candles_symbol_tf` so the query stays an index seek. The
-  // previous `symbol = ? OR LOWER(symbol) = ?` form forced a full table scan.
   const placeholders = tfCandidates.map(() => '?').join(', ');
   const rows = selectRows(
     db,
     `
-      SELECT time, open, high, low, close, volume, time_iso
+      SELECT time, open, high, low, close, volume, spread, real_volume, time_iso
       FROM (
-        SELECT time, open, high, low, close, volume, time_iso
+        SELECT time, open, high, low, close, volume, spread, real_volume, time_iso
         FROM candles_history
         WHERE UPPER(symbol) = ?
           AND UPPER(timeframe) IN (${placeholders})
@@ -797,9 +903,86 @@ export async function dbGetCandles(symbol: string, timeframe: string, limit = 10
     low: Number(r.low),
     close: Number(r.close),
     volume: Number(r.volume),
+    spread: r.spread !== undefined && r.spread !== null ? Number(r.spread) : undefined,
+    realVolume: r.real_volume !== undefined && r.real_volume !== null ? Number(r.real_volume) : undefined,
     timeIso: r.time_iso ? String(r.time_iso) : new Date(Number(r.time) * 1000).toISOString(),
   }));
 }
+
+// 5a. Query Candles with Absolute Date Window (Gap 6 Fix)
+export async function dbGetCandlesRange(
+  symbol: string,
+  timeframe: string,
+  fromTime: number,
+  toTime: number,
+  limit = 5000
+): Promise<CandleData[]> {
+  const db = await getDatabase();
+  const cleanSym = normalizeSymbol(symbol);
+  const tfCandidates = timeframeCandidates(timeframe);
+  if (tfCandidates.length === 0) return [];
+
+  const placeholders = tfCandidates.map(() => '?').join(', ');
+  const rows = selectRows(
+    db,
+    `
+      SELECT time, open, high, low, close, volume, spread, real_volume, time_iso
+      FROM candles_history
+      WHERE UPPER(symbol) = ?
+        AND UPPER(timeframe) IN (${placeholders})
+        AND time >= ?
+        AND time <= ?
+      ORDER BY time ASC
+      LIMIT ?
+    `,
+    [cleanSym.toUpperCase(), ...tfCandidates.map((t) => t.toUpperCase()), fromTime, toTime, safeLimit(limit)]
+  );
+  return rows.map((r) => ({
+    time: Number(r.time),
+    open: Number(r.open),
+    high: Number(r.high),
+    low: Number(r.low),
+    close: Number(r.close),
+    volume: Number(r.volume),
+    spread: r.spread !== undefined && r.spread !== null ? Number(r.spread) : undefined,
+    realVolume: r.real_volume !== undefined && r.real_volume !== null ? Number(r.real_volume) : undefined,
+    timeIso: r.time_iso ? String(r.time_iso) : new Date(Number(r.time) * 1000).toISOString(),
+  }));
+}
+
+// 5c. Get Candle Time Range & Gap Metadata (For smart history resumption and gap-filling)
+export async function dbGetCandleTimeRange(
+  symbol: string,
+  timeframe: string
+): Promise<{ minTime: number; maxTime: number; count: number } | null> {
+  const db = await getDatabase();
+  const cleanSym = normalizeSymbol(symbol);
+  const tfCandidates = timeframeCandidates(timeframe);
+  if (tfCandidates.length === 0) return null;
+
+  const placeholders = tfCandidates.map(() => '?').join(', ');
+  const row = selectOne(
+    db,
+    `
+      SELECT MIN(time) AS min_time, MAX(time) AS max_time, COUNT(*) AS total
+      FROM candles_history
+      WHERE UPPER(symbol) = ?
+        AND UPPER(timeframe) IN (${placeholders})
+    `,
+    [cleanSym.toUpperCase(), ...tfCandidates.map((t) => t.toUpperCase())]
+  );
+
+  if (!row || !row.total || Number(row.total) === 0 || row.min_time === null || row.max_time === null) {
+    return null;
+  }
+
+  return {
+    minTime: Number(row.min_time),
+    maxTime: Number(row.max_time),
+    count: Number(row.total),
+  };
+}
+
 
 // 5b. Query Candle History with Rich Aggregated Statistics
 export async function dbGetCandleHistoryWithStats(symbol: string, timeframe: string, limit = 100): Promise<{
@@ -2364,6 +2547,195 @@ export async function dbGetChartDiagnosticsHistory(symbol?: string, limit = 30):
   }));
 }
 
+// 17. Knowledge Symbol Intelligence Persistence (Gap 11 Fix)
+export async function dbSaveSymbolIntelligence(data: {
+  symbol: string;
+  assetClass: string;
+  typicalSpread: number;
+  spreadMin: number;
+  spreadMax: number;
+  spreadRolloverExpansion: number;
+  atrM1: number;
+  atrM15: number;
+  atrH1: number;
+  atrD1: number;
+  optimalSessions: any;
+  patternPerformance: any;
+  keyLevels: any;
+  bestTradingHours: any;
+  summary: string;
+}): Promise<void> {
+  const db = await getDatabase();
+  const cleanSym = normalizeSymbol(data.symbol);
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO knowledge_symbol_intelligence (
+      symbol, asset_class, typical_spread, spread_min, spread_max, spread_rollover_expansion,
+      atr_m1, atr_m15, atr_h1, atr_d1, optimal_sessions_json, pattern_performance_json,
+      key_levels_json, best_trading_hours_json, summary, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  stmt.run([
+    cleanSym,
+    data.assetClass,
+    data.typicalSpread,
+    data.spreadMin,
+    data.spreadMax,
+    data.spreadRolloverExpansion,
+    data.atrM1,
+    data.atrM15,
+    data.atrH1,
+    data.atrD1,
+    JSON.stringify(data.optimalSessions || []),
+    JSON.stringify(data.patternPerformance || {}),
+    JSON.stringify(data.keyLevels || {}),
+    JSON.stringify(data.bestTradingHours || []),
+    data.summary,
+    Date.now(),
+  ]);
+  stmt.free();
+  persistDatabase();
+}
 
+export async function dbGetSymbolIntelligence(symbol: string): Promise<any | null> {
+  const db = await getDatabase();
+  const cleanSym = normalizeSymbol(symbol);
+  const rows = selectRows(
+    db,
+    `SELECT * FROM knowledge_symbol_intelligence WHERE UPPER(symbol) = ?`,
+    [cleanSym.toUpperCase()]
+  );
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    symbol: r.symbol,
+    assetClass: r.asset_class,
+    typicalSpread: Number(r.typical_spread),
+    spreadMin: Number(r.spread_min),
+    spreadMax: Number(r.spread_max),
+    spreadRolloverExpansion: Number(r.spread_rollover_expansion),
+    atrM1: Number(r.atr_m1),
+    atrM15: Number(r.atr_m15),
+    atrH1: Number(r.atr_h1),
+    atrD1: Number(r.atr_d1),
+    optimalSessions: r.optimal_sessions_json ? JSON.parse(r.optimal_sessions_json) : [],
+    patternPerformance: r.pattern_performance_json ? JSON.parse(r.pattern_performance_json) : {},
+    keyLevels: r.key_levels_json ? JSON.parse(r.key_levels_json) : {},
+    bestTradingHours: r.best_trading_hours_json ? JSON.parse(r.best_trading_hours_json) : [],
+    summary: r.summary,
+    updatedAt: Number(r.updated_at),
+  };
+}
 
+export async function dbGetAllSymbolIntelligences(): Promise<any[]> {
+  const db = await getDatabase();
+  const rows = selectRows(db, `SELECT * FROM knowledge_symbol_intelligence ORDER BY symbol ASC`);
+  return rows.map((r) => ({
+    symbol: r.symbol,
+    assetClass: r.asset_class,
+    typicalSpread: Number(r.typical_spread),
+    spreadMin: Number(r.spread_min),
+    spreadMax: Number(r.spread_max),
+    spreadRolloverExpansion: Number(r.spread_rollover_expansion),
+    atrM1: Number(r.atr_m1),
+    atrM15: Number(r.atr_m15),
+    atrH1: Number(r.atr_h1),
+    atrD1: Number(r.atr_d1),
+    optimalSessions: r.optimal_sessions_json ? JSON.parse(r.optimal_sessions_json) : [],
+    patternPerformance: r.pattern_performance_json ? JSON.parse(r.pattern_performance_json) : {},
+    keyLevels: r.key_levels_json ? JSON.parse(r.key_levels_json) : {},
+    bestTradingHours: r.best_trading_hours_json ? JSON.parse(r.best_trading_hours_json) : [],
+    summary: r.summary,
+    updatedAt: Number(r.updated_at),
+  }));
+}
 
+// 18. Global Knowledge Telemetry Aggregate Persistence (Gap 11 Fix)
+export async function dbSaveKnowledgeTelemetryAggregate(data: {
+  totalObservations: number;
+  globalAverageSpeed: number;
+  peakVelocityRegistered: number;
+  timeOfDayPatterns: any;
+}): Promise<void> {
+  const db = await getDatabase();
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO knowledge_telemetry_aggregate (
+      id, total_observations, global_average_speed, peak_velocity_registered, time_of_day_patterns_json, updated_at
+    ) VALUES (1, ?, ?, ?, ?, ?)
+  `);
+  stmt.run([
+    data.totalObservations,
+    data.globalAverageSpeed,
+    data.peakVelocityRegistered,
+    JSON.stringify(data.timeOfDayPatterns || {}),
+    new Date().toISOString(),
+  ]);
+  stmt.free();
+  persistDatabase();
+}
+
+export async function dbGetKnowledgeTelemetryAggregate(): Promise<{
+  totalObservations: number;
+  globalAverageSpeed: number;
+  peakVelocityRegistered: number;
+  timeOfDayPatterns: any;
+  updatedAt: string;
+} | null> {
+  const db = await getDatabase();
+  const rows = selectRows(db, `SELECT * FROM knowledge_telemetry_aggregate WHERE id = 1`);
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    totalObservations: Number(r.total_observations),
+    globalAverageSpeed: Number(r.global_average_speed),
+    peakVelocityRegistered: Number(r.peak_velocity_registered),
+    timeOfDayPatterns: r.time_of_day_patterns_json ? JSON.parse(r.time_of_day_patterns_json) : {},
+    updatedAt: String(r.updated_at),
+  };
+}
+
+// 19. Ticks History Range Query (Gap 8 Fix)
+export async function dbGetTicksHistoryRange(
+  symbol?: string,
+  fromTime?: number,
+  toTime?: number,
+  limit = 1000
+): Promise<any[]> {
+  const db = await getDatabase();
+  const filterSymbol = symbol && symbol.toUpperCase() !== 'ALL';
+  const cleanSym = filterSymbol ? normalizeSymbol(symbol as string) : '';
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filterSymbol) {
+    conditions.push('UPPER(symbol) = ?');
+    params.push(cleanSym.toUpperCase());
+  }
+  if (fromTime) {
+    conditions.push('timestamp >= ?');
+    params.push(fromTime);
+  }
+  if (toTime) {
+    conditions.push('timestamp <= ?');
+    params.push(toTime);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  params.push(safeLimit(limit));
+
+  const rows = selectRows(
+    db,
+    `SELECT symbol, bid, ask, spread, timestamp, time_iso FROM ticks_history
+     ${whereClause}
+     ORDER BY timestamp ASC
+     LIMIT ?`,
+    params
+  );
+  return rows.map((item) => ({
+    symbol: item.symbol,
+    bid: Number(item.bid),
+    ask: Number(item.ask),
+    spread: Number(item.spread),
+    timestamp: Number(item.timestamp),
+    timeIso: item.time_iso,
+  }));
+}

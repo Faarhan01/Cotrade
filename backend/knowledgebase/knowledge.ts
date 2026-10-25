@@ -1,3 +1,5 @@
+import { dbSaveKnowledgeTelemetryAggregate, dbGetKnowledgeTelemetryAggregate } from '../database/db.js';
+
 export interface AiKnowledgeBase {
   totalObservations: number;
   globalAverageSpeed: number;
@@ -13,11 +15,6 @@ export interface KnowledgeUpdateResult {
   updatedHours: string[];
 }
 
-// The knowledge base starts empty. It is only populated by real telemetry
-// reported through `updateKnowledgeBaseFromTelemetry`. The previous build
-// shipped with fabricated statistics (1,420 observations, a 14.8 avg speed,
-// five time-of-day patterns) that were presented to the user as if they had
-// been measured from live market data.
 let inMemoryKnowledge: AiKnowledgeBase = {
   totalObservations: 0,
   globalAverageSpeed: 0,
@@ -26,9 +23,28 @@ let inMemoryKnowledge: AiKnowledgeBase = {
   lastUpdated: new Date().toISOString(),
 };
 
+// Initialize knowledge from SQLite database on module load
+(async () => {
+  try {
+    const saved = await dbGetKnowledgeTelemetryAggregate();
+    if (saved && saved.totalObservations > 0) {
+      inMemoryKnowledge = {
+        totalObservations: saved.totalObservations,
+        globalAverageSpeed: saved.globalAverageSpeed,
+        peakVelocityRegistered: saved.peakVelocityRegistered,
+        timeOfDayPatterns: saved.timeOfDayPatterns || {},
+        lastUpdated: saved.updatedAt,
+      };
+    }
+  } catch (err) {
+    console.warn('[Knowledge] Failed to load persisted telemetry aggregate:', err);
+  }
+})();
+
 export function getAiKnowledge(): AiKnowledgeBase {
   return inMemoryKnowledge;
 }
+
 
 export function updateKnowledgeBaseFromTelemetry(
   symbol: string,
@@ -78,6 +94,14 @@ export function updateKnowledgeBaseFromTelemetry(
   }
   inMemoryKnowledge.lastUpdated = new Date().toISOString();
 
+  // Persist to SQLite
+  dbSaveKnowledgeTelemetryAggregate({
+    totalObservations: inMemoryKnowledge.totalObservations,
+    globalAverageSpeed: inMemoryKnowledge.globalAverageSpeed,
+    peakVelocityRegistered: inMemoryKnowledge.peakVelocityRegistered,
+    timeOfDayPatterns: inMemoryKnowledge.timeOfDayPatterns,
+  }).catch((e) => console.warn('[Knowledge] Failed to persist telemetry aggregate:', e));
+
   return {
     totalObservations: inMemoryKnowledge.totalObservations,
     globalAverageSpeed: inMemoryKnowledge.globalAverageSpeed,
@@ -85,3 +109,4 @@ export function updateKnowledgeBaseFromTelemetry(
     updatedHours,
   };
 }
+

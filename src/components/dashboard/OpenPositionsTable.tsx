@@ -34,27 +34,22 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
   const handleQuickBreakeven = async (pos: Position) => {
     try {
       setLockingTickets((prev) => ({ ...prev, [pos.ticket]: true }));
-      const digits = getSymbolDigits(pos.symbol);
-      const point = getSymbolPoint(pos.symbol);
-      const lockOffset = point * 20; // 2 pips
-      const bePrice =
-        pos.type === 'BUY'
-          ? Number((pos.openPrice + lockOffset).toFixed(digits))
-          : Number((pos.openPrice - lockOffset).toFixed(digits));
-
-      await api.sendCommand({
-        action: 'MODIFY_POSITION',
-        ticket: pos.ticket,
-        sl: bePrice,
-        tp: pos.tp > 0 ? pos.tp : undefined,
-        source: 'MANUAL_UI',
-      });
+      // Use EA's authoritative native PROTECT_POSITION handler
+      const res = await api.protectPosition(pos.ticket);
+      if (!res.success) {
+        // Fallback to command queue
+        await api.sendCommand({
+          action: 'PROTECT_POSITION',
+          ticket: pos.ticket,
+          source: 'MANUAL_UI',
+        });
+      }
     } catch (e) {
       console.error('Failed to set breakeven:', e);
     } finally {
       setTimeout(() => {
         setLockingTickets((prev) => ({ ...prev, [pos.ticket]: false }));
-      }, 1500);
+      }, 1200);
     }
   };
 
@@ -234,13 +229,24 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                       </span>
                     </td>
                     <td className="py-2.5 px-3">
-                      {pos.trailingEnabled ? (
-                        <span className="flex items-center gap-1 text-[10px] text-cyan-300 bg-cyan-950/70 border border-cyan-800/50 px-1.5 py-0.5 rounded">
-                          <Shield className="h-2.5 w-2.5" /> Active
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-slate-500">Off</span>
-                      )}
+                      <div className="flex flex-col gap-1 items-start">
+                        {pos.breakevenLocked ? (
+                          <span className="flex items-center gap-1 text-[10px] text-emerald-300 bg-emerald-950/80 border border-emerald-700/60 px-1.5 py-0.5 rounded font-bold">
+                            <ShieldCheck className="h-2.5 w-2.5" /> B/E Locked
+                          </span>
+                        ) : null}
+                        {pos.trailingActive ? (
+                          <span className="flex items-center gap-1 text-[10px] text-cyan-300 bg-cyan-950/80 border border-cyan-700/60 px-1.5 py-0.5 rounded animate-pulse font-medium">
+                            <Shield className="h-2.5 w-2.5" /> Trailing
+                          </span>
+                        ) : pos.trailingEnabled ? (
+                          <span className="flex items-center gap-1 text-[10px] text-cyan-300/80 bg-cyan-950/50 border border-cyan-800/40 px-1.5 py-0.5 rounded">
+                            <Shield className="h-2.5 w-2.5" /> Armed
+                          </span>
+                        ) : !pos.breakevenLocked ? (
+                          <span className="text-[10px] text-slate-500">Off</span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-slate-400 text-[11px] truncate max-w-[130px]">
                       {pos.comment || '—'}
@@ -250,12 +256,18 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                         {isProfit && (
                           <button
                             onClick={() => handleQuickBreakeven(pos)}
-                            disabled={lockingTickets[pos.ticket]}
-                            title="Lock Breakeven (+2 pips in profit direction)"
-                            className="px-2 py-1 rounded bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                            disabled={lockingTickets[pos.ticket] || pos.breakevenLocked}
+                            title={pos.breakevenLocked ? "Breakeven already secured by EA" : "EA Native Breakeven Lock (+stopsLevel safety)"}
+                            className={`px-2 py-1 rounded transition-colors flex items-center gap-1 text-[11px] font-bold ${
+                              pos.breakevenLocked
+                                ? 'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40 cursor-default'
+                                : 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-300 border border-emerald-800/80'
+                            }`}
                           >
                             <ShieldCheck className="h-3 w-3" />
-                            <span>{lockingTickets[pos.ticket] ? 'Locking...' : 'B/E'}</span>
+                            <span>
+                              {lockingTickets[pos.ticket] ? 'Locking...' : pos.breakevenLocked ? 'Protected' : 'B/E'}
+                            </span>
                           </button>
                         )}
                         <button

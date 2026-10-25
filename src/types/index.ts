@@ -1,6 +1,6 @@
 export type OrderType = 'BUY' | 'SELL' | 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP';
 export type CommandStatus = 'pending' | 'dispatched' | 'executed' | 'failed' | 'cancelled';
-export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CANCEL_PENDING' | 'FETCH_HISTORY' | 'SET_RISK_GUARD';
+export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CANCEL_PENDING' | 'FETCH_HISTORY' | 'SET_RISK_GUARD' | 'TRACK_SYMBOL' | 'PROTECT_POSITION';
 
 export interface AccountInfo {
   login: number;
@@ -47,6 +47,9 @@ export interface Position {
   comment: string;
   openTime: number;
   trailingEnabled?: boolean;
+  trailingActive?: boolean;
+  breakevenLocked?: boolean;
+  stopDistancePoints?: number;
   trailingDistance?: number;
   trailingStep?: number;
 }
@@ -141,6 +144,12 @@ export interface MT5TerminalPermissions {
   accountTradeAllowed: boolean;
   accountExpertAllowed: boolean;
   accountLimitOrders: number;
+  terminalMaxBars?: number;
+  terminalDllsAllowed?: boolean;
+  terminalTradeApiDisabled?: boolean;
+  terminalPingLast?: number;
+  totalBrokerSymbols?: number;
+  marketWatchSymbolsCount?: number;
 }
 
 export interface MT5ChartDiagnostics {
@@ -225,6 +234,12 @@ export interface DetailedSymbolInfo {
   stopsLevel?: number;
   freezeLevel?: number;
   tradeMode?: string;
+  spreadFloat?: boolean;
+  fillingMode?: number;
+  tickSize?: number;
+  tickValue?: number;
+  marginMaintenance?: number;
+  bookDepth?: boolean;
   currencyBase?: string;
   currencyProfit?: string;
   description?: string;
@@ -633,4 +648,60 @@ export interface BotTrade {
   profitUsd?: number;
   profitPoints?: number;
   trailingActive?: boolean;
+}
+
+export interface LearnedPatternPerformance {
+  pattern: string;
+  name: string;
+  occurrences: number;
+  winCount: number;
+  winRatePct: number;
+  avgRewardRisk: number;
+  bias: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  recommendedAction: string;
+}
+
+export interface SessionBehavior {
+  session: 'ASIAN' | 'LONDON' | 'NEW_YORK' | 'ROLLOVER';
+  hoursUtc: string;
+  typicalPipRange: number;
+  liquidityTier: 'HIGH' | 'MODERATE' | 'LOW';
+  recommendedStrategy: string;
+  spreadRisk: 'LOW' | 'NORMAL' | 'ELEVATED' | 'HIGH';
+}
+
+export interface SymbolIntelligenceProfile {
+  symbol: string;
+  assetClass: string;
+  analyzedCandlesCount: number;
+  typicalSpread: number;
+  spreadMin: number;
+  spreadMax: number;
+  spreadRolloverExpansion: number;
+  atrM1: number;
+  atrM15: number;
+  atrH1: number;
+  atrD1: number;
+  volatilityState: 'COMPRESSED' | 'NORMAL' | 'ELEVATED' | 'EXTREME';
+  optimalSessions: SessionBehavior[];
+  patternPerformance: Record<string, LearnedPatternPerformance>;
+  keyLevels: {
+    pivot: number;
+    support1: number;
+    support2: number;
+    resistance1: number;
+    resistance2: number;
+    institutionalLiquidityZone: string;
+  };
+  bestTradingHours: { hourUtc: number; label: string; score: number }[];
+  protectiveParameters: {
+    recommendedSlPoints: number;
+    recommendedTpPoints: number;
+    breakevenTriggerPoints: number;
+    breakevenLockPoints: number;
+    trailingDistancePoints: number;
+    trailingStepPoints: number;
+  };
+  summary: string;
+  updatedAt: number;
 }

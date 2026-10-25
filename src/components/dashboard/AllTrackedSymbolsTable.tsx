@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { DetailedSymbolInfo, TickData } from '../../types';
-import { Layers, Search, Zap, ExternalLink, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Layers, Search, Zap, ExternalLink, ShieldCheck, CheckCircle2, Plus } from 'lucide-react';
+import { api } from '../../services/api';
 
 interface AllTrackedSymbolsTableProps {
   symbols: DetailedSymbolInfo[];
@@ -18,6 +19,27 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
   onViewAllSymbolsPage,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [trackInput, setTrackInput] = useState('');
+  const [isTracking, setIsTracking] = useState(false);
+  const [trackNotice, setTrackNotice] = useState<string | null>(null);
+
+  const handleTrackSymbol = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!trackInput.trim()) return;
+    const sym = trackInput.trim().toUpperCase();
+    try {
+      setIsTracking(true);
+      await api.trackSymbol(sym);
+      setTrackNotice(`Dispatched track command to MT5 EA for ${sym}!`);
+      setTrackInput('');
+      setTimeout(() => setTrackNotice(null), 3000);
+    } catch (err: any) {
+      setTrackNotice(err.message || `Failed to track ${sym}`);
+      setTimeout(() => setTrackNotice(null), 3500);
+    } finally {
+      setIsTracking(false);
+    }
+  };
 
   // Fallback to ticks if detailed symbols array is still populating
   const displaySymbols: DetailedSymbolInfo[] =
@@ -58,7 +80,26 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <form onSubmit={handleTrackSymbol} className="flex items-center gap-1.5">
+            <input
+              type="text"
+              placeholder="Track symbol (e.g. EURCAD)..."
+              value={trackInput}
+              onChange={(e) => setTrackInput(e.target.value)}
+              className="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:border-cyan-500 focus:outline-none w-44 uppercase"
+            />
+            <button
+              type="submit"
+              disabled={isTracking || !trackInput.trim()}
+              className="px-2.5 py-1.5 rounded-lg bg-cyan-700 hover:bg-cyan-600 disabled:opacity-50 text-white text-xs font-mono font-bold flex items-center gap-1 transition-all"
+              title="Tell MT5 EA to select and track this broker symbol"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>{isTracking ? 'Tracking...' : 'Track'}</span>
+            </button>
+          </form>
+
           {onViewAllSymbolsPage && (
             <button
               onClick={onViewAllSymbolsPage}
@@ -76,11 +117,18 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
               placeholder="Search symbols..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white focus:border-cyan-500 focus:outline-none w-44"
+              className="bg-slate-950 border border-slate-700 rounded-lg pl-8 pr-3 py-1.5 text-xs font-mono text-white focus:border-cyan-500 focus:outline-none w-36"
             />
           </div>
         </div>
       </div>
+
+      {trackNotice && (
+        <div className="p-2.5 rounded-lg bg-cyan-950/80 border border-cyan-800 text-cyan-300 text-xs font-mono flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" />
+          <span>{trackNotice}</span>
+        </div>
+      )}
 
       {displaySymbols.length === 0 ? (
         <div className="border border-dashed border-slate-800 rounded-lg p-8 text-center text-slate-400 font-mono text-xs space-y-2">
@@ -159,7 +207,17 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
                       {item.contractSize.toLocaleString()}
                     </td>
                     <td className="py-2.5 px-3">
-                      {item.tradeAllowed ? (
+                      {item.tradeMode ? (
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold border ${
+                          item.tradeMode === 'FULL'
+                            ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800/60'
+                            : item.tradeMode === 'CLOSEONLY'
+                            ? 'text-amber-400 bg-amber-950/60 border-amber-800/60'
+                            : 'text-rose-400 bg-rose-950/60 border-rose-800/60'
+                        }`}>
+                          {item.tradeMode}
+                        </span>
+                      ) : item.tradeAllowed ? (
                         <span className="text-[10px] text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded">
                           Enabled
                         </span>

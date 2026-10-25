@@ -587,7 +587,18 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
 
                       {/* Trading Status */}
                       <td className="py-3 px-3">
-                        {item.tradeAllowed ? (
+                        {item.tradeMode ? (
+                          <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                            item.tradeMode === 'FULL'
+                              ? 'text-emerald-400 bg-emerald-950/70 border-emerald-800/70'
+                              : item.tradeMode === 'CLOSEONLY'
+                              ? 'text-amber-400 bg-amber-950/70 border-amber-800/70'
+                              : 'text-rose-400 bg-rose-950/70 border-rose-800/70'
+                          }`}>
+                            <Check className="h-2.5 w-2.5" />
+                            {item.tradeMode}
+                          </span>
+                        ) : item.tradeAllowed ? (
                           <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-2 py-0.5 rounded-full font-bold">
                             <Check className="h-2.5 w-2.5" />
                             Enabled
@@ -850,8 +861,16 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
                 <span className="text-slate-500 block text-[10px]">Trading Permission</span>
                 <span className={inspectedSymbol.tradeAllowed ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                  {inspectedSymbol.tradeAllowed ? 'Full Trading Enabled' : 'Trading Disabled'}
+                  {inspectedSymbol.tradeMode ? `Mode: ${inspectedSymbol.tradeMode}` : inspectedSymbol.tradeAllowed ? 'Full Trading Enabled' : 'Trading Disabled'}
                 </span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">Execution / Filling</span>
+                <span className="text-white font-bold">{inspectedSymbol.fillingMode || 'FOK / IOC'}</span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">Spread Type</span>
+                <span className="text-cyan-300 font-bold">{inspectedSymbol.spreadFloat !== false ? 'Floating Spread' : 'Fixed Spread'}</span>
               </div>
               <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
                 <span className="text-slate-500 block text-[10px]">Base Currency</span>
@@ -869,6 +888,12 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                     : '—'}
                 </span>
               </div>
+              {inspectedSymbol.bookDepth ? (
+                <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <span className="text-slate-500 block text-[10px]">Market Depth (DOM)</span>
+                  <span className="text-emerald-400 font-bold">{inspectedSymbol.bookDepth} Levels</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-slate-800">

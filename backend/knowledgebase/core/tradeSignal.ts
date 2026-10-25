@@ -1,10 +1,10 @@
-import { CandleData } from '../../types/mt5.js';
+import { CandleData, DetailedSymbolInfo } from '../../types/mt5.js';
 import { detectAllPatterns } from '../patterns/index.js';
 import { calculateIndicators } from '../../services/indicatorEngine.js';
 import { autoDetectMarketRegime } from './auto-detect.js';
 import { analyzeSymbolNewsImpact } from '../news/symbolImpact.js';
 import { autoDetectSupportResistanceAndPivots } from './auto-detect.js';
-import { getSymbolDigits, getSymbolPoint, detectAssetClass } from '../../utils/symbolEconomics.js';
+import { getSymbolDigits, getSymbolPoint, detectAssetClass, validateAndAdjustStops } from '../../utils/symbolEconomics.js';
 
 export interface TrailingProtectionRecommendation {
   breakevenTriggerPoints: number;
@@ -37,7 +37,7 @@ export interface TradeSignal {
     supportLevel: number | null;
     resistanceLevel: number | null;
   };
-  dataQuality: 'LIVE' | 'SYNTHETIC';
+  dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE';
   generatedAt: number;
 }
 
@@ -66,8 +66,9 @@ export async function generateTradeSignal(
   candles: CandleData[],
   currentPrice: number,
   accountBalance: number = 10000,
-  dataQuality: 'LIVE' | 'SYNTHETIC' = 'LIVE',
-  timeframe: string = 'M1'
+  dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE' = 'LIVE',
+  timeframe: string = 'M1',
+  symbolInfo?: DetailedSymbolInfo
 ): Promise<TradeSignal> {
   const reasons: string[] = [];
   const warnings: string[] = [];
@@ -216,8 +217,8 @@ export async function generateTradeSignal(
     }
   }
 
-  const digits = getSymbolDigits(sym);
-  const point = getSymbolPoint(sym);
+  const digits = getSymbolDigits(sym, symbolInfo?.digits);
+  const point = getSymbolPoint(sym, symbolInfo?.point);
 
   let stopLoss = 0;
   let takeProfit = 0;
@@ -253,6 +254,24 @@ export async function generateTradeSignal(
       takeProfit = supportLevel;
     } else {
       takeProfit = currentPrice - tpDist;
+    }
+  }
+
+  // Enforce broker stopsLevel so SL/TP are never inside the forbidden zone (MT5 error 10016)
+  if (direction !== 'HOLD' && symbolInfo) {
+    const orderType = direction;
+    const stopsCheck = validateAndAdjustStops({
+      symbol: sym,
+      orderType,
+      entryPrice: currentPrice,
+      sl: stopLoss,
+      tp: takeProfit,
+      symbolInfo,
+    });
+    if (stopsCheck.adjusted) {
+      warnings.push(`Stops widened to respect broker stopsLevel: ${stopsCheck.reason}`);
+      stopLoss = stopsCheck.sl;
+      takeProfit = stopsCheck.tp;
     }
   }
 

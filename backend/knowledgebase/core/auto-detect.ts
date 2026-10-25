@@ -23,7 +23,7 @@ export type VolatilityRating = 'ULTRA_LOW' | 'LOW' | 'NORMAL' | 'HIGH' | 'EXTREM
  *               no market data was available. The numbers are illustrative
  *               only and must not drive position sizing or execution.
  */
-export type DataQuality = 'LIVE' | 'SYNTHETIC';
+export type DataQuality = 'LIVE' | 'SYNTHETIC' | 'NONE';
 
 export interface TradingSessionWindow {
   session: 'ASIAN' | 'LONDON' | 'NEW_YORK' | 'LONDON_NY_OVERLAP' | 'ROLLOVER';
@@ -351,8 +351,8 @@ export function autoDetectSymbol(
     atr14Price = computeATR(highs, lows, closes, 14) ?? 0;
     adrPrice = atr14Price * 1.5;
   } else {
-    // Default estimates by asset class - illustrative only, flagged below.
-    dataQuality = 'SYNTHETIC';
+    // No real candle data available - flagged as NONE, not SYNTHETIC (which means seeded fake data).
+    dataQuality = 'NONE';
     if (assetClass === 'PRECIOUS_METALS') atr14Price = 25.0; // ~$25 gold range
     else if (assetClass === 'CRYPTO') atr14Price = currentPrice * 0.025; // ~2.5%
     else if (assetClass === 'INDEX') atr14Price = 250;
@@ -360,7 +360,7 @@ export function autoDetectSymbol(
     else atr14Price = 0.0065; // ~65 pips for EURUSD
     adrPrice = atr14Price * 1.6;
   }
-  if (currentPrice <= 0) dataQuality = 'SYNTHETIC';
+  if (currentPrice <= 0) dataQuality = 'NONE';
 
   const atr14Pips = Number((atr14Price / pipSize).toFixed(1));
   const adrPips = Number((adrPrice / pipSize).toFixed(1));
@@ -634,7 +634,7 @@ export function autoDetectMarketRegime(
       ],
       tradeabilityScore: 65,
       dominantBias: 'NEUTRAL',
-      dataQuality: 'SYNTHETIC',
+      dataQuality: 'NONE',
       detectedAt: Date.now(),
     };
   }
@@ -1182,7 +1182,7 @@ export function autoDetectVolatilityAndNoise(
     volatilityState,
     recommendedSlAtrMultiplier,
     tickVelocityPerMinute,
-    dataQuality: cList.length >= 15 ? 'LIVE' : 'SYNTHETIC',
+    dataQuality: cList.length >= 15 ? 'LIVE' : 'NONE',
     calculatedAt: Date.now(),
   };
 }
@@ -1283,7 +1283,7 @@ export function autoDetectSupportResistanceAndPivots(
     distanceToResistancePoints,
     distanceToSupportPoints,
     breakoutAlert,
-    dataQuality: cList.length >= 10 ? 'LIVE' : 'SYNTHETIC',
+    dataQuality: cList.length >= 10 ? 'LIVE' : 'NONE',
     calculatedAt: Date.now(),
   };
 }
@@ -1511,7 +1511,7 @@ export function autoDetectScalpingSuitability(
     targetTakeProfitPips: Number(Math.max(5, atrPips * 1.2).toFixed(1)),
     targetStopLossPips: Number(Math.max(4, atrPips * 1.0).toFixed(1)),
     maxHoldingTimeMinutes: 15,
-    dataQuality: candles && candles.length >= 15 ? 'LIVE' : 'SYNTHETIC',
+    dataQuality: candles && candles.length >= 15 ? 'LIVE' : 'NONE',
     rationale: isRecommendedForScalping
       ? `Tight spread (${spreadPips} pips) and high tick liquidity make ${sym} optimal for 1-minute to 5-minute scalping setups.`
       : `Spread takes up ${ratio}% of average bar range. High friction reduces scalping edge. Recommend M15+ swing trading instead.`,

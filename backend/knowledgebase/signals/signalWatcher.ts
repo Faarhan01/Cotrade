@@ -79,7 +79,7 @@ export class SignalWatcher {
       }
 
       const dataQuality = tradeStore.getDataQuality();
-      if (this.config.dataQualityFilter === 'LIVE' && dataQuality === 'SYNTHETIC') return null;
+      if (this.config.dataQualityFilter === 'LIVE' && (dataQuality === 'SYNTHETIC' || dataQuality === 'NONE')) return null;
 
       const baseSignal = await generateTradeSignal(
         sym,
@@ -87,7 +87,8 @@ export class SignalWatcher {
         currentPrice,
         tradeStore.getAccount().balance,
         dataQuality,
-        this.config.timeframe
+        this.config.timeframe,
+        tradeStore.getAllSymbols().find((s) => s.symbol.toUpperCase() === sym.toUpperCase())
       );
 
       // Evaluate Multi-Timeframe Concordance

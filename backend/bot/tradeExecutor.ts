@@ -62,7 +62,17 @@ export class TradeExecutor {
     }
 
     // Spread Guard: adjust allowed threshold based on mode
+    const spreadKnown = symbolInfo !== undefined && typeof symbolInfo.spread === 'number' && symbolInfo.spread > 0;
     const currentSpread = symbolInfo?.spread || 0;
+    if (!spreadKnown) {
+      tradeStore.addLog(
+        'warn',
+        `Bot Spread Protection [${mode}] Skipped`,
+        `Skipped trade for ${signal.symbol}: symbol not in tracked EA symbol list or spread unknown — cannot evaluate spread guard. Add ${signal.symbol} to MT5 Market Watch or ensure EA is streaming symbol specs.`,
+        'BOT'
+      );
+      return null;
+    }
     let maxAllowedSpread = (symbolInfo?.symbol?.includes('XAU') ? 100 : symbolInfo?.symbol?.includes('JPY') ? 40 : 35);
     if (effectiveSubMode === 'SCALPER') {
       // Scalping requires tight spreads

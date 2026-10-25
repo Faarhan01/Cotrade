@@ -307,7 +307,8 @@ class TradeStore {
           // Generate instantaneous trade signal on real MT5 bars
           import('../knowledgebase/core/tradeSignal.js').then(({ generateTradeSignal }) => {
             const currentBid = this.currentChart?.bid || (this.ticks.get(currentSym)?.bid ?? profile.specs.currentPrice);
-            generateTradeSignal(currentSym, this.chartHistory, currentBid, this.account.balance, 'LIVE', currentTf)
+            const symInfo = this.allSymbols.find((s) => s.symbol.toUpperCase() === currentSym.toUpperCase());
+            generateTradeSignal(currentSym, this.chartHistory, currentBid, this.account.balance, 'LIVE', currentTf, symInfo)
               .then((signal) => {
                 import('../database/db.js').then(({ dbInsertBotSignal }) => {
                   dbInsertBotSignal({
@@ -389,7 +390,8 @@ class TradeStore {
           import('../knowledgebase/core/tradeSignal.js').then(({ generateTradeSignal }) => {
             const lastCandle = histCandles[histCandles.length - 1];
             const currentBid = lastCandle ? lastCandle.close : profile.specs.currentPrice;
-            generateTradeSignal(histSym, histCandles, currentBid, this.account.balance, 'LIVE', histTf)
+            const symInfo = this.allSymbols.find((s) => s.symbol.toUpperCase() === histSym.toUpperCase());
+            generateTradeSignal(histSym, histCandles, currentBid, this.account.balance, 'LIVE', histTf, symInfo)
               .then((signal) => {
                 import('../database/db.js').then(({ dbInsertBotSignal }) => {
                   dbInsertBotSignal({
@@ -1235,7 +1237,7 @@ class TradeStore {
       commandQueue: this.commandQueue,
       riskGuard: this.riskGuard,
       riskGuardBreach: { ...this.riskBreachLatch },
-      dataQuality: this.syntheticDataActive ? 'SYNTHETIC' : 'LIVE',
+      dataQuality: this.syntheticDataActive ? 'SYNTHETIC' : (this.allSymbols.length > 0 || this.chartHistory.length > 0 || this.account.login > 0 ? 'LIVE' : 'NONE'),
       logs: this.logs,
     };
   }
@@ -1295,8 +1297,10 @@ class TradeStore {
     };
   }
 
-  public getDataQuality(): 'LIVE' | 'SYNTHETIC' {
-    return this.syntheticDataActive ? 'SYNTHETIC' : 'LIVE';
+  public getDataQuality(): 'LIVE' | 'SYNTHETIC' | 'NONE' {
+    if (this.syntheticDataActive) return 'SYNTHETIC';
+    const hasEaData = this.allSymbols.length > 0 || this.chartHistory.length > 0 || this.account.login > 0;
+    return hasEaData ? 'LIVE' : 'NONE';
   }
 
   public getCurrentChart() {

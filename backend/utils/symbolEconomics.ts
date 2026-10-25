@@ -41,6 +41,17 @@ const COMMODITIES = ['WTI', 'BRENT', 'OIL', 'NATGAS', 'COPPER'];
 const INDICES = ['US30', 'NAS100', 'SPX500', 'GER40', 'UK100', 'JP225', 'AUS200', 'FRA40', 'HK50', 'DJ30', 'USTEC'];
 const CRYPTO = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'LTCUSD', 'DOGEUSD', 'BNBUSD'];
 
+/** Tracks symbol fields that fell back to hardcoded guesses, to avoid log spam. */
+const guessedSymbolFields = new Set<string>();
+
+function noteGuess(symbol: string, field: string, reason: string): void {
+  const key = `${symbol}:${field}`;
+  if (!guessedSymbolFields.has(key)) {
+    guessedSymbolFields.add(key);
+    console.warn(`[SymbolEconomics] Hardcoded fallback for ${symbol}.${field}: ${reason}. EA real value not provided; position sizing may be off.`);
+  }
+}
+
 /**
  * Detect the asset class for a given symbol.
  */
@@ -73,6 +84,7 @@ export function detectAssetClass(symbol: string): AssetClass {
 export function getSymbolDigits(symbol: string, knownDigits?: number): number {
   if (typeof knownDigits === 'number' && knownDigits > 0) return knownDigits;
   const s = symbol.toUpperCase().trim();
+  noteGuess(symbol, 'digits', 'using name-based inference (JPY→3, XAU→2, 6-char→5, else 4)');
   if (s.includes('JPY')) return 3;
   if (s.includes('XAU') || s.includes('GOLD')) return 2;
   if (s.includes('XAG') || s.includes('SILVER')) return 3;
@@ -97,6 +109,7 @@ export function getSymbolPoint(symbol: string, knownPoint?: number): number {
 export function getSymbolContractSize(symbol: string, knownContractSize?: number): number {
   if (typeof knownContractSize === 'number' && knownContractSize > 0) return knownContractSize;
   const assetClass = detectAssetClass(symbol);
+  noteGuess(symbol, 'contractSize', `using asset-class default (${assetClass})`);
   switch (assetClass) {
     case 'METALS':
       return symbol.toUpperCase().includes('XAU') ? 100 : 5000;
@@ -132,6 +145,8 @@ export function calculatePipValue(specs: {
     const isJpyOrMetal = s.includes('JPY') || s.includes('XAU');
     return isJpyOrMetal ? tickValue * 10 : tickValue * 10;
   }
+
+  noteGuess(symbol, 'pipValue', 'using hardcoded asset-class estimate (XAU→$10, XAG→$25, indices/crypto→contractSize, USD-quoted→$10, else $10)');
 
   const assetClass = detectAssetClass(s);
   const contractSize = getSymbolContractSize(s, specs.contractSize);

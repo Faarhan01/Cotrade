@@ -639,7 +639,7 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
                             ? 'bg-amber-950 text-amber-300 border-amber-800'
                             : 'bg-slate-800 text-slate-300 border-slate-700'
                         }`}>
-                          {shock.shockType.replace(/_/g, ' ')}
+                          {(shock.shockType || '').replace(/_/g, ' ')}
                         </span>
                         <span className={`font-bold font-mono ${isBull ? 'text-emerald-400' : 'text-rose-400'}`}>
                           {isBull ? '+' : ''}{shock.pipDisplacement} pips ({shock.volatilityAtrMultiplier}x ATR)
@@ -647,7 +647,7 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
                       </div>
 
                       <div className="text-[11px] text-slate-400 font-sans">
-                        <span className="font-bold text-slate-300">Reaction:</span> {shock.reactionType.replace(/_/g, ' ')}
+                        <span className="font-bold text-slate-300">Reaction:</span> {(shock.reactionType || '').replace(/_/g, ' ')}
                       </div>
 
                       {hasNews ? (

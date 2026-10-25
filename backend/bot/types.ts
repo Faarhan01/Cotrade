@@ -154,7 +154,7 @@ export interface BotSignal {
   riskRewardRatio: number;
   reasons: string[];
   warnings: string[];
-  dataQuality: 'LIVE' | 'SYNTHETIC';
+  dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE';
   generatedAt: number;
   actedOn: boolean;
   tradeId?: string;
@@ -182,7 +182,6 @@ export interface BotTrade {
 }
 
 export interface BotState {
-  enabled: boolean;
   config: BotConfig;
   lastRunAt: number | null;
   lastSignal: BotSignal | null;

@@ -26,7 +26,6 @@ export class TradingBot {
     this.tradeExecutor = new TradeExecutor(this.config);
 
     this.state = {
-      enabled: this.config.enabled,
       config: { ...this.config },
       lastRunAt: null,
       lastSignal: null,
@@ -78,7 +77,6 @@ export class TradingBot {
     }
 
     this.config.enabled = true;
-    this.state.enabled = true;
     this.isRunning = true;
     this.state.running = true;
     this.state.errors = [];
@@ -100,7 +98,6 @@ export class TradingBot {
     this.isRunning = false;
     this.state.running = false;
     this.config.enabled = false;
-    this.state.enabled = false;
 
     tradeStore.addLog('info', 'Trading Bot Stopped', 'Auto-trading disabled', 'BOT');
     broadcast({ type: 'bot:status', payload: { running: false } });

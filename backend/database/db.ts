@@ -1654,7 +1654,7 @@ export async function dbSaveBacktestResult(result: any): Promise<void> {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  const dataQuality = result.dataQuality === 'SYNTHETIC' ? 'SYNTHETIC' : 'LIVE';
+  const dataQuality = result.dataQuality === 'SYNTHETIC' || result.dataQuality === 'NONE' ? result.dataQuality : 'LIVE';
 
   stmt.run([
     result.id,
@@ -1734,7 +1734,7 @@ export async function dbGetBacktestResults(strategyId?: string, limit = 50): Pro
     trades: item.trades_json ? JSON.parse(item.trades_json) : [],
     equityCurve: item.equity_curve_json ? JSON.parse(item.equity_curve_json) : [],
     evaluatedAt: item.evaluated_at,
-    dataQuality: item.data_quality === 'SYNTHETIC' ? 'SYNTHETIC' : 'LIVE',
+    dataQuality: item.data_quality === 'SYNTHETIC' || item.data_quality === 'NONE' ? item.data_quality : 'LIVE',
     knowledgeAssisted: Boolean(item.knowledge_assisted),
     newsFilterActive: Boolean(item.news_filter_active),
     proofSummary: item.proof_summary || undefined,
@@ -1777,7 +1777,7 @@ export async function dbGetBacktestById(id: string): Promise<any | null> {
     trades: item.trades_json ? JSON.parse(item.trades_json) : [],
     equityCurve: item.equity_curve_json ? JSON.parse(item.equity_curve_json) : [],
     evaluatedAt: item.evaluated_at,
-    dataQuality: item.data_quality === 'SYNTHETIC' ? 'SYNTHETIC' : 'LIVE',
+    dataQuality: item.data_quality === 'SYNTHETIC' || item.data_quality === 'NONE' ? item.data_quality : 'LIVE',
     knowledgeAssisted: Boolean(item.knowledge_assisted),
     newsFilterActive: Boolean(item.news_filter_active),
     proofSummary: item.proof_summary || undefined,

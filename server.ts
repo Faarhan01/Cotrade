@@ -10,6 +10,8 @@ import { apiRouter } from './backend/routes/apiRoutes.js';
 import { backtestRouter } from './backend/routes/backtestRoutes.js';
 import { bearerTokenGuard, corsMiddleware, describeExposure, getBindHost } from './backend/security.js';
 import { tradingBot } from './backend/bot/index.js';
+import { inspectAndFillChartGaps } from './backend/services/historySyncService.js';
+import { tradeStore } from './backend/services/tradeStore.js';
 
 dotenv.config();
 
@@ -59,9 +61,28 @@ async function startServer() {
   setupWebSocketServer(server);
 
   // Initialize Trading Bot and restore configuration from SQLite
-  tradingBot.initialize().catch((err) => {
+  tradingBot.initialize().catch((err: any) => {
     console.warn('[TradingBot] Failed to hydrate initial bot configuration:', err?.message || err);
   });
+
+  // Proactive per-symbol candle history pull (Gap #1).
+  // Periodically inspects every tracked symbol + timeframe and requests missing
+  // history from the MT5 EA so non-chart symbols are not left with empty series.
+  setInterval(async () => {
+    try {
+      const state = tradeStore.getState();
+      if (!state.connection.isEaConnected) return;
+      const symbols = state.allSymbols?.map((s: any) => s.symbol).filter(Boolean) || [];
+      const timeframes = ['M1', 'M5', 'M15', 'H1'];
+      for (const sym of symbols) {
+        for (const tf of timeframes) {
+          await inspectAndFillChartGaps(sym, tf, 200).catch(() => {});
+        }
+      }
+    } catch (err: any) {
+      console.warn('[HistorySync] Proactive pull cycle error:', err?.message || err);
+    }
+  }, 60000);
 
   // Vite middleware in dev or static files in production
   if (!isProd) {

@@ -358,7 +358,7 @@ export interface AppState {
   commandQueue: TradeCommand[];
   riskGuard: RiskGuardConfig;
   riskGuardBreach?: { tp: boolean; sl: boolean; drawdown: boolean; margin: boolean };
-  dataQuality?: 'LIVE' | 'SYNTHETIC';
+  dataQuality?: 'LIVE' | 'SYNTHETIC' | 'NONE';
   logs: ExecutionLog[];
 }
 
@@ -471,7 +471,7 @@ export interface NewsImpactCorrelationResult {
   whipsawCount: number;
   caughtEvents: AffectedNewsEvent[];
   summary: string;
-  dataQuality: 'LIVE' | 'SIMULATED';
+  dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE';
 }
 
 export interface BacktestResult {

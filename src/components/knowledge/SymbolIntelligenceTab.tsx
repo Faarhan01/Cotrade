@@ -581,7 +581,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                         : 'text-slate-400 bg-slate-950/60 border-slate-800'
                     }`}
                   >
-                    {imbalancesData.dominantImbalance.replace(/_/g, ' ')}
+                    {(imbalancesData?.dominantImbalance || '').replace(/_/g, ' ')}
                   </span>
                 )}
               </div>
@@ -623,7 +623,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                               : 'text-rose-300 bg-rose-950/80 border border-rose-800'
                           }`}
                         >
-                          {imbalancesData.nearestUnmitigatedGap.type.replace(/_/g, ' ')}
+                          {(imbalancesData?.nearestUnmitigatedGap?.type || '').replace(/_/g, ' ')}
                         </span>
                       </div>
                       <div className="flex items-center justify-between text-xs text-white">
@@ -696,7 +696,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                         : 'text-slate-400 bg-slate-950/60 border-slate-800'
                     }`}
                   >
-                    {sessionOrderFlowData.bias.replace(/_/g, ' ')}
+                    {(sessionOrderFlowData?.bias || '').replace(/_/g, ' ')}
                   </span>
                 )}
               </div>
@@ -809,7 +809,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
                           <span className={`font-bold ${isCurrent ? 'text-cyan-300' : 'text-slate-200'}`}>
-                            {sw.session.replace(/_/g, ' ')}
+                            {(sw.session || '').replace(/_/g, ' ')}
                           </span>
                           {isCurrent && (
                             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />

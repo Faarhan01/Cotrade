@@ -686,7 +686,7 @@ apiRouter.post('/trade/signal', async (req, res) => {
 
     const dataQuality = tradeStore.getDataQuality();
     const { generateTradeSignal } = await import('../knowledgebase/core/tradeSignal.js');
-    const signal = await generateTradeSignal(targetSymbol, candles, currentPrice, account.balance, dataQuality);
+    const signal = await generateTradeSignal(targetSymbol, candles, currentPrice, account.balance, dataQuality, undefined, tradeStore.getAllSymbols().find((s) => s.symbol.toUpperCase() === targetSymbol.toUpperCase()));
 
     res.json({ success: true, signal });
   } catch (err: any) {
@@ -1564,6 +1564,31 @@ apiRouter.get('/knowledge/chart-diagnostics', async (_req, res) => {
       permissions,
       serverTime: Date.now(),
       serverTimeIso: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Terminal Metadata Endpoint — exposes EA-reported terminal identity & capabilities
+// (terminalName, terminalCompany, terminalBuild, terminalPermissions, plus
+// TERMINAL_MAXBARS / TERMINAL_DLLS_ALLOWED / TERMINAL_TRADEAPI_DISABLED when
+// the EA reports them). Helps operators verify the EA is talking to genuine
+// broker quotes and whether DLLs/tradeAPI are enabled.
+apiRouter.get('/api/terminal/metadata', async (_req, res) => {
+  try {
+    const state = tradeStore.getState();
+    const permissions = tradeStore.getTerminalPermissions();
+    res.json({
+      success: true,
+      terminalName: state.connection.terminalName || '',
+      terminalCompany: state.connection.terminalCompany || '',
+      terminalBuild: state.connection.terminalBuild || 0,
+      terminalPermissions: permissions || null,
+      isEaConnected: state.connection.isEaConnected,
+      serverTime: state.connection.serverTime || Date.now(),
+      eaVersion: state.connection.eaVersion || '2.10',
+      timestamp: Date.now(),
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });

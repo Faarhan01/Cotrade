@@ -1345,7 +1345,7 @@ export const KnowledgeBasePage: React.FC = () => {
                         <h3 className="font-bold text-xs text-white leading-snug">{obs.title}</h3>
                       </div>
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 text-slate-400 capitalize shrink-0">
-                        {obs.category.replace('_', ' ')}
+                        {(obs.category || '').replace('_', ' ')}
                       </span>
                     </div>
 

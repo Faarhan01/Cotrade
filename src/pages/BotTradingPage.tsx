@@ -323,7 +323,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                     ? 'bg-indigo-950/90 text-indigo-300 border-indigo-600/80 shadow-indigo-950/30'
                     : 'bg-emerald-950/90 text-emerald-300 border-emerald-600/80 shadow-emerald-950/30'
                 }`}>
-                  MODE: {config.mode.replace('_', ' ')}
+                  MODE: {(config.mode || '').replace('_', ' ')}
                 </span>
                 {config.newsRiskFilter && (
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wider uppercase border bg-cyan-950/80 text-cyan-300 border-cyan-700/60 flex items-center gap-1">
@@ -840,7 +840,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
               <div className="pt-3 border-t border-slate-800 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider text-cyan-400">
-                    {config.mode.replace('_', ' ')} Tuner Settings
+                    {(config.mode || '').replace('_', ' ')} Tuner Settings
                   </span>
                   <span className="text-[10px] text-slate-500 font-mono">Dynamic Mode Rules</span>
                 </div>
@@ -1105,7 +1105,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                       ? 'bg-rose-950 text-rose-300 border-rose-700/60'
                       : 'bg-slate-800 text-slate-300 border-slate-700'
                   }`}>
-                    {mtfData.overallConsensus.replace('_', ' ')}
+                    {(mtfData?.overallConsensus || '').replace('_', ' ')}
                   </span>
                   <span className="text-xs font-mono font-bold text-indigo-300">
                     {mtfData.concordanceScore}% Concordance

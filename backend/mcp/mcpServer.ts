@@ -1019,6 +1019,31 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
 ];
 
 export async function executeMcpTool(name: string, args: Record<string, any> = {}): Promise<any> {
+  // --- MCP input validation (Gap #10 partial) ---
+  // Declares required args per tool so callers get a structured 400-style error
+  // instead of a cryptic 500 or a silently-wrong default.
+  const requiredArgs: Record<string, string[]> = {
+    mt5_get_market_data: [],
+    mt5_get_open_positions: [],
+    mt5_execute_trade: ['symbol', 'orderType', 'volume'],
+    mt5_modify_position: ['ticket'],
+    mt5_close_position: ['ticket'],
+    mt5_get_chart_history: ['symbol', 'timeframe'],
+    mt5_request_chart_history: ['symbol', 'timeframe'],
+    mt5_pull_chart_history_now: ['symbol', 'timeframe'],
+    mt5_get_tick_history: ['symbol'],
+    mt5_calculate_position_size: ['symbol', 'entryPrice', 'stopLossPrice'],
+    mt5_generate_trade_signal: ['symbol'],
+    mt5_knowledge_get_symbol_behavior: ['symbol'],
+  };
+  const required = requiredArgs[name];
+  if (required) {
+    const missing = required.filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
+    if (missing.length > 0) {
+      throw new Error(`MCP validation error: missing required argument(s) for "${name}": ${missing.join(', ')}`);
+    }
+  }
+
   switch (name) {
     case 'mt5_query_trade_history': {
       const { dbGetOrders } = await import('../database/db.js');
@@ -1398,7 +1423,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const initialDeposit = args.initialDeposit ? Number(args.initialDeposit) : 10000;
 
       let candles = await dbGetCandles(strategy.symbol, strategy.timeframe, candleLimit);
-      let dataQuality: 'LIVE' | 'SYNTHETIC' = candles.length >= 20 ? 'LIVE' : 'SYNTHETIC';
+      let dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE' = candles.length >= 20 ? 'LIVE' : 'SYNTHETIC';
       if (candles.length < 20) {
         const live = tradeStore.getChartHistory();
         if (live && live.length >= 20) {
@@ -1420,8 +1445,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
         success: true,
         dataQuality,
         warning:
-          dataQuality === 'SYNTHETIC'
-            ? 'No live MT5 history was available. This backtest ran on generated random-walk bars and must NOT be treated as a measurement of real market performance.'
+          dataQuality === 'SYNTHETIC' || dataQuality === 'NONE'
+            ? dataQuality === 'NONE'
+              ? 'No live MT5 data was available. This backtest cannot be treated as a measurement of real market performance.'
+              : 'No live MT5 history was available. This backtest ran on generated random-walk bars and must NOT be treated as a measurement of real market performance.'
             : undefined,
         summary: {
           strategyName: backtest.strategyName,
@@ -1792,7 +1819,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       }
 
       const { generateTradeSignal } = await import('../knowledgebase/core/tradeSignal.js');
-      const signal = await generateTradeSignal(sym, candles, currentPrice, account.balance, tradeStore.getDataQuality());
+      const signal = await generateTradeSignal(sym, candles, currentPrice, account.balance, tradeStore.getDataQuality(), undefined, tradeStore.getAllSymbols().find((s) => s.symbol.toUpperCase() === sym.toUpperCase()));
 
       return signal;
     }
@@ -1856,7 +1883,7 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const initialDeposit = Number(args.initialDeposit) || 10000;
       const candleLimit = Math.min(Math.max(Number(args.candleLimit) || 300, 20), 2000);
       let candles = await dbGetCandles(strategy.symbol, strategy.timeframe, candleLimit);
-      let dataQuality: 'LIVE' | 'SYNTHETIC' = candles.length >= 20 ? 'LIVE' : 'SYNTHETIC';
+      let dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE' = candles.length >= 20 ? 'LIVE' : 'SYNTHETIC';
 
       if (candles.length < 20) {
         const liveHistory = tradeStore.getChartHistory();

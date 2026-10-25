@@ -1498,11 +1498,17 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const account = tradeStore.getAccount();
       const allSymbols = tradeStore.getAllSymbols();
       const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === sym.toLowerCase()) || null;
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length === 0) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(normalizeSymbol(sym), normalizeTimeframe(args.timeframe as string) || 'M1', 100);
-      }
+      // Price-level analysis (pivots, support/resistance, regime) is computed
+      // from the candle series, so it MUST come from the requested symbol. The
+      // in-memory chartHistory only ever holds the *current chart's* bars, so
+      // querying a different symbol silently returned the chart's levels under
+      // the wrong symbol's name. Always prefer the symbol-scoped DB history.
+      const { dbGetCandles } = await import('../database/db.js');
+      const dbCandles = await dbGetCandles(normalizeSymbol(sym), normalizeTimeframe(args.timeframe as string) || 'M1', 100);
+      let candles =
+        dbCandles.length > 0
+          ? dbCandles
+          : (sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase() ? tradeStore.getChartHistory() : []);
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
 
       const analysis = runComprehensiveAutoDetection(sym, account, symbolInfo, candles, ticks);
@@ -1520,10 +1526,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const symbol = (args.symbol as string) || currentChart?.symbol || 'EURUSD';
       const timeframe = (args.timeframe as string) || currentChart?.timeframe || 'M1';
 
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length < 10) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(symbol, timeframe, 120);
+      // Prefer the requested symbol's persisted history; the in-memory
+      // chartHistory only holds the current chart's bars.
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(symbol, timeframe, 120);
+      if (candles.length < 10 && symbol.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
 
       const { detectAllPatterns } = await import('../knowledgebase/patterns/index.js');
@@ -1566,10 +1574,10 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const symbol = (args.symbol as string) || currentChart?.symbol || 'EURUSD';
       const timeframe = (args.timeframe as string) || currentChart?.timeframe || 'M1';
 
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length < 10) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(symbol, timeframe, 120);
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(symbol, timeframe, 120);
+      if (candles.length < 10 && symbol.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
 
       const { calculateIndicators } = await import('../knowledgebase/indicators/index.js');
@@ -1597,11 +1605,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case 'mt5_knowledge_auto_detect_regime': {
       const sym = args.symbol ? String(args.symbol).trim() : (tradeStore.getCurrentChart()?.symbol || 'EURUSD');
       const tf = args.timeframe ? String(args.timeframe).trim() : (tradeStore.getCurrentChart()?.timeframe || 'M1');
+      const currentChart = tradeStore.getCurrentChart();
 
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length < 15) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(sym, tf, 100);
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, tf, 100);
+      if (candles.length < 15 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
 
       const { autoDetectMarketRegime } = await import('../knowledgebase/core/auto-detect.js');
@@ -1621,7 +1630,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const allSymbols = tradeStore.getAllSymbols();
       const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === sym.toLowerCase()) || null;
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
-      const candles = tradeStore.getChartHistory();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, 'M1', 100);
+      if (candles.length === 0 && sym.toLowerCase() === (tradeStore.getCurrentChart()?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
+      }
 
       const specs = autoDetectSymbol(sym, symbolInfo, candles, ticks);
       const account = tradeStore.getAccount();
@@ -1647,10 +1660,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case 'mt5_knowledge_auto_detect_volatility_noise': {
       const sym = args.symbol ? String(args.symbol).trim() : (tradeStore.getCurrentChart()?.symbol || 'EURUSD');
       const tf = args.timeframe ? String(args.timeframe).trim() : (tradeStore.getCurrentChart()?.timeframe || 'M1');
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length < 14) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(sym, tf, 100);
+      const currentChart = tradeStore.getCurrentChart();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, tf, 100);
+      if (candles.length < 14 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
       const { autoDetectVolatilityAndNoise } = await import('../knowledgebase/core/auto-detect.js');
@@ -1660,10 +1674,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
     case 'mt5_knowledge_auto_detect_levels': {
       const sym = args.symbol ? String(args.symbol).trim() : (tradeStore.getCurrentChart()?.symbol || 'EURUSD');
       const tf = args.timeframe ? String(args.timeframe).trim() : (tradeStore.getCurrentChart()?.timeframe || 'M1');
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length < 10) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(sym, tf, 100);
+      const currentChart = tradeStore.getCurrentChart();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, tf, 100);
+      if (candles.length < 10 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
       const { autoDetectSupportResistanceAndPivots } = await import('../knowledgebase/core/auto-detect.js');
       return autoDetectSupportResistanceAndPivots(sym, candles);
@@ -1674,7 +1689,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const account = tradeStore.getAccount();
       const allSymbols = tradeStore.getAllSymbols();
       const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === sym.toLowerCase()) || null;
-      const candles = tradeStore.getChartHistory();
+      const currentChart = tradeStore.getCurrentChart();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, 'M1', 100);
+      if (candles.length === 0 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
+      }
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
       const { autoDetectExecutionSafetyScore } = await import('../knowledgebase/core/auto-detect.js');
       return autoDetectExecutionSafetyScore(sym, account, symbolInfo, candles, ticks);
@@ -1682,7 +1702,12 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
     case 'mt5_knowledge_auto_detect_scalping': {
       const sym = args.symbol ? String(args.symbol).trim() : (tradeStore.getCurrentChart()?.symbol || 'EURUSD');
-      const candles = tradeStore.getChartHistory();
+      const currentChart = tradeStore.getCurrentChart();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, 'M1', 100);
+      if (candles.length === 0 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
+      }
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
       const { autoDetectScalpingSuitability } = await import('../knowledgebase/core/auto-detect.js');
       return autoDetectScalpingSuitability(sym, candles, ticks);
@@ -1737,10 +1762,11 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       const account = tradeStore.getAccount();
       const allSymbols = tradeStore.getAllSymbols();
       const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === sym.toLowerCase()) || null;
-      let candles = tradeStore.getChartHistory();
-      if (!candles || candles.length === 0) {
-        const { dbGetCandles } = await import('../database/db.js');
-        candles = await dbGetCandles(sym, 'M1', 100);
+      const currentChart = tradeStore.getCurrentChart();
+      const { dbGetCandles } = await import('../database/db.js');
+      let candles = await dbGetCandles(sym, 'M1', 100);
+      if (candles.length === 0 && sym.toLowerCase() === (currentChart?.symbol || '').toLowerCase()) {
+        candles = tradeStore.getChartHistory();
       }
       const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === sym.toLowerCase());
 

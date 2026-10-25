@@ -55,6 +55,17 @@ string         g_trackedSymbols[];
 int            g_trackedCount = 0;
 string         g_onDemandHistoryJson = "";
 
+//--- Mutable runtime copies of risk/trailing parameters.
+// MQL5 `input` values are read-only constants, so the bridge cannot rewrite
+// them at runtime. These mirrors are the single source of truth once the EA
+// starts, and the SET_RISK_GUARD command updates them instead.
+int    g_TrailingPoints     = InpTrailingPoints;
+int    g_TrailingStep       = InpTrailingStep;
+bool   g_EnableTrailing     = InpEnableTrailing;
+bool   g_EnableBreakeven    = InpEnableBreakeven;
+int    g_BreakevenTrigger   = InpBreakevenTrigger;
+int    g_BreakevenLock      = InpBreakevenLock;
+
 //+------------------------------------------------------------------+
 //| Convert string timeframe to ENUM_TIMEFRAMES                      |
 //+------------------------------------------------------------------+
@@ -212,13 +223,13 @@ void OnTimer()
    g_isSyncing = true;
 
    // 1. Process local trailing stops if enabled
-   if(InpEnableTrailing)
+   if(g_EnableTrailing)
    {
       ProcessTrailingStops();
    }
 
    // 2. Process local breakeven protection if enabled
-   if(InpEnableBreakeven)
+   if(g_EnableBreakeven)
    {
       ProcessBreakevenProtection();
    }
@@ -235,11 +246,11 @@ void OnTimer()
 void OnTick()
 {
    // Sub-millisecond tick execution: trail stops and lock in profits the instant price moves favorably
-   if(InpEnableBreakeven)
+   if(g_EnableBreakeven)
    {
       ProcessBreakevenProtection();
    }
-   if(InpEnableTrailing)
+   if(g_EnableTrailing)
    {
       ProcessTrailingStops();
    }
@@ -1013,23 +1024,23 @@ void ExecuteSingleCommand(string cmd)
          errMsg = "Failed to copy rates for " + symbol + " [code: " + IntegerToString(errCode) + "]";
       }
    }
-   else if(action == "SET_RISK_GUARD")
-   {
-      string trExt = ExtractJsonField(comment, "trailingDistancePoints");
-      if(trExt != "") InpTrailingPoints = (int)StringToInteger(trExt);
-      string stExt = ExtractJsonField(comment, "trailingStepPoints");
-      if(stExt != "") InpTrailingStep = (int)StringToInteger(stExt);
-      string enExt = ExtractJsonField(comment, "trailingStopEnabled");
-      if(enExt != "") InpEnableTrailing = (enExt == "true" || enExt == "1");
-      string beExt = ExtractJsonField(comment, "enableBreakeven");
-      if(beExt != "") InpEnableBreakeven = (beExt == "true" || beExt == "1");
-      string beTrig = ExtractJsonField(comment, "breakevenTriggerPoints");
-      if(beTrig != "") InpBreakevenTrigger = (int)StringToInteger(beTrig);
-      string beLock = ExtractJsonField(comment, "breakevenLockPoints");
-      if(beLock != "") InpBreakevenLock = (int)StringToInteger(beLock);
-      success = true;
-      Print("RISK GUARD SYNCED TO EA: Trailing = ", InpEnableTrailing, " (Dist: ", InpTrailingPoints, " pts, Step: ", InpTrailingStep, " pts), Breakeven = ", InpEnableBreakeven, " (Trig: ", InpBreakevenTrigger, " pts, Lock: ", InpBreakevenLock, " pts)");
-   }
+else if(action == "SET_RISK_GUARD")
+    {
+       string trExt = ExtractJsonField(comment, "trailingDistancePoints");
+       if(trExt != "") g_TrailingPoints = (int)StringToInteger(trExt);
+       string stExt = ExtractJsonField(comment, "trailingStepPoints");
+       if(stExt != "") g_TrailingStep = (int)StringToInteger(stExt);
+       string enExt = ExtractJsonField(comment, "trailingStopEnabled");
+       if(enExt != "") g_EnableTrailing = (enExt == "true" || enExt == "1");
+       string beExt = ExtractJsonField(comment, "enableBreakeven");
+       if(beExt != "") g_EnableBreakeven = (beExt == "true" || beExt == "1");
+       string beTrig = ExtractJsonField(comment, "breakevenTriggerPoints");
+       if(beTrig != "") g_BreakevenTrigger = (int)StringToInteger(beTrig);
+       string beLock = ExtractJsonField(comment, "breakevenLockPoints");
+       if(beLock != "") g_BreakevenLock = (int)StringToInteger(beLock);
+       success = true;
+       Print("RISK GUARD SYNCED TO EA: Trailing = ", g_EnableTrailing, " (Dist: ", g_TrailingPoints, " pts, Step: ", g_TrailingStep, " pts), Breakeven = ", g_EnableBreakeven, " (Trig: ", g_BreakevenTrigger, " pts, Lock: ", g_BreakevenLock, " pts)");
+    }
 
 
    // Calculate execution slippage in points if applicable
@@ -1137,7 +1148,7 @@ string ExtractJsonField(string json, string key)
 //+------------------------------------------------------------------+
 void ProcessTrailingStops()
 {
-   if(!InpEnableTrailing) return;
+   if(!g_EnableTrailing) return;
    int total = PositionsTotal();
    for(int i = 0; i < total; i++)
    {
@@ -1155,24 +1166,24 @@ void ProcessTrailingStops()
          double minStopDist = MathMax(stopsLevel + 5, 10) * point;
 
          // Adaptive trailing scaling based on symbol scale
-         int effTrailingPts = InpTrailingPoints;
-         int effStepPts = InpTrailingStep;
+         int effTrailingPts = g_TrailingPoints;
+         int effStepPts = g_TrailingStep;
          if(InpAdaptiveTrailing)
          {
             if(StringFind(sym, "XAU") >= 0 || StringFind(sym, "GOLD") >= 0)
             {
-               effTrailingPts = MathMax(InpTrailingPoints, 300);
-               effStepPts = MathMax(InpTrailingStep, 50);
+               effTrailingPts = MathMax(g_TrailingPoints, 300);
+               effStepPts = MathMax(g_TrailingStep, 50);
             }
             else if(StringFind(sym, "US30") >= 0 || StringFind(sym, "NAS") >= 0 || StringFind(sym, "SPX") >= 0 || StringFind(sym, "GER40") >= 0)
             {
-               effTrailingPts = MathMax(InpTrailingPoints, 250);
-               effStepPts = MathMax(InpTrailingStep, 40);
+               effTrailingPts = MathMax(g_TrailingPoints, 250);
+               effStepPts = MathMax(g_TrailingStep, 40);
             }
             else if(StringFind(sym, "BTC") >= 0 || StringFind(sym, "ETH") >= 0)
             {
-               effTrailingPts = MathMax(InpTrailingPoints, 600);
-               effStepPts = MathMax(InpTrailingStep, 100);
+               effTrailingPts = MathMax(g_TrailingPoints, 600);
+               effStepPts = MathMax(g_TrailingStep, 100);
             }
          }
 
@@ -1231,7 +1242,7 @@ void ProcessTrailingStops()
 //+------------------------------------------------------------------+
 void ProcessBreakevenProtection()
 {
-   if(!InpEnableBreakeven) return;
+   if(!g_EnableBreakeven) return;
    int total = PositionsTotal();
    for(int i = 0; i < total; i++)
    {
@@ -1246,8 +1257,8 @@ void ProcessBreakevenProtection()
          int stopsLevel = (int)SymbolInfoInteger(sym, SYMBOL_TRADE_STOPS_LEVEL);
          double minStopDist = MathMax(stopsLevel + 5, 10) * point;
 
-         double triggerDist = InpBreakevenTrigger * point;
-         double lockDist = InpBreakevenLock * point;
+         double triggerDist = g_BreakevenTrigger * point;
+         double lockDist = g_BreakevenLock * point;
          double openPrice = m_position.PriceOpen();
 
          if(m_position.PositionType() == POSITION_TYPE_BUY)
@@ -1260,7 +1271,7 @@ void ProcessBreakevenProtection()
                {
                   if(m_trade.PositionModify(ticket, beSL, m_position.TakeProfit()))
                   {
-                     Print("BREAKEVEN ACTIVATED for BUY #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", InpBreakevenLock, " pts)");
+                     Print("BREAKEVEN ACTIVATED for BUY #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", g_BreakevenLock, " pts)");
                   }
                }
             }
@@ -1275,7 +1286,7 @@ void ProcessBreakevenProtection()
                {
                   if(m_trade.PositionModify(ticket, beSL, m_position.TakeProfit()))
                   {
-                     Print("BREAKEVEN ACTIVATED for SELL #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", InpBreakevenLock, " pts)");
+                     Print("BREAKEVEN ACTIVATED for SELL #", ticket, " [", sym, "] SL locked to: ", beSL, " (+", g_BreakevenLock, " pts)");
                   }
                }
             }

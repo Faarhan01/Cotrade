@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
-import { OrderType, TickData, RiskGuardConfig } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo } from '../../types';
 import { api } from '../../services/api';
-import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert } from 'lucide-react';
 
 interface OrderExecutionDockProps {
   selectedSymbol: string;
   ticks: TickData[];
+  symbols?: DetailedSymbolInfo[];
   riskGuard: RiskGuardConfig | null;
   onSelectSymbol: (symbol: string) => void;
 }
@@ -13,6 +14,7 @@ interface OrderExecutionDockProps {
 export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   selectedSymbol,
   ticks,
+  symbols = [],
   riskGuard,
   onSelectSymbol,
 }) => {
@@ -25,6 +27,18 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
 
   const activeTick = ticks.find((t) => t.symbol === selectedSymbol);
+  const symbolInfo = symbols.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase());
+  const tradeMode = symbolInfo?.tradeMode || (symbolInfo?.tradeAllowed === false ? 'CLOSEONLY' : 'FULL');
+  const isCloseOnly = tradeMode === 'CLOSEONLY';
+  const isLongOnly = tradeMode === 'LONGONLY';
+  const isShortOnly = tradeMode === 'SHORTONLY';
+  const isTradeDisabled = symbolInfo ? symbolInfo.tradeAllowed === false || isCloseOnly : false;
+
+  useEffect(() => {
+    if (isLongOnly && orderType === 'SELL') setOrderType('BUY');
+    if (isShortOnly && orderType === 'BUY') setOrderType('SELL');
+  }, [isLongOnly, isShortOnly, selectedSymbol]);
+
   const maxLots = riskGuard?.maxLotSizePerTrade || 2.0;
   const isKillSwitch = riskGuard?.emergencyKillSwitch || false;
 
@@ -35,6 +49,18 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCloseOnly || isTradeDisabled) {
+      setStatus({ message: `Broker rejects new orders for ${selectedSymbol}: Symbol is in CLOSE-ONLY mode`, error: true });
+      return;
+    }
+    if (isLongOnly && orderType === 'SELL') {
+      setStatus({ message: `Broker restricts ${selectedSymbol} to LONG ONLY positions`, error: true });
+      return;
+    }
+    if (isShortOnly && orderType === 'BUY') {
+      setStatus({ message: `Broker restricts ${selectedSymbol} to SHORT ONLY positions`, error: true });
+      return;
+    }
     if (exceedsRisk) {
       setStatus({ message: `Lot size exceeds risk limit (${maxLots} lots)`, error: true });
       return;
@@ -88,6 +114,28 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
           </span>
         </div>
 
+        {/* Trade Mode Broker Restriction Alert (Gap 3) */}
+        {isCloseOnly && (
+          <div className="mb-3 p-2.5 rounded-lg bg-amber-950/70 border border-amber-800/80 text-amber-300 text-[11px] font-mono flex items-center gap-2">
+            <Lock className="h-4 w-4 shrink-0 text-amber-400" />
+            <div>
+              <span className="font-bold">CLOSE-ONLY MODE:</span> Broker prohibits opening new positions on {selectedSymbol}.
+            </div>
+          </div>
+        )}
+        {!isCloseOnly && isLongOnly && (
+          <div className="mb-3 p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800 text-cyan-300 text-[10px] font-mono flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <span>Broker Restriction: {selectedSymbol} allows LONG-ONLY positions.</span>
+          </div>
+        )}
+        {!isCloseOnly && isShortOnly && (
+          <div className="mb-3 p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800 text-cyan-300 text-[10px] font-mono flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <span>Broker Restriction: {selectedSymbol} allows SHORT-ONLY positions.</span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-3 font-mono text-xs">
           {/* Symbol & Direction Toggle */}
           <div className="grid grid-cols-2 gap-2">
@@ -118,8 +166,11 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                 <button
                   type="button"
                   onClick={() => setOrderType('BUY')}
+                  disabled={isCloseOnly || isShortOnly}
                   className={`flex items-center justify-center gap-1 py-1 rounded text-xs font-bold transition-all ${
-                    orderType === 'BUY'
+                    isCloseOnly || isShortOnly
+                      ? 'opacity-40 cursor-not-allowed bg-slate-900 text-slate-500'
+                      : orderType === 'BUY'
                       ? 'bg-emerald-600 text-white shadow'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
@@ -130,8 +181,11 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                 <button
                   type="button"
                   onClick={() => setOrderType('SELL')}
+                  disabled={isCloseOnly || isLongOnly}
                   className={`flex items-center justify-center gap-1 py-1 rounded text-xs font-bold transition-all ${
-                    orderType === 'SELL'
+                    isCloseOnly || isLongOnly
+                      ? 'opacity-40 cursor-not-allowed bg-slate-900 text-slate-500'
+                      : orderType === 'SELL'
                       ? 'bg-rose-600 text-white shadow'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
@@ -236,17 +290,25 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
           {/* Execution Button */}
           <button
             type="submit"
-            disabled={submitting || exceedsRisk || isKillSwitch}
+            disabled={submitting || exceedsRisk || isKillSwitch || isCloseOnly || (isLongOnly && orderType === 'SELL') || (isShortOnly && orderType === 'BUY')}
             className={`w-full py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 ${
-              isKillSwitch
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+              isKillSwitch || isCloseOnly
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
                 : orderType === 'BUY'
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30'
                 : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/30'
             }`}
           >
-            <Send className="h-3.5 w-3.5" />
-            {submitting ? 'Dispatching to Queue...' : `Dispatch ${orderType} ${lotNumber} Lots`}
+            {isCloseOnly ? <Lock className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+            {isCloseOnly
+              ? `CLOSE-ONLY MODE (Orders Disabled)`
+              : isLongOnly && orderType === 'SELL'
+              ? `SELL DISABLED (LONG-ONLY SYMBOL)`
+              : isShortOnly && orderType === 'BUY'
+              ? `BUY DISABLED (SHORT-ONLY SYMBOL)`
+              : submitting
+              ? 'Dispatching to Queue...'
+              : `Dispatch ${orderType} ${lotNumber} Lots`}
           </button>
         </form>
       </div>

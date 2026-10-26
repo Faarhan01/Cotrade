@@ -63,7 +63,16 @@ export class TradingBot {
       dataQualityFilter: this.config.dataQualityFilter,
     });
     this.tradeExecutor.updateConfig(this.config);
-    this.state.config = { ...this.config };
+    await this.tradeExecutor.loadFromDb();
+    const stats = this.tradeExecutor.getStats();
+    this.state = {
+      ...this.state,
+      config: { ...this.config },
+      tradesExecuted: stats.executedTrades,
+      totalProfit: stats.totalProfit,
+      winRate: stats.winRate,
+      activeTrades: stats.activeTrades,
+    };
   }
 
   public start(): { success: boolean; message: string } {
@@ -110,6 +119,7 @@ export class TradingBot {
     return {
       ...this.state,
       config: { ...this.config },
+      tradesExecuted: stats.executedTrades ?? this.state.tradesExecuted,
       totalProfit: stats.totalProfit,
       winRate: stats.winRate,
       activeTrades: stats.activeTrades,
@@ -243,12 +253,11 @@ export class TradingBot {
 
     const trade = await this.tradeExecutor.executeSignal(signal);
     if (trade) {
-      this.state.tradesExecuted++;
       this.state.lastTradeAt[signal.symbol] = Date.now();
 
       tradeStore.addLog(
         'trade',
-        `Bot Auto-Trade: ${signal.direction} ${signal.symbol}`,
+        `Bot Auto-Trade Dispatched: ${signal.direction} ${signal.symbol}`,
         `Confidence: ${signal.confidence}% | Lots: ${trade.volume} | SL: ${signal.stopLoss} | TP: ${signal.takeProfit} | RR: ${signal.riskRewardRatio}`,
         'BOT'
       );
@@ -267,12 +276,19 @@ export class TradingBot {
     if (trade) {
       if (res.success) {
         trade.status = 'EXECUTED';
+        this.state.tradesExecuted++;
         if (res.executionPrice) trade.entryPrice = res.executionPrice;
         if (res.dealTicket) (trade as any).ticket = res.dealTicket;
+        import('../database/db.js').then(({ dbUpdateBotTrade }) => {
+          dbUpdateBotTrade(trade.id, { status: 'EXECUTED' }).catch(() => {});
+        }).catch(() => {});
       } else {
         trade.status = 'FAILED';
         trade.closedAt = Date.now();
         (trade as any).errorMessage = res.errorMessage || `Error ${res.errorCode}`;
+        import('../database/db.js').then(({ dbUpdateBotTrade }) => {
+          dbUpdateBotTrade(trade.id, { status: 'FAILED', closedAt: trade.closedAt }).catch(() => {});
+        }).catch(() => {});
       }
       broadcast({
         type: 'bot:trade_update',
@@ -290,6 +306,22 @@ export class TradingBot {
       if (trade.status === 'EXECUTED' && ticket && !trade.closedAt) {
         if (!openTickets.has(ticket)) {
           trade.closedAt = Date.now();
+          trade.status = 'CLOSED';
+
+          if (!trade.profit || trade.profit === 0) {
+            const curTick = tradeStore.getTicks().find((t) => t.symbol === trade.symbol);
+            if (curTick && trade.entryPrice) {
+              const exitPrice = trade.direction === 'BUY' ? curTick.bid : curTick.ask;
+              const symInfo = tradeStore.getAllSymbols().find((s: any) => s.symbol === trade.symbol);
+              const contractSize = symInfo?.contractSize || (trade.symbol.includes('XAU') ? 100 : 100000);
+              const priceDiff = trade.direction === 'BUY' ? (exitPrice - trade.entryPrice) : (trade.entryPrice - exitPrice);
+              trade.profit = Math.round((priceDiff * trade.volume * contractSize) * 100) / 100;
+            }
+          }
+
+          import('../database/db.js').then(({ dbUpdateBotTrade }) => {
+            dbUpdateBotTrade(trade.id, { status: 'CLOSED', profit: trade.profit, closedAt: trade.closedAt }).catch(() => {});
+          }).catch(() => {});
           broadcast({
             type: 'bot:trade_closed',
             payload: { trade },

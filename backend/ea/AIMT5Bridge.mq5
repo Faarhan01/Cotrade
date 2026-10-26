@@ -305,6 +305,33 @@ void ParseSymbols()
          g_trackedCount++;
       }
    }
+
+   // Auto-discover from total broker catalog (SymbolsTotal(false)) if under InpMaxTrackedSymbols (Gap 7)
+   int totalAll = SymbolsTotal(false);
+   for(int a = 0; a < totalAll && g_trackedCount < InpMaxTrackedSymbols; a++)
+   {
+      string bSym = SymbolName(a, false);
+      if(bSym == "") continue;
+      // Prioritize forex currency pairs, gold, silver, oil, indices, and crypto
+      if(StringFind(bSym, "USD") >= 0 || StringFind(bSym, "EUR") >= 0 || StringFind(bSym, "GBP") >= 0 ||
+         StringFind(bSym, "JPY") >= 0 || StringFind(bSym, "XAU") >= 0 || StringFind(bSym, "AUD") >= 0 ||
+         StringFind(bSym, "CAD") >= 0 || StringFind(bSym, "CHF") >= 0 || StringFind(bSym, "NZD") >= 0 ||
+         StringFind(bSym, "BTC") >= 0 || StringFind(bSym, "OIL") >= 0)
+      {
+         bool already = false;
+         for(int k = 0; k < g_trackedCount; k++)
+         {
+            if(g_trackedSymbols[k] == bSym) { already = true; break; }
+         }
+         if(!already)
+         {
+            SymbolSelect(bSym, true); // Select into Market Watch so quotes and ticks stream
+            ArrayResize(g_trackedSymbols, g_trackedCount + 1);
+            g_trackedSymbols[g_trackedCount] = bSym;
+            g_trackedCount++;
+         }
+      }
+   }
 }
 
 //+------------------------------------------------------------------+

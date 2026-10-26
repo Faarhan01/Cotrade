@@ -316,10 +316,10 @@ export const KnowledgeBasePage: React.FC = () => {
     if (strategySearch) {
       const q = strategySearch.toLowerCase();
       return (
-        s.name.toLowerCase().includes(q) ||
-        s.symbol.toLowerCase().includes(q) ||
-        s.type.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q)
+        (s.name || '').toLowerCase().includes(q) ||
+        (s.symbol || '').toLowerCase().includes(q) ||
+        (s.type || '').toLowerCase().includes(q) ||
+        (s.description || '').toLowerCase().includes(q)
       );
     }
     return true;

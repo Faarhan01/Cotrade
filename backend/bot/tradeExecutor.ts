@@ -31,6 +31,37 @@ export class TradeExecutor {
 
     // Get live symbol specifications from MT5
     const symbolInfo = tradeStore.getAllSymbols().find((s: any) => s.symbol === signal.symbol);
+
+    // Enforce broker trade mode (Gap 3)
+    if (symbolInfo) {
+      if (symbolInfo.tradeMode === 'CLOSEONLY' || symbolInfo.tradeAllowed === false) {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is CLOSEONLY or trading disabled. New entries prohibited.`,
+          'BOT'
+        );
+        return null;
+      }
+      if (symbolInfo.tradeMode === 'LONGONLY' && signal.direction === 'SELL') {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is LONGONLY. Sell signal suppressed.`,
+          'BOT'
+        );
+        return null;
+      }
+      if (symbolInfo.tradeMode === 'SHORTONLY' && signal.direction === 'BUY') {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is SHORTONLY. Buy signal suppressed.`,
+          'BOT'
+        );
+        return null;
+      }
+    }
     
     const mode = this.config.mode || 'DAY_TRADES';
     let effectiveSubMode: 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' = 'DAY_TRADES';
@@ -218,6 +249,21 @@ export class TradeExecutor {
         source: 'BOT',
         createdAt: trade.openedAt,
       });
+
+      const { dbInsertBotTrade } = await import('../database/db.js');
+      await dbInsertBotTrade({
+        id: trade.id,
+        signalId: trade.signalId,
+        symbol: trade.symbol,
+        direction: trade.direction,
+        volume: trade.volume,
+        entryPrice: trade.entryPrice,
+        stopLoss: trade.stopLoss,
+        takeProfit: trade.takeProfit,
+        commandId: trade.commandId,
+        status: trade.status,
+        openedAt: trade.openedAt,
+      });
     } catch (err) {
       console.error('[TradeExecutor] Failed to persist trade:', err);
     }
@@ -230,6 +276,35 @@ export class TradeExecutor {
     );
 
     return trade;
+  }
+
+  public async loadFromDb(): Promise<void> {
+    try {
+      const { dbGetBotTrades } = await import('../database/db.js');
+      const rows = await dbGetBotTrades(300);
+      for (const r of rows) {
+        if (!this.trades.has(r.id)) {
+          this.trades.set(r.id, {
+            id: r.id,
+            signalId: r.signalId,
+            symbol: r.symbol,
+            direction: r.direction as 'BUY' | 'SELL',
+            volume: r.volume,
+            entryPrice: r.entryPrice,
+            stopLoss: r.stopLoss || 0,
+            takeProfit: r.takeProfit || 0,
+            commandId: r.commandId,
+            status: r.status as any,
+            profit: r.profit || 0,
+            openedAt: r.openedAt,
+            closedAt: r.closedAt,
+            mode: 'DAY_TRADES',
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[TradeExecutor] Failed to load trades from DB:', err);
+    }
   }
 
   public getTrades(): BotTrade[] {
@@ -249,20 +324,22 @@ export class TradeExecutor {
     if (trade) {
       trade.status = status;
       if (profit !== undefined) trade.profit = profit;
-      if (status === 'EXECUTED' || status === 'FAILED' || status === 'CANCELLED') {
+      if (status === 'CLOSED' || status === 'FAILED' || status === 'CANCELLED') {
         trade.closedAt = Date.now();
       }
     }
   }
 
-  public getStats(): { totalTrades: number; activeTrades: number; totalProfit: number; winRate: number } {
+  public getStats(): { totalTrades: number; executedTrades: number; activeTrades: number; totalProfit: number; winRate: number } {
     const trades = Array.from(this.trades.values());
-    const closed = trades.filter((t) => t.status === 'EXECUTED' && t.closedAt);
+    const executed = trades.filter((t) => t.status === 'EXECUTED' || t.status === 'CLOSED');
+    const closed = trades.filter((t) => t.status === 'CLOSED');
     const wins = closed.filter((t) => t.profit > 0).length;
-    const totalProfit = trades.reduce((sum, t) => sum + t.profit, 0);
+    const totalProfit = closed.reduce((sum, t) => sum + t.profit, 0);
 
     return {
       totalTrades: trades.length,
+      executedTrades: executed.length,
       activeTrades: trades.filter((t) => t.status === 'PENDING' || t.status === 'EXECUTED').length,
       totalProfit: Number(totalProfit.toFixed(2)),
       winRate: closed.length > 0 ? Number(((wins / closed.length) * 100).toFixed(1)) : 0,

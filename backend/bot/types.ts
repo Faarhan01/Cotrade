@@ -173,7 +173,7 @@ export interface BotTrade {
   stopLoss: number;
   takeProfit: number;
   commandId?: string;
-  status: 'PENDING' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'EXECUTED' | 'FAILED' | 'CANCELLED' | 'CLOSED';
   profit: number;
   openedAt: number;
   closedAt?: number;

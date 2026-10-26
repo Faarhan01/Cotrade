@@ -126,42 +126,86 @@ export async function fetchMarketNews(symbol?: string): Promise<MarketNewsItem[]
     return filterNewsBySymbol(cachedNews, symbol);
   }
 
-  // Attempt to fetch fresh live items from external financial RSS feeds
+  // Attempt to fetch fresh live items from external financial RSS feeds in parallel
   const feedUrls = [
     { url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories', source: 'MarketWatch Top Stories' },
     { url: 'https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines', source: 'Dow Jones Real-Time' },
     { url: 'https://finance.yahoo.com/news/rssindex', source: 'Yahoo Finance' },
   ];
 
-  for (const feed of feedUrls) {
+  const fetchPromises = feedUrls.map(async (feed) => {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+      const timeout = setTimeout(() => controller.abort(), 3500);
 
       const res = await fetch(feed.url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/rss+xml, application/xml, text/xml',
         },
       });
       clearTimeout(timeout);
 
       if (res.ok) {
         const xmlText = await res.text();
-        const parsedItems = parseRssItems(xmlText, feed.source);
-        if (parsedItems.length > 0) {
-          cachedNews = parsedItems;
-          lastFetchTime = now;
-          return filterNewsBySymbol(cachedNews, symbol);
-        }
+        return parseRssItems(xmlText, feed.source);
       }
     } catch {
-      // Try next feed in list
+      // ignore network errors
+    }
+    return [] as MarketNewsItem[];
+  });
+
+  const settled = await Promise.allSettled(fetchPromises);
+  const combinedItems: MarketNewsItem[] = [];
+  const seenTitles = new Set<string>();
+
+  for (const outcome of settled) {
+    if (outcome.status === 'fulfilled' && Array.isArray(outcome.value)) {
+      for (const item of outcome.value) {
+        const titleKey = item.title.toLowerCase().trim();
+        if (!seenTitles.has(titleKey)) {
+          seenTitles.add(titleKey);
+          combinedItems.push(item);
+        }
+      }
     }
   }
 
-  // If live RSS feeds were blocked or unreachable, fall back to the curated set tagged as simulated.
+  if (combinedItems.length > 0) {
+    combinedItems.sort((a, b) => b.publishedAt - a.publishedAt);
+    cachedNews = combinedItems;
+    lastFetchTime = now;
+
+    // Persist to database cache
+    import('../../database/db.js').then(({ dbSaveNewsCache }) => {
+      dbSaveNewsCache(combinedItems).catch(() => {});
+    }).catch(() => {});
+
+    return filterNewsBySymbol(cachedNews, symbol);
+  }
+
+  // Check if database has cached news before falling back to simulated
+  try {
+    const { dbGetCachedNews } = await import('../../database/db.js');
+    const dbCached = await dbGetCachedNews(symbol, undefined, 30);
+    if (dbCached && dbCached.length > 0) {
+      cachedNews = dbCached.map((n) => ({
+        ...n,
+        url: n.url || 'https://www.reuters.com/markets',
+        publishedAtIso: new Date(n.publishedAt).toISOString(),
+        dataQuality: 'LIVE' as const,
+      }));
+      lastFetchTime = now;
+      return filterNewsBySymbol(cachedNews, symbol);
+    }
+  } catch {
+    // fallback below
+  }
+
+  // If live RSS feeds were blocked or unreachable and DB is empty, use the curated market baseline.
   cachedNews = BASE_MARKET_NEWS.map((n) => ({ ...n, dataQuality: 'SIMULATED' as const }));
   lastFetchTime = now;
   return filterNewsBySymbol(cachedNews, symbol);

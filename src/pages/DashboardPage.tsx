@@ -81,6 +81,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
           <OrderExecutionDock
             selectedSymbol={selectedSymbol}
             ticks={ticks}
+            symbols={allSymbols}
             riskGuard={riskGuard}
             onSelectSymbol={setSelectedSymbol}
           />

@@ -637,6 +637,40 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: 'mt5_knowledge_get_imbalances',
+    description: 'Auto-detect institutional order book imbalances, Fair Value Gaps (Bullish & Bearish FVGs), mitigation state (UNMITIGATED, PARTIALLY_MITIGATED, FULLY_FILLED), and Buy-side (EQH) / Sell-side (EQL) liquidity pools for a symbol.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Symbol ticker (e.g. EURUSD, XAUUSD, BTCUSD). Defaults to active chart.',
+        },
+        timeframe: {
+          type: 'string',
+          description: 'Timeframe: M1, M5, M15, H1 (default: M1)',
+        },
+      },
+    },
+  },
+  {
+    name: 'mt5_knowledge_get_session_order_flow',
+    description: 'Auto-detect session order flow bias, Asian Range benchmark (00:00 - 07:00 UTC), Judas Swing liquidity sweep traps (bull/bear trap runs), and institutional expansion targets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Symbol ticker (e.g. EURUSD, GBPUSD, USDJPY). Defaults to active chart.',
+        },
+        timeframe: {
+          type: 'string',
+          description: 'Timeframe: M1, M5, M15, H1 (default: M1)',
+        },
+      },
+    },
+  },
 ];
 
 

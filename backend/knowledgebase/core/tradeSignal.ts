@@ -1,9 +1,13 @@
 import { CandleData, DetailedSymbolInfo } from '../../types/mt5.js';
 import { detectAllPatterns } from '../patterns/index.js';
 import { calculateIndicators } from '../../services/indicatorEngine.js';
-import { autoDetectMarketRegime } from './auto-detect.js';
+import {
+  autoDetectMarketRegime,
+  autoDetectSupportResistanceAndPivots,
+  autoDetectInstitutionalImbalances,
+  autoDetectSessionOrderFlowBias,
+} from './auto-detect.js';
 import { analyzeSymbolNewsImpact } from '../news/symbolImpact.js';
-import { autoDetectSupportResistanceAndPivots } from './auto-detect.js';
 import { getSymbolDigits, getSymbolPoint, detectAssetClass, validateAndAdjustStops } from '../../utils/symbolEconomics.js';
 
 export interface TrailingProtectionRecommendation {
@@ -13,6 +17,14 @@ export interface TrailingProtectionRecommendation {
   trailingStepPoints: number;
   halfwayTargetPrice: number;
   recommendedTrailingType: 'ADAPTIVE_ATR' | 'FIXED_PIPS';
+}
+
+export interface PendingOrderRecommendation {
+  suggestedType: 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP';
+  targetPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  reason: string;
 }
 
 export interface TradeSignal {
@@ -25,6 +37,7 @@ export interface TradeSignal {
   takeProfit: number;
   riskRewardRatio: number;
   trailingProtection?: TrailingProtectionRecommendation;
+  pendingOrder?: PendingOrderRecommendation;
   reasons: string[];
   warnings: string[];
   components: {
@@ -36,6 +49,9 @@ export interface TradeSignal {
     eventRisk: 'LOW' | 'MODERATE' | 'HIGH' | 'CRITICAL';
     supportLevel: number | null;
     resistanceLevel: number | null;
+    institutionalBias?: string;
+    sessionFlowBias?: string;
+    judasSwing?: string;
   };
   dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE';
   generatedAt: number;
@@ -171,6 +187,12 @@ export async function generateTradeSignal(
   const supportLevel = sr.nearestSupport || null;
   const resistanceLevel = sr.nearestResistance || null;
 
+  // 6. Institutional Imbalances (Fair Value Gaps & Liquidity Pools)
+  const digits = getSymbolDigits(sym, symbolInfo?.digits);
+  const point = getSymbolPoint(sym, symbolInfo?.point);
+  const imbalances = autoDetectInstitutionalImbalances(sym, candles, point);
+  const sessionFlow = autoDetectSessionOrderFlowBias(sym, candles);
+
   // Determine direction with multi-factor scoring
   let bullScore = 0;
   let bearScore = 0;
@@ -184,6 +206,30 @@ export async function generateTradeSignal(
   if (newsSentiment === 'BULLISH') bullScore += 1;
   if (newsSentiment === 'BEARISH') bearScore += 1;
 
+  // Institutional order flow scoring
+  if (imbalances.imbalanceBias === 'BULLISH_IMBALANCE') {
+    bullScore += 2;
+    reasons.push(`Institutional Order Flow: Bullish FVG imbalance dominance (${imbalances.activeUnmitigatedFvgs.length} active gaps)`);
+  } else if (imbalances.imbalanceBias === 'BEARISH_IMBALANCE') {
+    bearScore += 2;
+    reasons.push(`Institutional Order Flow: Bearish FVG imbalance dominance (${imbalances.activeUnmitigatedFvgs.length} active gaps)`);
+  }
+
+  // Judas Swing liquidity sweep confirmation
+  if (sessionFlow.judasSwingDetected) {
+    if (sessionFlow.judasSwingType === 'BEAR_TRAP_RUN') {
+      bullScore += 3;
+      reasons.push(`Smart Money Judas Swing: Asian low swept & rejected — Bullish institutional expansion underway`);
+    } else if (sessionFlow.judasSwingType === 'BULL_TRAP_RUN') {
+      bearScore += 3;
+      reasons.push(`Smart Money Judas Swing: Asian high swept & rejected — Bearish institutional expansion underway`);
+    }
+  } else if (sessionFlow.orderFlowBias === 'BULLISH_EXPANSION') {
+    bullScore += 1;
+  } else if (sessionFlow.orderFlowBias === 'BEARISH_EXPANSION') {
+    bearScore += 1;
+  }
+
   let direction: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
   const totalScore = bullScore + bearScore;
   let confidence = totalScore > 0 ? Math.min(95, Math.round((Math.max(bullScore, bearScore) / (totalScore + 2)) * 100)) : 50;
@@ -191,12 +237,21 @@ export async function generateTradeSignal(
   if (bullScore >= 4 && bullScore > bearScore + 1) direction = 'BUY';
   else if (bearScore >= 4 && bearScore > bullScore + 1) direction = 'SELL';
 
+  // Confluence bonus: Patterns + Indicators + Imbalance agreement
+  if (
+    (direction === 'BUY' && patternBias === 'BULLISH' && (imbalances.imbalanceBias === 'BULLISH_IMBALANCE' || sessionFlow.orderFlowBias === 'BULLISH_EXPANSION')) ||
+    (direction === 'SELL' && patternBias === 'BEARISH' && (imbalances.imbalanceBias === 'BEARISH_IMBALANCE' || sessionFlow.orderFlowBias === 'BEARISH_EXPANSION'))
+  ) {
+    confidence = Math.min(98, confidence + 6);
+    reasons.push('Institutional Confluence: Chart patterns and Smart Money order flow are mutually reinforcing.');
+  }
+
   // Tri-factor alignment bonus (Patterns + Indicators + Regime all agreeing)
   if (
     (direction === 'BUY' && patternBias === 'BULLISH' && indicatorBias === 'BULLISH' && regime.dominantBias === 'BULLISH') ||
     (direction === 'SELL' && patternBias === 'BEARISH' && indicatorBias === 'BEARISH' && regime.dominantBias === 'BEARISH')
   ) {
-    confidence = Math.min(96, confidence + 8);
+    confidence = Math.min(98, confidence + 6);
     reasons.push('High-Conviction Confluence: Patterns, Indicators, and Trend Regime are fully aligned.');
   }
 
@@ -217,9 +272,6 @@ export async function generateTradeSignal(
     }
   }
 
-  const digits = getSymbolDigits(sym, symbolInfo?.digits);
-  const point = getSymbolPoint(sym, symbolInfo?.point);
-
   let stopLoss = 0;
   let takeProfit = 0;
 
@@ -228,8 +280,12 @@ export async function generateTradeSignal(
     const slDist = realAtr * 1.5;
     const tpDist = Math.max(slDist * 1.8, realAtr * 2.7);
 
-    // If support level exists and is within a reasonable distance (0.8x to 2.2x ATR), anchor to it
-    if (supportLevel && supportLevel < currentPrice && (currentPrice - supportLevel) >= realAtr * 0.8 && (currentPrice - supportLevel) <= realAtr * 2.5) {
+    // Anchor to nearest Bullish FVG invalidation if nearby
+    if (imbalances.nearestBullishFvg && imbalances.nearestBullishFvg.invalidationLevel < currentPrice && (currentPrice - imbalances.nearestBullishFvg.invalidationLevel) <= realAtr * 2.2) {
+      stopLoss = imbalances.nearestBullishFvg.invalidationLevel - point * 10;
+      reasons.push(`Stop Loss calibrated below Fair Value Gap invalidation level (${stopLoss.toFixed(digits)})`);
+    } else if (supportLevel && supportLevel < currentPrice && (currentPrice - supportLevel) >= realAtr * 0.8 && (currentPrice - supportLevel) <= realAtr * 2.5) {
+      // If support level exists and is within a reasonable distance, anchor to it
       stopLoss = supportLevel - point * 10;
     } else {
       stopLoss = currentPrice - slDist;
@@ -244,7 +300,11 @@ export async function generateTradeSignal(
     const slDist = realAtr * 1.5;
     const tpDist = Math.max(slDist * 1.8, realAtr * 2.7);
 
-    if (resistanceLevel && resistanceLevel > currentPrice && (resistanceLevel - currentPrice) >= realAtr * 0.8 && (resistanceLevel - currentPrice) <= realAtr * 2.5) {
+    // Anchor to nearest Bearish FVG invalidation if nearby
+    if (imbalances.nearestBearishFvg && imbalances.nearestBearishFvg.invalidationLevel > currentPrice && (imbalances.nearestBearishFvg.invalidationLevel - currentPrice) <= realAtr * 2.2) {
+      stopLoss = imbalances.nearestBearishFvg.invalidationLevel + point * 10;
+      reasons.push(`Stop Loss calibrated above Fair Value Gap invalidation level (${stopLoss.toFixed(digits)})`);
+    } else if (resistanceLevel && resistanceLevel > currentPrice && (resistanceLevel - currentPrice) >= realAtr * 0.8 && (resistanceLevel - currentPrice) <= realAtr * 2.5) {
       stopLoss = resistanceLevel + point * 10;
     } else {
       stopLoss = currentPrice + slDist;
@@ -275,7 +335,7 @@ export async function generateTradeSignal(
     }
   }
 
-    const riskRewardRatio = direction !== 'HOLD' && Math.abs(currentPrice - stopLoss) > 0
+  const riskRewardRatio = direction !== 'HOLD' && Math.abs(currentPrice - stopLoss) > 0
     ? Math.abs(takeProfit - currentPrice) / Math.abs(currentPrice - stopLoss)
     : 0;
 
@@ -312,6 +372,46 @@ export async function generateTradeSignal(
     ? Number(((currentPrice + takeProfit) / 2).toFixed(digits))
     : currentPrice;
 
+  // Formulate recommended pending order setup
+  let pendingOrder: PendingOrderRecommendation | undefined;
+  if (direction === 'BUY') {
+    if (imbalances.nearestBullishFvg && imbalances.nearestBullishFvg.topPrice < currentPrice) {
+      pendingOrder = {
+        suggestedType: 'BUY_LIMIT',
+        targetPrice: imbalances.nearestBullishFvg.topPrice,
+        stopLoss: Number((imbalances.nearestBullishFvg.invalidationLevel - point * 10).toFixed(digits)),
+        takeProfit: Number(takeProfit.toFixed(digits)),
+        reason: `Pullback Buy Limit to tap top of unmitigated Bullish FVG (${imbalances.nearestBullishFvg.topPrice.toFixed(digits)})`,
+      };
+    } else if (resistanceLevel && resistanceLevel > currentPrice) {
+      pendingOrder = {
+        suggestedType: 'BUY_STOP',
+        targetPrice: Number((resistanceLevel + point * 5).toFixed(digits)),
+        stopLoss: Number(stopLoss.toFixed(digits)),
+        takeProfit: Number((resistanceLevel + (resistanceLevel - currentPrice) * 1.5).toFixed(digits)),
+        reason: `Breakout Buy Stop above key resistance barrier (${resistanceLevel.toFixed(digits)})`,
+      };
+    }
+  } else if (direction === 'SELL') {
+    if (imbalances.nearestBearishFvg && imbalances.nearestBearishFvg.bottomPrice > currentPrice) {
+      pendingOrder = {
+        suggestedType: 'SELL_LIMIT',
+        targetPrice: imbalances.nearestBearishFvg.bottomPrice,
+        stopLoss: Number((imbalances.nearestBearishFvg.invalidationLevel + point * 10).toFixed(digits)),
+        takeProfit: Number(takeProfit.toFixed(digits)),
+        reason: `Rally Sell Limit to tap bottom of unmitigated Bearish FVG (${imbalances.nearestBearishFvg.bottomPrice.toFixed(digits)})`,
+      };
+    } else if (supportLevel && supportLevel < currentPrice) {
+      pendingOrder = {
+        suggestedType: 'SELL_STOP',
+        targetPrice: Number((supportLevel - point * 5).toFixed(digits)),
+        stopLoss: Number(stopLoss.toFixed(digits)),
+        takeProfit: Number((supportLevel - (currentPrice - supportLevel) * 1.5).toFixed(digits)),
+        reason: `Breakdown Sell Stop below key support floor (${supportLevel.toFixed(digits)})`,
+      };
+    }
+  }
+
   return {
     symbol: sym,
     timeframe: tf,
@@ -329,6 +429,7 @@ export async function generateTradeSignal(
       halfwayTargetPrice,
       recommendedTrailingType: realAtr > 0 ? 'ADAPTIVE_ATR' : 'FIXED_PIPS',
     },
+    pendingOrder,
     reasons,
     warnings,
     components: {
@@ -340,6 +441,9 @@ export async function generateTradeSignal(
       eventRisk,
       supportLevel,
       resistanceLevel,
+      institutionalBias: imbalances.imbalanceBias,
+      sessionFlowBias: sessionFlow.orderFlowBias,
+      judasSwing: sessionFlow.judasSwingDetected ? sessionFlow.judasSwingType : undefined,
     },
     dataQuality,
     generatedAt: Date.now(),

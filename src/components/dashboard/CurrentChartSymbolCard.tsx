@@ -337,6 +337,34 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
                   Max Orders: {(terminalPermissions || chartDiagnostics.terminalPermissions)?.accountLimitOrders}
                 </span>
               ) : null}
+
+              {/* DLLs Allowed */}
+              {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalDllsAllowed !== undefined && (
+                <span className={`px-2 py-0.5 rounded text-[10px] ${(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalDllsAllowed ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-800/40' : 'bg-slate-900 text-slate-400 border border-slate-800'}`}>
+                  DLLs: {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalDllsAllowed ? 'ON' : 'OFF'}
+                </span>
+              )}
+
+              {/* Max Chart Bars */}
+              {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalMaxBars ? (
+                <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800 text-[10px]">
+                  MaxBars: {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalMaxBars?.toLocaleString()}
+                </span>
+              ) : null}
+
+              {/* Broker Universe / Market Watch count */}
+              {(terminalPermissions || chartDiagnostics.terminalPermissions)?.totalBrokerSymbols ? (
+                <span className="px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 text-[10px]">
+                  Universe: {(terminalPermissions || chartDiagnostics.terminalPermissions)?.marketWatchSymbolsCount || 0}/{(terminalPermissions || chartDiagnostics.terminalPermissions)?.totalBrokerSymbols} Symbols
+                </span>
+              ) : null}
+
+              {/* Ping Latency */}
+              {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalPingLast !== undefined && (terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalPingLast! > 0 && (
+                <span className="px-2 py-0.5 rounded bg-slate-900 text-emerald-400 border border-slate-800 text-[10px]">
+                  Broker Ping: {(terminalPermissions || chartDiagnostics.terminalPermissions)?.terminalPingLast}ms
+                </span>
+              )}
             </div>
           )}
         </div>

@@ -1590,7 +1590,7 @@ apiRouter.get('/knowledge/chart-diagnostics', async (_req, res) => {
 // TERMINAL_MAXBARS / TERMINAL_DLLS_ALLOWED / TERMINAL_TRADEAPI_DISABLED when
 // the EA reports them). Helps operators verify the EA is talking to genuine
 // broker quotes and whether DLLs/tradeAPI are enabled.
-apiRouter.get('/api/terminal/metadata', async (_req, res) => {
+apiRouter.get(['/terminal/metadata', '/api/terminal/metadata'], async (_req, res) => {
   try {
     const state = tradeStore.getState();
     const permissions = tradeStore.getTerminalPermissions();
@@ -1600,9 +1600,15 @@ apiRouter.get('/api/terminal/metadata', async (_req, res) => {
       terminalCompany: state.connection.terminalCompany || '',
       terminalBuild: state.connection.terminalBuild || 0,
       terminalPermissions: permissions || null,
+      terminalMaxBars: permissions?.terminalMaxBars ?? null,
+      terminalDllsAllowed: permissions?.terminalDllsAllowed ?? null,
+      terminalTradeApiDisabled: permissions?.terminalTradeApiDisabled ?? null,
+      terminalPingLast: permissions?.terminalPingLast ?? null,
+      totalBrokerSymbols: permissions?.totalBrokerSymbols ?? null,
+      marketWatchSymbolsCount: permissions?.marketWatchSymbolsCount ?? null,
       isEaConnected: state.connection.isEaConnected,
       serverTime: state.connection.serverTime || Date.now(),
-      eaVersion: state.connection.eaVersion || '2.10',
+      eaVersion: state.connection.eaVersion || '2.30',
       timestamp: Date.now(),
     });
   } catch (err: any) {

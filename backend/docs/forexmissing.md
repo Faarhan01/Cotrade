@@ -185,17 +185,17 @@ Summary table
 
 #	Gap	EA sends it?	Site stores it?	Site uses it?	Status
 
-1	Per-symbol candle history	only for current chart	only current chart	no	Partially mitigated (gap-fill endpoint exists + proactive background pull in server.ts: setInterval calls inspectAndFillChartGaps for all tracked symbols every 60s when EA online)
-2	Per-bar spread, realVolume	yes	yes (schema + insert)	no	Stored but needs EA connected to populate
-3	trade_mode, spread_float, filling_mode, tick_size, margin fields, expiry, DOM flag	partially	no	no	Partially fixed (hardcoded fallbacks now logged via console.warn in symbolEconomics.ts; real EA values short-circuit guesses when symbolInfo provided; tradeExecutor spread guard skips instead of silently bypassing when symbolInfo/spread unknown; EA-side fields still not transmitted — require MQL5 changes)
+1	Per-symbol candle history	only for current chart	all synced symbols	yes	Mitigated & automated (gap-fill endpoint + server background loop inspects & pulls history for tracked symbols every 60s)
+2	Per-bar spread, realVolume	yes	yes (schema + insert)	yes	Fixed (strategyEngine deducts real spread points on every trade simulation & tracks totalSpreadCostUsd; real volume used in volume indicators)
+3	trade_mode, spread_float, filling_mode, tick_size, margin fields, expiry, DOM flag	yes	yes	yes	Fixed (EA sends tradeMode, spreadFloat, fillingMode, tickSize, marginInitial, marginMaintenance, bookDepth; UI OrderExecutionDock enforces CLOSEONLY, LONGONLY, SHORTONLY; tradeExecutor rejects invalid direction orders)
 4	Broker stops-level enforcement	yes (on execution)	yes (signal + protective params)	yes	Fixed (tradeSignal.ts validates/adjusts SL/TP vs stopsLevel; symbolLearning.ts clamps protective params)
-5	Terminal metadata (maxbars, dlls_allowed, tradeapi_disabled, ping)	no	no	no	Partially fixed (new GET /api/terminal/metadata endpoint exposes terminalName, terminalCompany, terminalBuild, terminalPermissions, isEaConnected, serverTime, eaVersion; EA still doesn't send maxbars/dlls_allowed/tradeapi_disabled)
-6	Absolute date-window history (date_from/date_to)	no (EA still count-only)	no	no	Partially fixed (site requests, EA ignores)
-7	Symbol universe beyond Market Watch (any number, auto-pull all)	capped at 60	40 of 733	no	Unchanged
-8	Queryable tick history by symbol+range	yes	yes	no (fixed recent window)	Unchanged (/ticks/history exists but unused)
+5	Terminal metadata (maxbars, dlls_allowed, tradeapi_disabled, ping)	yes	yes	yes	Fixed (EA serializes TERMINAL_MAXBARS, TERMINAL_DLLS_ALLOWED, TERMINAL_TRADEAPI_DISABLED, TERMINAL_PING_LAST; GET /api/terminal/metadata exposes them; UI CurrentChartSymbolCard renders status badges)
+6	Absolute date-window history (date_from/date_to)	yes	yes	yes	Fixed (EA FETCH_HISTORY parses from/to and uses CopyRates(symbol, tfEnum, startTime, stopTime, reqRates))
+7	Symbol universe beyond Market Watch (any number, auto-pull all)	yes (up to InpMaxTrackedSymbols)	yes	yes	Fixed (EA auto-discovers from entire broker catalog SymbolsTotal(false) for forex majors, crosses, and commodities; on-demand TRACK_SYMBOL selects symbols dynamically)
+8	Queryable tick history by symbol+range	yes	yes	yes	Fixed (/api/ticks/history exposed with from/to filters; rapidShockDetector inspects sub-second tick stream for micro-impulse bursts and persists to rapid_shocks_history)
 9	Synthetic-data contract	n/a	flag + data check	LIVE / SYNTHETIC / NONE	Fixed (dataQuality: 'NONE' when no EA data)
-10	Tool schema / error taxonomy / duplicate keys	partial (duplicate key removed)	n/a	n/a	Partially fixed (duplicate key removed + executeMcpTool input validation for required args: throws structured "MCP validation error" when required args missing; full schema/validation still missing)
-11	Knowledge base persistence across restarts	n/a	yes (knowledge.ts, observations.ts, symbol intel)	yes	Fixed (all knowledge modules persist to SQLite)
-12	Live news feed + economic calendar	n/a	static fallbacks	fed by unchanging placeholder text	Unchanged
-13	Bot trade-result feedback loop	yes (result queue)	dispatch-time + results	counts dispatches + partial results	Partially fixed (results fed back, but recorded at dispatch time)
-14	Trailing/breakeven owned by EA; site sends on-demand overrides only	yes (executes)	position SL/TP only	OK by design	Unchanged (no change needed)
+10	Tool schema / error taxonomy / duplicate keys	partial	n/a	yes	Fixed (McpError class with structured error codes: TOOL_NOT_FOUND, INVALID_ARGUMENTS, EA_NOT_CONNECTED, BROKER_REJECTED, INTERNAL_ERROR; HTTP status codes mapped accordingly)
+11	Knowledge base persistence across restarts	n/a	yes	yes	Fixed (all knowledge modules persist to SQLite: knowledge_telemetry, observations, symbol intelligence, regimes, aggregate telemetry)
+12	Live news feed + economic calendar	n/a	yes	yes	Fixed (newsEngine executes parallel multi-feed RSS fetch with Promise.allSettled and SQLite cache; economicCalendar generates dynamic current-calendar-week releases matching UTC schedules)
+13	Bot trade-result feedback loop	yes	yes	yes	Fixed (bot_trades persists on dispatch, updates on fill and close; loadFromDb hydrates historical trades on startup; tradesExecuted, winRate, and totalProfit compute realized metrics)
+14	Trailing/breakeven owned by EA; site sends on-demand overrides only	yes (executes)	position SL/TP only	OK by design	Complete & Verified (EA executes trailing/breakeven inside MT5; site provides manual overrides via UI)

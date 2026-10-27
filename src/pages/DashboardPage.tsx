@@ -30,6 +30,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
   const currentTick = ticks.find((t) => t.symbol === selectedSymbol) || ticks[0];
   const history = (state?.tickHistory && state.tickHistory[selectedSymbol]) || [];
   const positions = state?.positions || [];
+  const pendingOrders = state?.pendingOrders || [];
   const account = state?.account || null;
   const riskGuard = state?.riskGuard || null;
   const currentChart = state?.currentChart || null;
@@ -81,6 +82,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
           <OrderExecutionDock
             selectedSymbol={selectedSymbol}
             ticks={ticks}
+            symbols={allSymbols}
             riskGuard={riskGuard}
             account={account}
             symbolInfo={allSymbols.find((s) => s.symbol === selectedSymbol) || currentChart}
@@ -89,9 +91,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
         </div>
       </div>
 
-      {/* 6. Active MT5 Open Positions */}
+      {/* 6. Active MT5 Open Positions & Pending Orders */}
       <OpenPositionsTable
         positions={positions}
+        pendingOrders={pendingOrders}
         onSelectSymbol={setSelectedSymbol}
       />
 

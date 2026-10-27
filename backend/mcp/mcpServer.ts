@@ -1016,12 +1016,68 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
       properties: {},
     },
   },
+  {
+    name: 'mt5_knowledge_get_imbalances',
+    description: 'Auto-detect institutional order book imbalances, Fair Value Gaps (Bullish & Bearish FVGs), mitigation state (UNMITIGATED, PARTIALLY_MITIGATED, FULLY_FILLED), and Buy-side (EQH) / Sell-side (EQL) liquidity pools for a symbol.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Symbol ticker (e.g. EURUSD, XAUUSD, BTCUSD). Defaults to active chart.',
+        },
+        timeframe: {
+          type: 'string',
+          description: 'Timeframe: M1, M5, M15, H1 (default: M1)',
+        },
+      },
+    },
+  },
+  {
+    name: 'mt5_knowledge_get_session_order_flow',
+    description: 'Auto-detect session order flow bias, Asian Range benchmark (00:00 - 07:00 UTC), Judas Swing liquidity sweep traps (bull/bear trap runs), and institutional expansion targets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Symbol ticker (e.g. EURUSD, GBPUSD, USDJPY). Defaults to active chart.',
+        },
+        timeframe: {
+          type: 'string',
+          description: 'Timeframe: M1, M5, M15, H1 (default: M1)',
+        },
+      },
+    },
+  },
 ];
 
+export type McpErrorCode =
+  | 'TOOL_NOT_FOUND'
+  | 'INVALID_ARGUMENTS'
+  | 'EA_NOT_CONNECTED'
+  | 'BROKER_REJECTED'
+  | 'INTERNAL_ERROR';
+
+export class McpError extends Error {
+  public code: McpErrorCode;
+  public details?: any;
+
+  constructor(code: McpErrorCode, message: string, details?: any) {
+    super(message);
+    this.name = 'McpError';
+    this.code = code;
+    this.details = details;
+  }
+}
+
 export async function executeMcpTool(name: string, args: Record<string, any> = {}): Promise<any> {
-  // --- MCP input validation (Gap #10 partial) ---
-  // Declares required args per tool so callers get a structured 400-style error
-  // instead of a cryptic 500 or a silently-wrong default.
+  // --- MCP input validation & taxonomy (Gap #10) ---
+  const validTool = MCP_TOOLS.some((t) => t.name === name);
+  if (!validTool) {
+    throw new McpError('TOOL_NOT_FOUND', `Unknown MCP tool: "${name}"`);
+  }
+
   const requiredArgs: Record<string, string[]> = {
     mt5_execute_trade: ['symbol', 'orderType', 'volume'],
     mt5_modify_position: ['ticket'],
@@ -1040,7 +1096,24 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
   if (required) {
     const missing = required.filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
     if (missing.length > 0) {
-      throw new Error(`MCP validation error: missing required argument(s) for "${name}": ${missing.join(', ')}`);
+      throw new McpError('INVALID_ARGUMENTS', `Missing required argument(s) for "${name}": ${missing.join(', ')}`, { missing });
+    }
+  }
+
+  // Check broker restrictions on trade execution
+  if (name === 'mt5_execute_trade') {
+    const sym = String(args.symbol || '').toUpperCase();
+    const symInfo = tradeStore.getAllSymbols().find((s) => s.symbol.toUpperCase() === sym);
+    if (symInfo) {
+      if (symInfo.tradeMode === 'CLOSEONLY' || symInfo.tradeAllowed === false) {
+        throw new McpError('BROKER_REJECTED', `Broker restricts ${sym}: Symbol is in CLOSEONLY mode. New orders prohibited.`);
+      }
+      if (symInfo.tradeMode === 'LONGONLY' && String(args.orderType).toUpperCase() === 'SELL') {
+        throw new McpError('BROKER_REJECTED', `Broker restricts ${sym} to LONG ONLY positions.`);
+      }
+      if (symInfo.tradeMode === 'SHORTONLY' && String(args.orderType).toUpperCase() === 'BUY') {
+        throw new McpError('BROKER_REJECTED', `Broker restricts ${sym} to SHORT ONLY positions.`);
+      }
     }
   }
 
@@ -1995,6 +2068,33 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
           eaVersion: tradeStore.getState().connection.eaVersion,
         },
       };
+    }
+
+    case 'mt5_knowledge_get_imbalances': {
+      const currentChart = tradeStore.getCurrentChart();
+      const symbol = (args.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
+      const tf = (args.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
+      let candles = tradeStore.getChartHistory();
+      if (!candles || candles.length < 10) {
+        const { dbGetCandles } = await import('../database/db.js');
+        candles = await dbGetCandles(symbol, tf, 100);
+      }
+      const { autoDetectInstitutionalImbalances } = await import('../knowledgebase/core/auto-detect.js');
+      const point = currentChart?.point || 0.0001;
+      return autoDetectInstitutionalImbalances(symbol, candles, point);
+    }
+
+    case 'mt5_knowledge_get_session_order_flow': {
+      const currentChart = tradeStore.getCurrentChart();
+      const symbol = (args.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
+      const tf = (args.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
+      let candles = tradeStore.getChartHistory();
+      if (!candles || candles.length < 15) {
+        const { dbGetCandles } = await import('../database/db.js');
+        candles = await dbGetCandles(symbol, tf, 100);
+      }
+      const { autoDetectSessionOrderFlowBias } = await import('../knowledgebase/core/auto-detect.js');
+      return autoDetectSessionOrderFlowBias(symbol, candles);
     }
 
     default:

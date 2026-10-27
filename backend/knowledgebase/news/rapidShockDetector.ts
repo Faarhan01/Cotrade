@@ -319,9 +319,67 @@ export async function detectRapidMovementsAndAttribution(
     detectedShocks.push(shock);
   }
 
+  // 1b. Inspect real queryable sub-second tick history from SQLite ticks_history (Gap 8)
+  try {
+    const { dbGetTicksHistoryRange } = await import('../../database/db.js');
+    const recentTicks = await dbGetTicksHistoryRange(sym, undefined, undefined, 60);
+    if (recentTicks && recentTicks.length >= 10) {
+      const firstTick = recentTicks[0];
+      const lastTick = recentTicks[recentTicks.length - 1];
+      const timeSpanSec = Math.max(1, (lastTick.timestamp - firstTick.timestamp) / 1000);
+      const tickPips = Math.abs(lastTick.bid - firstTick.bid) / pipSize;
+      const tickVelocityPipsPerMin = (tickPips / timeSpanSec) * 60;
+
+      // If rapid micro-shock detected in ticks (< 45s with >= 5 pips or velocity >= 12 pips/min)
+      if (timeSpanSec <= 45 && (tickPips >= 5.0 || tickVelocityPipsPerMin >= 12.0)) {
+        const tickSpreadPts = lastTick.spread || currentSpreadPts;
+        const tickSpreadPips = Number(((tickSpreadPts * point) / pipSize).toFixed(1));
+        const tickTimeSec = Math.floor(lastTick.timestamp / 1000);
+
+        const tickShock: RapidPriceShock = {
+          id: `shock-tick-${sym}-${tickTimeSec}`,
+          symbol: sym,
+          timeframe: 'TICK',
+          shockType: 'FLASH_IMPULSE',
+          severity: tickPips >= 12 ? 'CRITICAL' : 'HIGH',
+          timestamp: tickTimeSec,
+          timestampIso: lastTick.timeIso || new Date(lastTick.timestamp).toISOString(),
+          priceStart: firstTick.bid,
+          pricePeak: Math.max(...recentTicks.map((t) => t.bid)),
+          priceEnd: lastTick.bid,
+          pipDisplacement: Number(tickPips.toFixed(1)),
+          pipRange: Number(tickPips.toFixed(1)),
+          volatilityAtrMultiplier: 2.5,
+          spreadAtShockPoints: tickSpreadPts,
+          spreadAtShockPips: tickSpreadPips,
+          durationSeconds: Math.round(timeSpanSec),
+          pipVelocityPipsPerMinute: Number(tickVelocityPipsPerMin.toFixed(1)),
+          reactionType: 'INSTANT_DIRECT_BURST',
+          attributedCatalyst: null,
+          tacticalDirective: `SUB-SECOND TICK SHOCK: Rapid ${tickPips.toFixed(1)} pip impulse across ${Math.round(timeSpanSec)}s (${tickVelocityPipsPerMin.toFixed(1)} pips/min). High frequency order flow surge detected.`,
+          safeToTrade: false,
+          coolingOffMinutesRemaining: 5,
+        };
+
+        detectedShocks.unshift(tickShock);
+      }
+    }
+  } catch {
+    // ticks history not yet available, candle scan suffices
+  }
+
   // Sort newest first
   detectedShocks.sort((a, b) => b.timestamp - a.timestamp);
   globalShockCache.set(sym, detectedShocks);
+
+  // Persist latest shocks to SQLite database for audit
+  if (detectedShocks.length > 0) {
+    import('../../database/db.js').then(({ dbInsertRapidShock }) => {
+      for (const s of detectedShocks.slice(0, 5)) {
+        dbInsertRapidShock(s).catch(() => {});
+      }
+    }).catch(() => {});
+  }
 
   return detectedShocks;
 }

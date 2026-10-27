@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { AppState } from '../types';
+import { calculatePositionSizeByRisk } from '../utils/symbolEconomics';
 
 interface BotTradingPageProps {
   state: AppState | null;
@@ -265,17 +266,47 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
     setConfig((c) => ({ ...c, symbols: c.symbols.filter((s) => s !== sym) }));
   };
 
-  const handleExecuteSignalNow = async (sig: any) => {
+  const handleExecuteSignalNow = async (sig: any, asPending = false) => {
     try {
       setManualExecLoading(sig.id);
+      const isPending = asPending && Boolean(sig.pendingOrder);
+      const orderType = isPending ? sig.pendingOrder.suggestedType : (sig.direction === 'BUY' ? 'BUY' : 'SELL');
+      const targetPrice = isPending ? sig.pendingOrder.targetPrice : (sig.entryPrice || undefined);
+      const sl = isPending ? sig.pendingOrder.stopLoss : (sig.stopLoss > 0 ? sig.stopLoss : undefined);
+      const tp = isPending ? sig.pendingOrder.takeProfit : (sig.takeProfit > 0 ? sig.takeProfit : undefined);
+
+      let volume = 0.1;
+      const accountBalance = state?.account?.balance;
+      if (accountBalance && accountBalance > 0 && sl && targetPrice) {
+        try {
+          const symInfo = state?.allSymbols?.find((s) => s.symbol === sig.symbol);
+          const sizing = calculatePositionSizeByRisk({
+            symbol: sig.symbol,
+            balance: accountBalance,
+            riskPercent: config.riskPercent || 1.0,
+            entryPrice: targetPrice,
+            stopLossPrice: sl,
+            takeProfitPrice: tp,
+            symbolInfo: symInfo,
+            leverage: state?.account?.leverage || 100,
+          });
+          if (sizing.recommendedLots > 0) {
+            volume = sizing.recommendedLots;
+          }
+        } catch {
+          // fallback to 0.1 if sizing calculation fails
+        }
+      }
+
       await api.sendCommand({
         action: 'EXECUTE_TRADE',
         symbol: sig.symbol,
-        orderType: sig.direction === 'BUY' ? 'BUY' : 'SELL',
-        volume: 0.1, // standard test lot or auto-size
-        sl: sig.stopLoss > 0 ? sig.stopLoss : undefined,
-        tp: sig.takeProfit > 0 ? sig.takeProfit : undefined,
-        comment: `BOT_MANUAL_${sig.direction}`,
+        orderType,
+        volume,
+        price: targetPrice,
+        sl,
+        tp,
+        comment: isPending ? `BOT_PEND_${orderType}` : `BOT_MAN_${sig.direction}`,
         source: 'BOT',
       });
       await fetchBotData();
@@ -1226,18 +1257,31 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                           </span>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded border border-cyan-800/50">
                             {sig.confidence}% Conviction
                           </span>
                           {!isHold && (
-                            <button
-                              onClick={() => handleExecuteSignalNow(sig)}
-                              disabled={manualExecLoading === sig.id}
-                              className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[11px] font-mono font-bold tracking-wider uppercase transition-colors"
-                            >
-                              {manualExecLoading === sig.id ? 'Executing...' : 'Execute Now'}
-                            </button>
+                            <>
+                              {sig.pendingOrder && (
+                                <button
+                                  onClick={() => handleExecuteSignalNow(sig, true)}
+                                  disabled={manualExecLoading === sig.id}
+                                  className="px-2.5 py-1 bg-amber-600/90 hover:bg-amber-500 text-white rounded text-[11px] font-mono font-bold tracking-wider uppercase transition-colors flex items-center gap-1"
+                                  title={sig.pendingOrder.reason}
+                                >
+                                  <Clock className="h-3 w-3" />
+                                  {sig.pendingOrder.suggestedType.replace('_', ' ')}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleExecuteSignalNow(sig, false)}
+                                disabled={manualExecLoading === sig.id}
+                                className="px-2.5 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded text-[11px] font-mono font-bold tracking-wider uppercase transition-colors"
+                              >
+                                {manualExecLoading === sig.id ? 'Executing...' : 'Market Now'}
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -1261,6 +1305,19 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                           <span className="text-cyan-400 font-semibold">{sig.riskRewardRatio ? `${sig.riskRewardRatio}R` : 'N/A'}</span>
                         </div>
                       </div>
+
+                      {/* Pending Order Recommendation Banner if Available */}
+                      {sig.pendingOrder && (
+                        <div className="mt-2.5 p-2 rounded-lg bg-amber-950/30 border border-amber-800/40 text-[10px] font-mono flex items-center justify-between gap-2 text-amber-200">
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                            <span className="font-bold text-amber-300">Pending Setup:</span>
+                            <span>{sig.pendingOrder.suggestedType} @ <strong>{sig.pendingOrder.targetPrice}</strong></span>
+                            <span className="text-slate-400 hidden sm:inline">({sig.pendingOrder.reason})</span>
+                          </div>
+                          <span className="text-amber-400 font-bold shrink-0">SL: {sig.pendingOrder.stopLoss} | TP: {sig.pendingOrder.takeProfit}</span>
+                        </div>
+                      )}
 
                       {/* Protective Trailing & Breakeven Architecture */}
                       {sig.trailingProtection && (

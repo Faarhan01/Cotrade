@@ -24,6 +24,7 @@ import {
   X,
   Code,
   Filter,
+  Sparkles,
 } from 'lucide-react';
 
 interface TableMeta {
@@ -76,6 +77,20 @@ const DATABASE_TABLES: TableMeta[] = [
     description: 'Cached financial headlines, central bank announcements, and sentiment impact scores.',
     icon: Globe,
     badgeColor: 'bg-blue-950 text-blue-300 border-blue-800',
+  },
+  {
+    id: 'symbol_auto_detect_profiles',
+    label: 'Symbol Intelligence Profiles',
+    description: 'Microstructure profiles with liquidity, volatility regimes, and execution safety grades.',
+    icon: Sparkles,
+    badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+  },
+  {
+    id: 'account_history',
+    label: 'Account Equity Snapshots',
+    description: 'Periodic margin, equity, balance, and free margin snapshots recorded on EA sync.',
+    icon: HardDrive,
+    badgeColor: 'bg-cyan-950 text-cyan-300 border-cyan-800',
   },
   {
     id: 'candles_history',

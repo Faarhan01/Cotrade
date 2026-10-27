@@ -77,6 +77,9 @@ export interface SimulatedTrade {
   exitTimeIso: string;
   exitPrice: number;
   profitPoints: number;
+  grossProfitPoints?: number;
+  spreadPoints?: number;
+  spreadCostUsd?: number;
   profitUsd: number;
   returnPct: number;
   exitReason: 'TAKE_PROFIT' | 'STOP_LOSS' | 'SIGNAL_REVERSAL' | 'MAX_HOLD_BARS' | 'END_OF_DATA';
@@ -123,6 +126,7 @@ export interface BacktestResult {
   equityCurve: { time: number; timeIso: string; equity: number }[];
   evaluatedAt: number;
   dataQuality?: 'LIVE' | 'SYNTHETIC' | 'NONE';
+  totalSpreadCostUsd?: number;
 
   // KnowledgeBase Tools Integration & Performance Proof
   knowledgeAssisted?: boolean;
@@ -185,6 +189,7 @@ export function runStrategyBacktest(
   let peakEquity = deposit;
   let maxDrawdownUsd = 0;
   let maxDrawdownPct = 0;
+  let totalSpreadCostUsd = 0;
 
   equityCurve.push({
     time: candles[0].time,
@@ -200,6 +205,7 @@ export function runStrategyBacktest(
     entryPrice: number;
     sl: number;
     tp: number;
+    spreadPoints: number;
   } | null = null;
 
   // EMA series are causal: the EMA at index i computed over the full series is
@@ -249,14 +255,19 @@ export function runStrategyBacktest(
       }
 
       if (exitReason) {
-        const pointDiff =
+        const grossPointDiff =
           openTrade.type === 'BUY'
             ? (exitPrice - openTrade.entryPrice) / effectivePoint
             : (openTrade.entryPrice - exitPrice) / effectivePoint;
 
-        const profitUsd = Math.round(pointDiff * lotSize * 10 * 100) / 100;
+        const spreadPoints = openTrade.spreadPoints;
+        const netPointDiff = grossPointDiff - spreadPoints;
+        const pointDollarValue = 1.0;
+        const spreadCostUsd = Math.round(spreadPoints * lotSize * pointDollarValue * 100) / 100;
+        const profitUsd = Math.round(netPointDiff * lotSize * pointDollarValue * 100) / 100;
         const returnPct = Math.round((profitUsd / currentEquity) * 10000) / 100;
 
+        totalSpreadCostUsd += spreadCostUsd;
         currentEquity += profitUsd;
         if (currentEquity > peakEquity) peakEquity = currentEquity;
         const ddUsd = peakEquity - currentEquity;
@@ -275,7 +286,10 @@ export function runStrategyBacktest(
           exitTime: currentBar.time,
           exitTimeIso: currentBar.timeIso || new Date(currentBar.time * 1000).toISOString(),
           exitPrice: Number(exitPrice.toFixed(5)),
-          profitPoints: Math.round(pointDiff),
+          profitPoints: Math.round(netPointDiff),
+          grossProfitPoints: Math.round(grossPointDiff),
+          spreadPoints,
+          spreadCostUsd,
           profitUsd,
           returnPct,
           exitReason,
@@ -419,6 +433,9 @@ export function runStrategyBacktest(
             ? entryPrice + tpPoints * effectivePoint
             : entryPrice - tpPoints * effectivePoint;
 
+        const defaultSpread = sym.includes('JPY') ? 20 : sym.includes('XAU') ? 35 : 15;
+        const barSpread = currentBar.spread !== undefined && currentBar.spread > 0 ? currentBar.spread : defaultSpread;
+
         openTrade = {
           type: signal,
           entryIndex: i,
@@ -427,6 +444,7 @@ export function runStrategyBacktest(
           entryPrice,
           sl: Number(sl.toFixed(5)),
           tp: Number(tp.toFixed(5)),
+          spreadPoints: barSpread,
         };
       }
     }
@@ -435,13 +453,19 @@ export function runStrategyBacktest(
   // Close lingering trade at end of history
   if (openTrade) {
     const lastBar = candles[candles.length - 1];
-    const pointDiff =
+    const grossPointDiff =
       openTrade.type === 'BUY'
         ? (lastBar.close - openTrade.entryPrice) / effectivePoint
         : (openTrade.entryPrice - lastBar.close) / effectivePoint;
 
-    const profitUsd = Math.round(pointDiff * lotSize * 10 * 100) / 100;
+    const spreadPoints = openTrade.spreadPoints;
+    const netPointDiff = grossPointDiff - spreadPoints;
+    const pointDollarValue = 1.0;
+    const spreadCostUsd = Math.round(spreadPoints * lotSize * pointDollarValue * 100) / 100;
+    const profitUsd = Math.round(netPointDiff * lotSize * pointDollarValue * 100) / 100;
     const returnPct = Math.round((profitUsd / currentEquity) * 10000) / 100;
+
+    totalSpreadCostUsd += spreadCostUsd;
     currentEquity += profitUsd;
 
     trades.push({
@@ -455,7 +479,10 @@ export function runStrategyBacktest(
       exitTime: lastBar.time,
       exitTimeIso: lastBar.timeIso || new Date(lastBar.time * 1000).toISOString(),
       exitPrice: Number(lastBar.close.toFixed(5)),
-      profitPoints: Math.round(pointDiff),
+      profitPoints: Math.round(netPointDiff),
+      grossProfitPoints: Math.round(grossPointDiff),
+      spreadPoints,
+      spreadCostUsd,
       profitUsd,
       returnPct,
       exitReason: 'END_OF_DATA',
@@ -507,6 +534,7 @@ export function runStrategyBacktest(
     averageWin,
     averageLoss,
     riskRewardRatio,
+    totalSpreadCostUsd: Math.round(totalSpreadCostUsd * 100) / 100,
     trades,
     equityCurve,
     evaluatedAt: Date.now(),

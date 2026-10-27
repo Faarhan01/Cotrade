@@ -1,5 +1,3 @@
-import { dbSaveNewsCache, dbGetCachedNews } from '../../database/db.js';
-
 export interface MarketNewsItem {
   id: string;
   title: string;
@@ -21,33 +19,6 @@ export interface MarketNewsItem {
 let cachedNews: MarketNewsItem[] = [];
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-// Hydrate news from SQLite on server start
-(async () => {
-  try {
-    const saved = await dbGetCachedNews(undefined, undefined, 50);
-    if (saved && saved.length > 0) {
-      cachedNews = saved.map((s: any) => ({
-        id: s.id,
-        title: s.title,
-        summary: s.summary,
-        source: s.source,
-        url: s.url || 'https://www.marketwatch.com',
-        publishedAt: s.publishedAt || Date.now(),
-        publishedAtIso: new Date(s.publishedAt || Date.now()).toISOString(),
-        category: s.category || 'MACRO',
-        relevantSymbols: s.relevantSymbols || ['EURUSD'],
-        sentiment: s.sentiment || 'NEUTRAL',
-        sentimentScore: s.sentimentScore || 0,
-        impact: s.impact || 'MEDIUM',
-        dataQuality: 'LIVE',
-      }));
-      lastFetchTime = Date.now();
-    }
-  } catch (err) {
-    console.warn('[NewsEngine] Notice hydrating news cache from DB:', err);
-  }
-})();
 
 /**
  * Curated live feeds and real-world fallback market intelligence
@@ -155,84 +126,86 @@ export async function fetchMarketNews(symbol?: string): Promise<MarketNewsItem[]
     return filterNewsBySymbol(cachedNews, symbol);
   }
 
-  // Attempt to fetch fresh live items from external financial RSS feeds
+  // Attempt to fetch fresh live items from external financial RSS feeds in parallel
   const feedUrls = [
     { url: 'https://feeds.content.dowjones.io/public/rss/mw_topstories', source: 'MarketWatch Top Stories' },
     { url: 'https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines', source: 'Dow Jones Real-Time' },
     { url: 'https://finance.yahoo.com/news/rssindex', source: 'Yahoo Finance' },
   ];
 
-  const aggregatedItems: MarketNewsItem[] = [];
-  const seenTitles = new Set<string>();
-
-  for (const feed of feedUrls) {
+  const fetchPromises = feedUrls.map(async (feed) => {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3000);
+      const timeout = setTimeout(() => controller.abort(), 3500);
 
       const res = await fetch(feed.url, {
         signal: controller.signal,
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/rss+xml, application/xml, text/xml',
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          Accept: 'application/rss+xml, application/xml, text/xml',
         },
       });
       clearTimeout(timeout);
 
       if (res.ok) {
         const xmlText = await res.text();
-        const parsedItems = parseRssItems(xmlText, feed.source);
-        for (const item of parsedItems) {
-          const normTitle = item.title.toLowerCase().trim();
-          if (!seenTitles.has(normTitle)) {
-            seenTitles.add(normTitle);
-            aggregatedItems.push({ ...item, dataQuality: 'LIVE' });
-          }
-        }
+        return parseRssItems(xmlText, feed.source);
       }
     } catch {
-      // Continue to next feed
+      // ignore network errors
+    }
+    return [] as MarketNewsItem[];
+  });
+
+  const settled = await Promise.allSettled(fetchPromises);
+  const combinedItems: MarketNewsItem[] = [];
+  const seenTitles = new Set<string>();
+
+  for (const outcome of settled) {
+    if (outcome.status === 'fulfilled' && Array.isArray(outcome.value)) {
+      for (const item of outcome.value) {
+        const titleKey = item.title.toLowerCase().trim();
+        if (!seenTitles.has(titleKey)) {
+          seenTitles.add(titleKey);
+          combinedItems.push(item);
+        }
+      }
     }
   }
 
-  if (aggregatedItems.length > 0) {
-    // Sort chronological descending
-    aggregatedItems.sort((a, b) => b.publishedAt - a.publishedAt);
-    cachedNews = aggregatedItems;
+  if (combinedItems.length > 0) {
+    combinedItems.sort((a, b) => b.publishedAt - a.publishedAt);
+    cachedNews = combinedItems;
     lastFetchTime = now;
 
-    // Persist live feed items to SQLite
-    dbSaveNewsCache(cachedNews).catch((e) => console.warn('[NewsEngine] Failed to persist news to SQLite:', e));
+    // Persist to database cache
+    import('../../database/db.js').then(({ dbSaveNewsCache }) => {
+      dbSaveNewsCache(combinedItems).catch(() => {});
+    }).catch(() => {});
+
     return filterNewsBySymbol(cachedNews, symbol);
   }
 
-  // If live RSS feeds were temporarily unreachable, check SQLite cache before falling back
+  // Check if database has cached news before falling back to simulated
   try {
-    const fromDb = await dbGetCachedNews(symbol, undefined, 50);
-    if (fromDb && fromDb.length > 0) {
-      cachedNews = fromDb.map((s: any) => ({
-        id: s.id,
-        title: s.title,
-        summary: s.summary,
-        source: s.source,
-        url: s.url || 'https://www.marketwatch.com',
-        publishedAt: s.publishedAt || Date.now(),
-        publishedAtIso: new Date(s.publishedAt || Date.now()).toISOString(),
-        category: s.category || 'MACRO',
-        relevantSymbols: s.relevantSymbols || ['EURUSD'],
-        sentiment: s.sentiment || 'NEUTRAL',
-        sentimentScore: s.sentimentScore || 0,
-        impact: s.impact || 'MEDIUM',
-        dataQuality: 'LIVE',
+    const { dbGetCachedNews } = await import('../../database/db.js');
+    const dbCached = await dbGetCachedNews(symbol, undefined, 30);
+    if (dbCached && dbCached.length > 0) {
+      cachedNews = dbCached.map((n) => ({
+        ...n,
+        url: n.url || 'https://www.reuters.com/markets',
+        publishedAtIso: new Date(n.publishedAt).toISOString(),
+        dataQuality: 'LIVE' as const,
       }));
       lastFetchTime = now;
       return filterNewsBySymbol(cachedNews, symbol);
     }
-  } catch (err) {
-    // Fall back to baseline
+  } catch {
+    // fallback below
   }
 
-  // Baseline market intelligence
+  // If live RSS feeds were blocked or unreachable and DB is empty, use the curated market baseline.
   cachedNews = BASE_MARKET_NEWS.map((n) => ({ ...n, dataQuality: 'SIMULATED' as const }));
   lastFetchTime = now;
   return filterNewsBySymbol(cachedNews, symbol);

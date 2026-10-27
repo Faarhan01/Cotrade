@@ -1,7 +1,7 @@
 import { BotSignal, BotTrade, BotConfig } from './types.js';
 import { tradeStore } from '../services/tradeStore.js';
 import { commandDispatcher } from '../services/commandDispatcher.js';
-import { dbInsertBotTrade, dbUpdateBotTrade, dbGetBotTrades } from '../database/db.js';
+import { dbInsertOrder } from '../database/db.js';
 import { calculatePositionSizeByRisk, validateAndAdjustStops } from '../utils/symbolEconomics.js';
 
 export class TradeExecutor {
@@ -31,6 +31,37 @@ export class TradeExecutor {
 
     // Get live symbol specifications from MT5
     const symbolInfo = tradeStore.getAllSymbols().find((s: any) => s.symbol === signal.symbol);
+
+    // Enforce broker trade mode (Gap 3)
+    if (symbolInfo) {
+      if (symbolInfo.tradeMode === 'CLOSEONLY' || symbolInfo.tradeAllowed === false) {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is CLOSEONLY or trading disabled. New entries prohibited.`,
+          'BOT'
+        );
+        return null;
+      }
+      if (symbolInfo.tradeMode === 'LONGONLY' && signal.direction === 'SELL') {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is LONGONLY. Sell signal suppressed.`,
+          'BOT'
+        );
+        return null;
+      }
+      if (symbolInfo.tradeMode === 'SHORTONLY' && signal.direction === 'BUY') {
+        tradeStore.addLog(
+          'warn',
+          `Bot Trade Skipped: ${signal.symbol}`,
+          `Broker trade mode is SHORTONLY. Buy signal suppressed.`,
+          'BOT'
+        );
+        return null;
+      }
+    }
     
     const mode = this.config.mode || 'DAY_TRADES';
     let effectiveSubMode: 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' = 'DAY_TRADES';
@@ -203,8 +234,23 @@ export class TradeExecutor {
     signal.tradeId = trade.id;
     signal.mode = mode;
 
-    // Persist to DB using dedicated bot_trades table
+    // Persist to DB
     try {
+      await dbInsertOrder({
+        id: trade.id,
+        action: 'EXECUTE_TRADE',
+        symbol: trade.symbol,
+        orderType: trade.direction,
+        volume: trade.volume,
+        price: trade.entryPrice,
+        sl: trade.stopLoss,
+        tp: trade.takeProfit,
+        status: trade.status.toLowerCase(),
+        source: 'BOT',
+        createdAt: trade.openedAt,
+      });
+
+      const { dbInsertBotTrade } = await import('../database/db.js');
       await dbInsertBotTrade({
         id: trade.id,
         signalId: trade.signalId,
@@ -219,7 +265,7 @@ export class TradeExecutor {
         openedAt: trade.openedAt,
       });
     } catch (err) {
-      console.error('[TradeExecutor] Failed to persist bot trade:', err);
+      console.error('[TradeExecutor] Failed to persist trade:', err);
     }
 
     tradeStore.addLog(
@@ -232,9 +278,10 @@ export class TradeExecutor {
     return trade;
   }
 
-  public async hydrateTradesFromDb(): Promise<void> {
+  public async loadFromDb(): Promise<void> {
     try {
-      const rows = await dbGetBotTrades(100);
+      const { dbGetBotTrades } = await import('../database/db.js');
+      const rows = await dbGetBotTrades(300);
       for (const r of rows) {
         if (!this.trades.has(r.id)) {
           this.trades.set(r.id, {
@@ -242,21 +289,21 @@ export class TradeExecutor {
             signalId: r.signalId,
             symbol: r.symbol,
             direction: r.direction as 'BUY' | 'SELL',
-            volume: Number(r.volume),
-            entryPrice: Number(r.entryPrice),
-            stopLoss: Number(r.stopLoss || 0),
-            takeProfit: Number(r.takeProfit || 0),
+            volume: r.volume,
+            entryPrice: r.entryPrice,
+            stopLoss: r.stopLoss || 0,
+            takeProfit: r.takeProfit || 0,
             commandId: r.commandId,
             status: r.status as any,
-            profit: Number(r.profit || 0),
-            openedAt: Number(r.openedAt),
-            closedAt: r.closedAt ? Number(r.closedAt) : undefined,
+            profit: r.profit || 0,
+            openedAt: r.openedAt,
+            closedAt: r.closedAt,
             mode: 'DAY_TRADES',
           });
         }
       }
     } catch (err) {
-      console.warn('[TradeExecutor] Failed to hydrate bot trades from DB:', err);
+      console.warn('[TradeExecutor] Failed to load trades from DB:', err);
     }
   }
 
@@ -265,32 +312,11 @@ export class TradeExecutor {
   }
 
   public getActiveTrades(): BotTrade[] {
-    return Array.from(this.trades.values()).filter((t) => t.status === 'PENDING' || (t.status === 'EXECUTED' && !t.closedAt));
+    return Array.from(this.trades.values()).filter((t) => t.status === 'PENDING' || t.status === 'EXECUTED');
   }
 
   public getTrade(id: string): BotTrade | undefined {
     return this.trades.get(id);
-  }
-
-  public handleExecutionResult(commandId: string, res: any): void {
-    const trade = Array.from(this.trades.values()).find((t) => t.commandId === commandId);
-    if (trade) {
-      if (res.success) {
-        trade.status = 'EXECUTED';
-        if (res.executionPrice && res.executionPrice > 0) trade.entryPrice = res.executionPrice;
-        if (res.dealTicket) trade.ticket = res.dealTicket;
-        else if (res.orderTicket) trade.ticket = res.orderTicket;
-      } else {
-        trade.status = 'FAILED';
-        trade.closedAt = Date.now();
-        trade.errorMessage = res.errorMessage || `Error ${res.errorCode}`;
-      }
-      dbUpdateBotTrade(trade.id, {
-        status: trade.status,
-        profit: trade.profit,
-        closedAt: trade.closedAt,
-      }).catch((e) => console.error('[TradeExecutor] DB update bot trade error:', e));
-    }
   }
 
   public updateTradeStatus(id: string, status: BotTrade['status'], profit?: number): void {
@@ -298,70 +324,23 @@ export class TradeExecutor {
     if (trade) {
       trade.status = status;
       if (profit !== undefined) trade.profit = profit;
-      if (status === 'FAILED' || status === 'CANCELLED') {
+      if (status === 'CLOSED' || status === 'FAILED' || status === 'CANCELLED') {
         trade.closedAt = Date.now();
       }
-      dbUpdateBotTrade(trade.id, {
-        status: trade.status,
-        profit: trade.profit,
-        closedAt: trade.closedAt,
-      }).catch((e) => console.error('[TradeExecutor] DB update bot trade status error:', e));
     }
   }
 
-  public closeTrade(id: string, profit?: number): void {
-    const trade = this.trades.get(id);
-    if (trade && !trade.closedAt) {
-      trade.closedAt = Date.now();
-      if (profit !== undefined) trade.profit = profit;
-      dbUpdateBotTrade(trade.id, {
-        status: trade.status,
-        profit: trade.profit,
-        closedAt: trade.closedAt,
-      }).catch((e) => console.error('[TradeExecutor] DB close bot trade error:', e));
-    }
-  }
-
-  public reconcileDeals(closedDeals: any[]): void {
-    if (!Array.isArray(closedDeals) || closedDeals.length === 0) return;
+  public getStats(): { totalTrades: number; executedTrades: number; activeTrades: number; totalProfit: number; winRate: number } {
     const trades = Array.from(this.trades.values());
-
-    for (const deal of closedDeals) {
-      const posId = deal.positionId || deal.order;
-      if (!posId) continue;
-
-      const matchingTrade = trades.find(
-        (t) =>
-          t.ticket === posId ||
-          t.ticket === deal.ticket ||
-          (t.symbol === deal.symbol && !t.closedAt && Math.abs(t.volume - deal.volume) < 0.001)
-      );
-
-      if (matchingTrade && !matchingTrade.closedAt) {
-        matchingTrade.status = 'EXECUTED';
-        const netProfit = (deal.profit || 0) + (deal.swap || 0) + (deal.commission || 0) + (deal.fee || 0);
-        matchingTrade.profit = Number(netProfit.toFixed(2));
-        matchingTrade.closedAt = deal.time ? deal.time * 1000 : Date.now();
-        if (deal.price && deal.price > 0) matchingTrade.exitPrice = deal.price;
-
-        dbUpdateBotTrade(matchingTrade.id, {
-          status: matchingTrade.status,
-          profit: matchingTrade.profit,
-          closedAt: matchingTrade.closedAt,
-        }).catch((e) => console.error('[TradeExecutor] DB update reconciled deal error:', e));
-      }
-    }
-  }
-
-  public getStats(): { totalTrades: number; activeTrades: number; totalProfit: number; winRate: number } {
-    const trades = Array.from(this.trades.values());
-    const closed = trades.filter((t) => t.status === 'EXECUTED' && t.closedAt);
+    const executed = trades.filter((t) => t.status === 'EXECUTED' || t.status === 'CLOSED');
+    const closed = trades.filter((t) => t.status === 'CLOSED');
     const wins = closed.filter((t) => t.profit > 0).length;
-    const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0);
+    const totalProfit = closed.reduce((sum, t) => sum + t.profit, 0);
 
     return {
       totalTrades: trades.length,
-      activeTrades: trades.filter((t) => t.status === 'PENDING' || (t.status === 'EXECUTED' && !t.closedAt)).length,
+      executedTrades: executed.length,
+      activeTrades: trades.filter((t) => t.status === 'PENDING' || t.status === 'EXECUTED').length,
       totalProfit: Number(totalProfit.toFixed(2)),
       winRate: closed.length > 0 ? Number(((wins / closed.length) * 100).toFixed(1)) : 0,
     };

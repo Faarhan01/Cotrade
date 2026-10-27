@@ -184,9 +184,24 @@ apiRouter.post('/mcp/tools/:name', async (req, res) => {
       result,
     });
   } catch (err: any) {
-    res.status(400).json({
+    const isMcp = err?.name === 'McpError' || err?.code;
+    const code = isMcp ? err.code : 'INTERNAL_ERROR';
+    const status =
+      code === 'TOOL_NOT_FOUND'
+        ? 404
+        : code === 'INVALID_ARGUMENTS'
+        ? 400
+        : code === 'EA_NOT_CONNECTED'
+        ? 503
+        : code === 'BROKER_REJECTED'
+        ? 422
+        : 500;
+
+    res.status(status).json({
       success: false,
+      code,
       error: err?.message || String(err),
+      details: err?.details,
     });
   }
 });
@@ -1596,9 +1611,15 @@ apiRouter.get(['/terminal/metadata', '/api/terminal/metadata'], async (_req, res
       terminalCompany: state.connection.terminalCompany || '',
       terminalBuild: state.connection.terminalBuild || 0,
       terminalPermissions: permissions || null,
+      terminalMaxBars: permissions?.terminalMaxBars ?? null,
+      terminalDllsAllowed: permissions?.terminalDllsAllowed ?? null,
+      terminalTradeApiDisabled: permissions?.terminalTradeApiDisabled ?? null,
+      terminalPingLast: permissions?.terminalPingLast ?? null,
+      totalBrokerSymbols: permissions?.totalBrokerSymbols ?? null,
+      marketWatchSymbolsCount: permissions?.marketWatchSymbolsCount ?? null,
       isEaConnected: state.connection.isEaConnected,
       serverTime: state.connection.serverTime || Date.now(),
-      eaVersion: state.connection.eaVersion || '2.10',
+      eaVersion: state.connection.eaVersion || '2.30',
       timestamp: Date.now(),
     });
   } catch (err: any) {

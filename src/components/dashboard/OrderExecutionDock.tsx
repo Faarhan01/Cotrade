@@ -1,182 +1,105 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { OrderType, TickData, RiskGuardConfig, AccountInfo, DetailedSymbolInfo } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo } from '../../types';
 import { api } from '../../services/api';
-import {
-  calculatePipValue,
-  calculatePipDistance,
-  calculatePositionSizeByRisk,
-  getSymbolDigits,
-  getSymbolPoint,
-  validateAndAdjustStops,
-} from '../../utils/symbolEconomics';
-import {
-  Send,
-  ArrowUp,
-  ArrowDown,
-  AlertTriangle,
-  CheckCircle2,
-  Calculator,
-  Shield,
-  Percent,
-  Sliders,
-  DollarSign,
-  TrendingUp,
-} from 'lucide-react';
+import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert, Clock, Zap } from 'lucide-react';
 
 interface OrderExecutionDockProps {
   selectedSymbol: string;
   ticks: TickData[];
+  symbols?: DetailedSymbolInfo[];
   riskGuard: RiskGuardConfig | null;
-  account?: AccountInfo | null;
-  symbolInfo?: DetailedSymbolInfo | null;
   onSelectSymbol: (symbol: string) => void;
 }
 
 export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   selectedSymbol,
   ticks,
+  symbols = [],
   riskGuard,
-  account,
-  symbolInfo,
   onSelectSymbol,
 }) => {
   const [orderCategory, setOrderCategory] = useState<'MARKET' | 'PENDING'>('MARKET');
   const [orderType, setOrderType] = useState<OrderType>('BUY');
+  const [pendingPrice, setPendingPrice] = useState<string>('');
   const [volume, setVolume] = useState<string>('0.10');
-  const [priceInput, setPriceInput] = useState<string>('');
-  const [slPrice, setSlPrice] = useState<string>('');
-  const [tpPrice, setTpPrice] = useState<string>('');
-  const [slPips, setSlPips] = useState<string>('25');
-  const [tpPips, setTpPips] = useState<string>('50');
-  const [inputMode, setInputMode] = useState<'PIPS' | 'PRICE'>('PIPS');
-  const [riskPercent, setRiskPercent] = useState<string>('1.0');
-  const [autoSizingEnabled, setAutoSizingEnabled] = useState<boolean>(false);
+  const [sl, setSl] = useState<string>('');
+  const [tp, setTp] = useState<string>('');
   const [comment, setComment] = useState<string>('COPILOT_DESK');
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
 
-  const activeTick = ticks.find((t) => t.symbol.toUpperCase() === selectedSymbol.toUpperCase());
+  const activeTick = ticks.find((t) => t.symbol === selectedSymbol);
+  const symbolInfo = symbols.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase());
+  const digits = symbolInfo?.digits ?? (selectedSymbol.includes('JPY') ? 3 : 5);
+  const point = symbolInfo?.point ?? (selectedSymbol.includes('JPY') ? 0.001 : 0.00001);
+  const pip = point * 10;
+
+  const tradeMode = symbolInfo?.tradeMode || (symbolInfo?.tradeAllowed === false ? 'CLOSEONLY' : 'FULL');
+  const isCloseOnly = tradeMode === 'CLOSEONLY';
+  const isLongOnly = tradeMode === 'LONGONLY';
+  const isShortOnly = tradeMode === 'SHORTONLY';
+  const isTradeDisabled = symbolInfo ? symbolInfo.tradeAllowed === false || isCloseOnly : false;
+
+  useEffect(() => {
+    if (orderCategory === 'MARKET') {
+      if (orderType !== 'BUY' && orderType !== 'SELL') {
+        setOrderType(isShortOnly ? 'SELL' : 'BUY');
+      }
+    } else {
+      if (orderType === 'BUY' || orderType === 'SELL') {
+        setOrderType(isShortOnly ? 'SELL_LIMIT' : 'BUY_LIMIT');
+      }
+    }
+  }, [orderCategory]);
+
+  useEffect(() => {
+    if (isLongOnly) {
+      if (orderType === 'SELL') setOrderType('BUY');
+      if (orderType === 'SELL_LIMIT' || orderType === 'SELL_STOP') setOrderType('BUY_LIMIT');
+    }
+    if (isShortOnly) {
+      if (orderType === 'BUY') setOrderType('SELL');
+      if (orderType === 'BUY_LIMIT' || orderType === 'BUY_STOP') setOrderType('SELL_LIMIT');
+    }
+  }, [isLongOnly, isShortOnly, selectedSymbol]);
+
+  // Set default pending price when switching symbol or pending type
+  useEffect(() => {
+    if (orderCategory === 'PENDING' && activeTick && (!pendingPrice || pendingPrice === '')) {
+      const ask = activeTick.ask;
+      const bid = activeTick.bid;
+      if (orderType === 'BUY_LIMIT') setPendingPrice((ask - 15 * pip).toFixed(digits));
+      else if (orderType === 'SELL_LIMIT') setPendingPrice((bid + 15 * pip).toFixed(digits));
+      else if (orderType === 'BUY_STOP') setPendingPrice((ask + 20 * pip).toFixed(digits));
+      else if (orderType === 'SELL_STOP') setPendingPrice((bid - 20 * pip).toFixed(digits));
+    }
+  }, [orderCategory, orderType, selectedSymbol]);
+
   const maxLots = riskGuard?.maxLotSizePerTrade || 2.0;
   const isKillSwitch = riskGuard?.emergencyKillSwitch || false;
-
-  const digits = getSymbolDigits(selectedSymbol, symbolInfo?.digits);
-  const point = getSymbolPoint(selectedSymbol, symbolInfo?.point);
-  const pipUnit = digits === 3 || digits === 5 ? 10 * point : point;
-
-  const currentBid = activeTick?.bid || symbolInfo?.bid || 0;
-  const currentAsk = activeTick?.ask || symbolInfo?.ask || 0;
-  const spreadPts = activeTick?.spread || (currentAsk > 0 && currentBid > 0 ? Math.round((currentAsk - currentBid) / point) : 15);
-  const spreadPips = Number((spreadPts * point / pipUnit).toFixed(1));
-
-  // Determine base execution price
-  const basePrice = useMemo(() => {
-    if (orderCategory === 'PENDING' && priceInput && parseFloat(priceInput) > 0) {
-      return parseFloat(priceInput);
-    }
-    return orderType.startsWith('BUY') ? currentAsk : currentBid;
-  }, [orderCategory, orderType, priceInput, currentAsk, currentBid]);
-
-  // Update SL and TP prices when Pips or basePrice change
-  useEffect(() => {
-    if (inputMode === 'PIPS' && basePrice > 0) {
-      const pSl = parseFloat(slPips);
-      const pTp = parseFloat(tpPips);
-      if (pSl > 0) {
-        const slDist = pSl * pipUnit;
-        const targetSl = orderType.startsWith('BUY') ? basePrice - slDist : basePrice + slDist;
-        setSlPrice(targetSl.toFixed(digits));
-      }
-      if (pTp > 0) {
-        const tpDist = pTp * pipUnit;
-        const targetTp = orderType.startsWith('BUY') ? basePrice + tpDist : basePrice - tpDist;
-        setTpPrice(targetTp.toFixed(digits));
-      }
-    }
-  }, [inputMode, slPips, tpPips, basePrice, orderType, pipUnit, digits]);
-
-  // Auto-calculate lot size if risk percent is used
-  useEffect(() => {
-    if (autoSizingEnabled && account && account.balance > 0 && basePrice > 0 && slPrice) {
-      const parsedSl = parseFloat(slPrice);
-      if (parsedSl > 0 && Math.abs(basePrice - parsedSl) > 0) {
-        const sizing = calculatePositionSizeByRisk({
-          symbol: selectedSymbol,
-          balance: account.freeMargin > 0 ? account.freeMargin : account.balance,
-          riskPercent: parseFloat(riskPercent) || 1.0,
-          entryPrice: basePrice,
-          stopLossPrice: parsedSl,
-          symbolInfo: symbolInfo || undefined,
-        });
-        if (sizing.recommendedLots > 0) {
-          setVolume(sizing.recommendedLots.toFixed(2));
-        }
-      }
-    }
-  }, [autoSizingEnabled, riskPercent, basePrice, slPrice, account, selectedSymbol, symbolInfo]);
 
   const lotNumber = parseFloat(volume) || 0;
   const exceedsRisk = lotNumber > maxLots;
 
-  // Single pip value in USD for current volume
-  const pipValue = useMemo(() => {
-    const singleLotPipValue = calculatePipValue({
-      symbol: selectedSymbol,
-      digits,
-      point,
-      currentPrice: basePrice,
-      contractSize: symbolInfo?.contractSize,
-      tickValue: symbolInfo?.tickValue,
-      tickSize: symbolInfo?.tickSize,
-    });
-    return singleLotPipValue * lotNumber;
-  }, [selectedSymbol, digits, point, basePrice, symbolInfo, lotNumber]);
-
-  // Pre-trade risk calculations
-  const parsedSl = parseFloat(slPrice) || 0;
-  const parsedTp = parseFloat(tpPrice) || 0;
-
-  const slDistancePips = useMemo(() => {
-    if (basePrice <= 0 || parsedSl <= 0) return 0;
-    return Math.abs(basePrice - parsedSl) / pipUnit;
-  }, [basePrice, parsedSl, pipUnit]);
-
-  const tpDistancePips = useMemo(() => {
-    if (basePrice <= 0 || parsedTp <= 0) return 0;
-    return Math.abs(basePrice - parsedTp) / pipUnit;
-  }, [basePrice, parsedTp, pipUnit]);
-
-  const potentialLossUsd = slDistancePips > 0 ? slDistancePips * pipValue : 0;
-  const potentialProfitUsd = tpDistancePips > 0 ? tpDistancePips * pipValue : 0;
-  const riskRewardRatio = slDistancePips > 0 && tpDistancePips > 0 ? (tpDistancePips / slDistancePips).toFixed(2) : null;
-
-  // Estimated required margin
-  const estimatedMargin = useMemo(() => {
-    if (lotNumber <= 0 || basePrice <= 0) return 0;
-    if (symbolInfo?.marginInitial && symbolInfo.marginInitial > 0) {
-      return symbolInfo.marginInitial * lotNumber;
-    }
-    const leverage = account?.leverage || 100;
-    const contractSize = symbolInfo?.contractSize || 100000;
-    return (lotNumber * contractSize * basePrice) / leverage;
-  }, [lotNumber, basePrice, symbolInfo, account]);
-
-  // Stops level warning
-  const stopsLevelViolation = useMemo(() => {
-    const minStopsLevel = symbolInfo?.stopsLevel || 10;
-    const minStopDist = minStopsLevel * point;
-    if (basePrice > 0 && parsedSl > 0 && Math.abs(basePrice - parsedSl) < minStopDist) {
-      return `Stop Loss too close to market! Minimum broker distance: ${minStopsLevel} points (${(minStopsLevel * point / pipUnit).toFixed(1)} pips).`;
-    }
-    if (basePrice > 0 && parsedTp > 0 && Math.abs(basePrice - parsedTp) < minStopDist) {
-      return `Take Profit too close to market! Minimum broker distance: ${minStopsLevel} points (${(minStopsLevel * point / pipUnit).toFixed(1)} pips).`;
-    }
-    return null;
-  }, [basePrice, parsedSl, parsedTp, symbolInfo, point, pipUnit]);
-
   const quickLotSizes = ['0.01', '0.05', '0.10', '0.25', '0.50', '1.00'];
+
+  const isBuySide = orderType === 'BUY' || orderType === 'BUY_LIMIT' || orderType === 'BUY_STOP';
+  const isSellSide = orderType === 'SELL' || orderType === 'SELL_LIMIT' || orderType === 'SELL_STOP';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isCloseOnly || isTradeDisabled) {
+      setStatus({ message: `Broker rejects new orders for ${selectedSymbol}: Symbol is in CLOSE-ONLY mode`, error: true });
+      return;
+    }
+    if (isLongOnly && isSellSide) {
+      setStatus({ message: `Broker restricts ${selectedSymbol} to LONG ONLY positions`, error: true });
+      return;
+    }
+    if (isShortOnly && isBuySide) {
+      setStatus({ message: `Broker restricts ${selectedSymbol} to SHORT ONLY positions`, error: true });
+      return;
+    }
     if (exceedsRisk) {
       setStatus({ message: `Lot size exceeds risk limit (${maxLots} lots)`, error: true });
       return;
@@ -185,38 +108,55 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
       setStatus({ message: 'Emergency Kill Switch is active!', error: true });
       return;
     }
-    if (stopsLevelViolation) {
-      setStatus({ message: stopsLevelViolation, error: true });
-      return;
+
+    let parsedPrice: number | undefined = undefined;
+    if (orderCategory === 'PENDING') {
+      parsedPrice = parseFloat(pendingPrice);
+      if (!parsedPrice || parsedPrice <= 0) {
+        setStatus({ message: 'A valid trigger execution price is required for pending orders', error: true });
+        return;
+      }
+      if (activeTick) {
+        if (orderType === 'BUY_LIMIT' && parsedPrice >= activeTick.ask) {
+          setStatus({ message: `BUY LIMIT price (${parsedPrice}) must be below current Ask (${activeTick.ask})`, error: true });
+          return;
+        }
+        if (orderType === 'SELL_LIMIT' && parsedPrice <= activeTick.bid) {
+          setStatus({ message: `SELL LIMIT price (${parsedPrice}) must be above current Bid (${activeTick.bid})`, error: true });
+          return;
+        }
+        if (orderType === 'BUY_STOP' && parsedPrice <= activeTick.ask) {
+          setStatus({ message: `BUY STOP price (${parsedPrice}) must be above current Ask (${activeTick.ask})`, error: true });
+          return;
+        }
+        if (orderType === 'SELL_STOP' && parsedPrice >= activeTick.bid) {
+          setStatus({ message: `SELL STOP price (${parsedPrice}) must be below current Bid (${activeTick.bid})`, error: true });
+          return;
+        }
+      }
     }
 
     try {
       setSubmitting(true);
       setStatus(null);
 
-      const commandPayload: any = {
+      const res = await api.sendCommand({
         action: 'EXECUTE_TRADE',
         symbol: selectedSymbol,
         orderType,
         volume: lotNumber,
-        sl: parsedSl > 0 ? parsedSl : undefined,
-        tp: parsedTp > 0 ? parsedTp : undefined,
+        price: parsedPrice,
+        sl: sl ? parseFloat(sl) : undefined,
+        tp: tp ? parseFloat(tp) : undefined,
         comment,
         source: 'MANUAL_UI',
-      };
-
-      if (orderCategory === 'PENDING' && basePrice > 0) {
-        commandPayload.price = basePrice;
-      }
-
-      const res = await api.sendCommand(commandPayload);
+      });
 
       if (res.success) {
-        setStatus({ message: `Queued #${res.commandId} for MT5 ${orderType} (${lotNumber} lots)!` });
-        if (inputMode === 'PRICE') {
-          setSlPrice('');
-          setTpPrice('');
-        }
+        setStatus({ message: `Queued #${res.commandId} for MT5 async dispatch: ${orderType} ${lotNumber} @ ${parsedPrice ? parsedPrice : 'MARKET'}` });
+        setSl('');
+        setTp('');
+        if (orderCategory === 'PENDING') setPendingPrice('');
       } else {
         setStatus({ message: res.error || 'Failed to dispatch order', error: true });
       }
@@ -228,222 +168,293 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   };
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm flex flex-col justify-between font-mono text-xs">
+    <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4 shadow-sm flex flex-col justify-between">
       <div>
-        {/* Top Header & Live Spread */}
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-800">
+        <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Send className="h-4 w-4 text-cyan-400" />
             <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-              Forex Order Execution
+              Asynchronous Order Execution
             </h2>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] px-2 py-0.5 rounded bg-slate-950 text-cyan-300 border border-slate-800">
-              Spread: <strong className="text-cyan-400">{spreadPips} pips</strong> ({spreadPts} pts)
-            </span>
-          </div>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-400 border border-slate-700">
+            Magic #889900
+          </span>
         </div>
 
-        {/* Live Bid/Ask Price Strip */}
-        <div className="grid grid-cols-2 gap-2 mb-3">
-          <div className="p-2 rounded-lg bg-slate-950/80 border border-rose-950/60 flex items-center justify-between">
+        {/* Trade Mode Broker Restriction Alert (Gap 3) */}
+        {isCloseOnly && (
+          <div className="mb-3 p-2.5 rounded-lg bg-amber-950/70 border border-amber-800/80 text-amber-300 text-[11px] font-mono flex items-center gap-2">
+            <Lock className="h-4 w-4 shrink-0 text-amber-400" />
             <div>
-              <span className="text-[9px] text-slate-500 uppercase block font-semibold">SELL (Bid)</span>
-              <span className="text-base font-bold text-rose-400 font-mono">
-                {currentBid > 0 ? currentBid.toFixed(digits) : '---'}
-              </span>
+              <span className="font-bold">CLOSE-ONLY MODE:</span> Broker prohibits opening new positions on {selectedSymbol}.
             </div>
-            <ArrowDown className="h-4 w-4 text-rose-500/60" />
           </div>
+        )}
+        {!isCloseOnly && isLongOnly && (
+          <div className="mb-3 p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800 text-cyan-300 text-[10px] font-mono flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <span>Broker Restriction: {selectedSymbol} allows LONG-ONLY positions.</span>
+          </div>
+        )}
+        {!isCloseOnly && isShortOnly && (
+          <div className="mb-3 p-1.5 rounded-lg bg-cyan-950/60 border border-cyan-800 text-cyan-300 text-[10px] font-mono flex items-center gap-1.5">
+            <ShieldAlert className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
+            <span>Broker Restriction: {selectedSymbol} allows SHORT-ONLY positions.</span>
+          </div>
+        )}
 
-          <div className="p-2 rounded-lg bg-slate-950/80 border border-emerald-950/60 flex items-center justify-between">
-            <div>
-              <span className="text-[9px] text-slate-500 uppercase block font-semibold">BUY (Ask)</span>
-              <span className="text-base font-bold text-emerald-400 font-mono">
-                {currentAsk > 0 ? currentAsk.toFixed(digits) : '---'}
-              </span>
-            </div>
-            <ArrowUp className="h-4 w-4 text-emerald-500/60" />
-          </div>
+        {/* Order Category Selector (Market vs Pending) */}
+        <div className="grid grid-cols-2 gap-1 p-1 bg-slate-950 rounded-lg border border-slate-800 mb-3 font-mono text-xs">
+          <button
+            type="button"
+            onClick={() => setOrderCategory('MARKET')}
+            className={`py-1.5 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              orderCategory === 'MARKET'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Zap className="h-3.5 w-3.5 text-cyan-400" />
+            Market Execution
+          </button>
+          <button
+            type="button"
+            onClick={() => setOrderCategory('PENDING')}
+            className={`py-1.5 rounded text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+              orderCategory === 'PENDING'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Clock className="h-3.5 w-3.5 text-amber-400" />
+            Pending Order
+          </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Order Category Toggle: Market vs Pending */}
-          <div className="flex rounded-lg bg-slate-950 p-0.5 border border-slate-800">
-            <button
-              type="button"
-              onClick={() => {
-                setOrderCategory('MARKET');
-                if (!['BUY', 'SELL'].includes(orderType)) setOrderType('BUY');
-              }}
-              className={`flex-1 py-1 rounded text-center text-[11px] font-bold transition-all ${
-                orderCategory === 'MARKET' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Instant Market Execution
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setOrderCategory('PENDING');
-                if (['BUY', 'SELL'].includes(orderType)) setOrderType('BUY_LIMIT');
-              }}
-              className={`flex-1 py-1 rounded text-center text-[11px] font-bold transition-all ${
-                orderCategory === 'PENDING' ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Pending Limit / Stop
-            </button>
-          </div>
+        <form onSubmit={handleSubmit} className="space-y-3 font-mono text-xs">
+          {/* Symbol & Direction/Type Selector */}
+          <div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div>
+                <label className="block text-slate-400 text-[11px] mb-1">Asset Symbol</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={selectedSymbol}
+                    onChange={(e) => onSelectSymbol(e.target.value)}
+                    placeholder="e.g. EURUSD, EURUSDm, XAUUSD"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+                    list="symbol-options"
+                  />
+                  <datalist id="symbol-options">
+                    {ticks.length > 0
+                      ? ticks.map((t) => <option key={t.symbol} value={t.symbol} />)
+                      : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'AUDUSD', 'USDCAD'].map((s) => (
+                          <option key={s} value={s} />
+                        ))}
+                  </datalist>
+                </div>
+              </div>
 
-          {/* Symbol & Order Type Selectors */}
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="block text-slate-400 text-[10px] mb-1 uppercase font-semibold">Asset Symbol</label>
-              <input
-                type="text"
-                value={selectedSymbol}
-                onChange={(e) => onSelectSymbol(e.target.value.toUpperCase())}
-                placeholder="EURUSD"
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono uppercase focus:border-cyan-500 focus:outline-none"
-                list="order-symbol-options"
-              />
-              <datalist id="order-symbol-options">
-                {ticks.length > 0
-                  ? ticks.map((t) => <option key={t.symbol} value={t.symbol} />)
-                  : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'US30'].map((s) => (
-                      <option key={s} value={s} />
-                    ))}
-              </datalist>
+              <div>
+                <label className="block text-slate-400 text-[11px] mb-1">Live Reference</label>
+                <div className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] flex items-center justify-between">
+                  <span className="text-slate-500">Bid: <strong className="text-slate-300">{activeTick ? activeTick.bid.toFixed(digits) : '—'}</strong></span>
+                  <span className="text-slate-500">Ask: <strong className="text-slate-300">{activeTick ? activeTick.ask.toFixed(digits) : '—'}</strong></span>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-slate-400 text-[10px] mb-1 uppercase font-semibold">Order Type</label>
-              {orderCategory === 'MARKET' ? (
+            {/* Direction Selection (Market vs Pending Options) */}
+            {orderCategory === 'MARKET' ? (
+              <div>
+                <label className="block text-slate-400 text-[11px] mb-1">Instant Execution Type</label>
                 <div className="grid grid-cols-2 gap-1 bg-slate-950 p-1 rounded-lg border border-slate-800">
                   <button
                     type="button"
                     onClick={() => setOrderType('BUY')}
-                    className={`py-1 rounded text-[11px] font-bold transition-all ${
-                      orderType === 'BUY' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                    disabled={isCloseOnly || isShortOnly}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-bold transition-all ${
+                      isCloseOnly || isShortOnly
+                        ? 'opacity-40 cursor-not-allowed bg-slate-900 text-slate-500'
+                        : orderType === 'BUY'
+                        ? 'bg-emerald-600 text-white shadow'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    BUY
+                    <ArrowUp className="h-3.5 w-3.5" />
+                    BUY (Ask @ {activeTick ? activeTick.ask.toFixed(digits) : 'Market'})
                   </button>
                   <button
                     type="button"
                     onClick={() => setOrderType('SELL')}
-                    className={`py-1 rounded text-[11px] font-bold transition-all ${
-                      orderType === 'SELL' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+                    disabled={isCloseOnly || isLongOnly}
+                    className={`flex items-center justify-center gap-1.5 py-1.5 rounded text-xs font-bold transition-all ${
+                      isCloseOnly || isLongOnly
+                        ? 'opacity-40 cursor-not-allowed bg-slate-900 text-slate-500'
+                        : orderType === 'SELL'
+                        ? 'bg-rose-600 text-white shadow'
+                        : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    SELL
+                    <ArrowDown className="h-3.5 w-3.5" />
+                    SELL (Bid @ {activeTick ? activeTick.bid.toFixed(digits) : 'Market'})
                   </button>
                 </div>
-              ) : (
-                <select
-                  value={orderType}
-                  onChange={(e) => setOrderType(e.target.value as OrderType)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg px-2 py-1.5 text-white focus:border-cyan-500 focus:outline-none text-[11px]"
-                >
-                  <option value="BUY_LIMIT">BUY LIMIT</option>
-                  <option value="SELL_LIMIT">SELL LIMIT</option>
-                  <option value="BUY_STOP">BUY STOP</option>
-                  <option value="SELL_STOP">SELL STOP</option>
-                </select>
-              )}
-            </div>
-          </div>
-
-          {/* Pending Order Price Input */}
-          {orderCategory === 'PENDING' && (
-            <div>
-              <label className="block text-slate-400 text-[10px] mb-1 uppercase font-semibold">
-                Entry Target Price
-              </label>
-              <input
-                type="number"
-                step="any"
-                required
-                placeholder={basePrice > 0 ? basePrice.toFixed(digits) : 'Enter order price'}
-                value={priceInput}
-                onChange={(e) => setPriceInput(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white focus:border-cyan-500 focus:outline-none"
-              />
-            </div>
-          )}
-
-          {/* Volume / Lot Size & Risk-Based Position Sizer */}
-          <div className="p-2.5 bg-slate-950/70 border border-slate-800/80 rounded-lg space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-slate-400 text-[10px] uppercase font-semibold">Volume (Lots)</label>
-              <button
-                type="button"
-                onClick={() => setAutoSizingEnabled(!autoSizingEnabled)}
-                className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 transition-colors ${
-                  autoSizingEnabled
-                    ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
-                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-                }`}
-              >
-                <Calculator className="h-2.5 w-2.5" />
-                <span>{autoSizingEnabled ? 'Auto-Risk On' : 'Auto-Risk Sizer'}</span>
-              </button>
-            </div>
-
-            {autoSizingEnabled && (
-              <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
-                <span className="text-[10px] text-slate-400">Risk % Balance:</span>
-                {['0.5', '1.0', '1.5', '2.0'].map((pct) => (
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <label className="block text-slate-400 text-[11px] mb-1">Pending Order Setup</label>
+                <div className="grid grid-cols-2 gap-1.5">
                   <button
-                    key={pct}
                     type="button"
-                    onClick={() => setRiskPercent(pct)}
-                    className={`text-[10px] px-1.5 py-0.5 rounded ${
-                      riskPercent === pct
-                        ? 'bg-cyan-600 text-white font-bold'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    onClick={() => {
+                      setOrderType('BUY_LIMIT');
+                      if (activeTick) setPendingPrice((activeTick.ask - 15 * pip).toFixed(digits));
+                    }}
+                    disabled={isCloseOnly || isShortOnly}
+                    className={`p-2 rounded-lg border text-left transition-all ${
+                      orderType === 'BUY_LIMIT'
+                        ? 'bg-emerald-950/70 text-emerald-300 border-emerald-600'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
                     }`}
                   >
-                    {pct}%
+                    <div className="font-bold text-xs flex items-center gap-1">
+                      <ArrowUp className="h-3 w-3 text-emerald-400" /> BUY LIMIT
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Buy on pullback below Ask</div>
                   </button>
-                ))}
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderType('SELL_LIMIT');
+                      if (activeTick) setPendingPrice((activeTick.bid + 15 * pip).toFixed(digits));
+                    }}
+                    disabled={isCloseOnly || isLongOnly}
+                    className={`p-2 rounded-lg border text-left transition-all ${
+                      orderType === 'SELL_LIMIT'
+                        ? 'bg-rose-950/70 text-rose-300 border-rose-600'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1">
+                      <ArrowDown className="h-3 w-3 text-rose-400" /> SELL LIMIT
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Sell on rally above Bid</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderType('BUY_STOP');
+                      if (activeTick) setPendingPrice((activeTick.ask + 20 * pip).toFixed(digits));
+                    }}
+                    disabled={isCloseOnly || isShortOnly}
+                    className={`p-2 rounded-lg border text-left transition-all ${
+                      orderType === 'BUY_STOP'
+                        ? 'bg-emerald-950/70 text-emerald-300 border-emerald-600'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1">
+                      <ArrowUp className="h-3 w-3 text-emerald-400" /> BUY STOP
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Buy on breakout above Ask</div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOrderType('SELL_STOP');
+                      if (activeTick) setPendingPrice((activeTick.bid - 20 * pip).toFixed(digits));
+                    }}
+                    disabled={isCloseOnly || isLongOnly}
+                    className={`p-2 rounded-lg border text-left transition-all ${
+                      orderType === 'SELL_STOP'
+                        ? 'bg-rose-950/70 text-rose-300 border-rose-600'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="font-bold text-xs flex items-center gap-1">
+                      <ArrowDown className="h-3 w-3 text-rose-400" /> SELL STOP
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Sell on breakdown below Bid</div>
+                  </button>
+                </div>
+
+                {/* Target Execution Price Input for Pending */}
+                <div className="mt-2 bg-slate-950/80 p-2.5 rounded-lg border border-slate-800">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-slate-400 text-[11px] font-bold text-amber-300">
+                      Pending Trigger Price (Required)
+                    </label>
+                    <span className="text-[10px] text-slate-500">
+                      {orderType.startsWith('BUY') ? 'Target Entry Price' : 'Target Entry Price'}
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    value={pendingPrice}
+                    onChange={(e) => setPendingPrice(e.target.value)}
+                    placeholder={activeTick ? activeTick.bid.toFixed(digits) : '0.00000'}
+                    className="w-full bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-white font-mono text-sm focus:border-amber-500 focus:outline-none"
+                  />
+                  {activeTick && (
+                    <div className="flex items-center gap-1 mt-1.5 flex-wrap">
+                      <span className="text-[10px] text-slate-500 mr-1">Quick offset:</span>
+                      {[-20, -10, 10, 20].map((offset) => (
+                        <button
+                          key={offset}
+                          type="button"
+                          onClick={() => {
+                            const base = orderType.startsWith('BUY') ? activeTick.ask : activeTick.bid;
+                            setPendingPrice((base + offset * pip).toFixed(digits));
+                          }}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 hover:text-white hover:border-slate-700"
+                        >
+                          {offset > 0 ? `+${offset}p` : `${offset}p`}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
+          </div>
 
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max={maxLots}
-                value={volume}
-                onChange={(e) => {
-                  setVolume(e.target.value);
-                  setAutoSizingEnabled(false);
-                }}
-                className={`w-full bg-slate-900 border rounded-lg px-3 py-1.5 text-white font-mono focus:outline-none ${
-                  exceedsRisk ? 'border-rose-500 bg-rose-950/30' : 'border-slate-800 focus:border-cyan-500'
-                }`}
-              />
-              <span className="text-[10px] text-slate-400 shrink-0">Max {maxLots}</span>
+          {/* Volume / Lot Size */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-slate-400 text-[11px]">Trade Volume (Lots)</label>
+              <span className="text-[10px] text-slate-500">
+                Risk Cap: {maxLots} Lots
+              </span>
             </div>
-
-            {/* Quick lot preset buttons */}
-            <div className="flex items-center gap-1">
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max={maxLots}
+              value={volume}
+              onChange={(e) => setVolume(e.target.value)}
+              className={`w-full bg-slate-950 border rounded-lg px-3 py-2 text-white font-mono focus:outline-none ${
+                exceedsRisk ? 'border-rose-500 bg-rose-950/20' : 'border-slate-700 focus:border-cyan-500'
+              }`}
+            />
+            {/* Quick lot pills */}
+            <div className="flex items-center gap-1.5 mt-1.5">
               {quickLotSizes.map((sz) => (
                 <button
                   key={sz}
                   type="button"
-                  onClick={() => {
-                    setVolume(sz);
-                    setAutoSizingEnabled(false);
-                  }}
-                  className={`text-[10px] px-1.5 py-0.5 rounded border transition-all ${
+                  onClick={() => setVolume(sz)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
                     volume === sz
-                      ? 'bg-cyan-950 text-cyan-300 border-cyan-700 font-bold'
-                      : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+                      ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
+                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
                   }`}
                 >
                   {sz}
@@ -452,164 +463,51 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
             </div>
           </div>
 
-          {/* SL & TP with Pips / Absolute Price Toggle */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] text-slate-400 uppercase font-semibold">Protection Parameters</span>
-              <div className="flex rounded bg-slate-950 p-0.5 border border-slate-800 text-[10px]">
-                <button
-                  type="button"
-                  onClick={() => setInputMode('PIPS')}
-                  className={`px-2 py-0.5 rounded ${inputMode === 'PIPS' ? 'bg-slate-800 text-cyan-300 font-bold' : 'text-slate-400'}`}
-                >
-                  By Pips
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setInputMode('PRICE')}
-                  className={`px-2 py-0.5 rounded ${inputMode === 'PRICE' ? 'bg-slate-800 text-cyan-300 font-bold' : 'text-slate-400'}`}
-                >
-                  By Price
-                </button>
-              </div>
+          {/* SL & TP */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-slate-400 text-[11px] mb-1">Stop Loss (Price)</label>
+              <input
+                type="number"
+                step="any"
+                placeholder={activeTick ? (activeTick.bid * 0.995).toFixed(4) : 'Optional'}
+                value={sl}
+                onChange={(e) => setSl(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+              />
             </div>
-
-            {inputMode === 'PIPS' ? (
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                    <span className="text-rose-400 font-bold">Stop Loss</span>
-                    <span>{slPrice || '---'}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      step="1"
-                      min="5"
-                      value={slPips}
-                      onChange={(e) => setSlPips(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs"
-                      placeholder="Pips"
-                    />
-                    <span className="text-[10px] text-slate-500">pips</span>
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    {['15', '25', '40', '60'].map((p) => (
-                      <button
-                        key={p}
-                        type="button"
-                        onClick={() => setSlPips(p)}
-                        className="text-[9px] px-1 py-0.5 bg-slate-900 hover:bg-slate-800 rounded text-slate-400"
-                      >
-                        {p}p
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-slate-950 p-2 rounded-lg border border-slate-800">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
-                    <span className="text-emerald-400 font-bold">Take Profit</span>
-                    <span>{tpPrice || '---'}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      step="1"
-                      min="5"
-                      value={tpPips}
-                      onChange={(e) => setTpPips(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-white text-xs"
-                      placeholder="Pips"
-                    />
-                    <span className="text-[10px] text-slate-500">pips</span>
-                  </div>
-                  <div className="flex gap-1 mt-1">
-                    {['1:1.5', '1:2', '1:3'].map((r) => {
-                      const mult = r === '1:1.5' ? 1.5 : r === '1:2' ? 2 : 3;
-                      return (
-                        <button
-                          key={r}
-                          type="button"
-                          onClick={() => {
-                            const curSl = parseFloat(slPips) || 20;
-                            setTpPips(String(Math.round(curSl * mult)));
-                          }}
-                          className="text-[9px] px-1 py-0.5 bg-slate-900 hover:bg-slate-800 rounded text-slate-400"
-                        >
-                          {r}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-slate-400 text-[10px] mb-1">Stop Loss Price</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={slPrice}
-                    onChange={(e) => setSlPrice(e.target.value)}
-                    placeholder="Optional"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 text-[10px] mb-1">Take Profit Price</label>
-                  <input
-                    type="number"
-                    step="any"
-                    value={tpPrice}
-                    onChange={(e) => setTpPrice(e.target.value)}
-                    placeholder="Optional"
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white"
-                  />
-                </div>
-              </div>
-            )}
+            <div>
+              <label className="block text-slate-400 text-[11px] mb-1">Take Profit (Price)</label>
+              <input
+                type="number"
+                step="any"
+                placeholder={activeTick ? (activeTick.ask * 1.008).toFixed(4) : 'Optional'}
+                value={tp}
+                onChange={(e) => setTp(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+              />
+            </div>
           </div>
 
-          {/* Pre-Trade Analytics Bar */}
-          <div className="p-2.5 bg-slate-950 border border-slate-800/80 rounded-lg space-y-1.5 text-[10px]">
-            <div className="flex items-center justify-between text-slate-400">
-              <span>Pip Value: <strong className="text-cyan-300">${pipValue.toFixed(2)}/pip</strong></span>
-              <span>Req. Margin: <strong className="text-white">${estimatedMargin.toFixed(2)}</strong></span>
-            </div>
-
-            {(potentialLossUsd > 0 || potentialProfitUsd > 0) && (
-              <div className="flex items-center justify-between pt-1 border-t border-slate-800">
-                <span className="text-rose-400">
-                  Risk: <strong>-${potentialLossUsd.toFixed(2)}</strong> ({slDistancePips.toFixed(1)}p)
-                </span>
-                <span className="text-emerald-400">
-                  Target: <strong>+${potentialProfitUsd.toFixed(2)}</strong> ({tpDistancePips.toFixed(1)}p)
-                </span>
-                {riskRewardRatio && (
-                  <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-amber-300 font-bold">
-                    R:R {riskRewardRatio}
-                  </span>
-                )}
-              </div>
-            )}
+          {/* Comment / AI Tag */}
+          <div>
+            <label className="block text-slate-400 text-[11px] mb-1">AI Audit Tag / Comment</label>
+            <input
+              type="text"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="e.g. AI_SCALPER_RSI_OVERSOLD"
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
+            />
           </div>
 
-          {/* Violations / Cautions */}
-          {stopsLevelViolation && (
-            <div className="p-2 rounded bg-amber-950/70 border border-amber-800 text-amber-300 text-[11px] flex items-center gap-1.5">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
-              <span>{stopsLevelViolation}</span>
-            </div>
-          )}
-
+          {/* Feedback message */}
           {status && (
             <div
-              className={`p-2 rounded text-[11px] flex items-center gap-1.5 ${
+              className={`p-2 rounded text-xs flex items-center gap-1.5 ${
                 status.error
-                  ? 'bg-rose-950/70 text-rose-300 border border-rose-800'
-                  : 'bg-emerald-950/70 text-emerald-300 border border-emerald-800'
+                  ? 'bg-rose-950/70 text-rose-300 border border-rose-800/80'
+                  : 'bg-emerald-950/70 text-emerald-300 border border-emerald-800/80'
               }`}
             >
               {status.error ? <AlertTriangle className="h-4 w-4 shrink-0" /> : <CheckCircle2 className="h-4 w-4 shrink-0" />}
@@ -620,26 +518,34 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
           {/* Execution Button */}
           <button
             type="submit"
-            disabled={submitting || exceedsRisk || isKillSwitch || Boolean(stopsLevelViolation)}
+            disabled={submitting || exceedsRisk || isKillSwitch || isCloseOnly || (isLongOnly && isSellSide) || (isShortOnly && isBuySide)}
             className={`w-full py-2.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 ${
-              isKillSwitch || exceedsRisk || stopsLevelViolation
-                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                : orderType.includes('BUY')
-                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/40'
-                : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/40'
+              isKillSwitch || isCloseOnly
+                ? 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                : isBuySide
+                ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/30'
+                : 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/30'
             }`}
           >
-            <Send className="h-3.5 w-3.5" />
-            {submitting
-              ? 'Dispatching to MT5...'
-              : `Execute ${orderType.replace('_', ' ')} ${lotNumber} Lots`}
+            {isCloseOnly ? <Lock className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
+            {isCloseOnly
+              ? `CLOSE-ONLY MODE (Orders Disabled)`
+              : isLongOnly && isSellSide
+              ? `SELL RESTRICTED (LONG-ONLY SYMBOL)`
+              : isShortOnly && isBuySide
+              ? `BUY RESTRICTED (SHORT-ONLY SYMBOL)`
+              : submitting
+              ? 'Dispatching to Queue...'
+              : orderCategory === 'PENDING'
+              ? `Queue ${orderType.replace('_', ' ')}: ${lotNumber} Lots @ ${pendingPrice || 'Price'}`
+              : `Dispatch ${orderType} ${lotNumber} Lots`}
           </button>
         </form>
       </div>
 
-      <div className="mt-3 pt-2 border-t border-slate-800/80 text-[10px] text-slate-500 flex items-center justify-between">
-        <span>Execution Engine: MT5 EA Bridge</span>
-        <span className="text-cyan-400">Direct Broker STP/ECN</span>
+      <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] text-slate-500 font-mono flex items-center justify-between">
+        <span>Channel: Asynchronous WebRequest</span>
+        <span>Target: 127.0.0.1:7777</span>
       </div>
     </div>
   );

@@ -150,5 +150,133 @@ export function detectShapePatterns(candles: CandleData[]): ShapePatternMatch[] 
     });
   }
 
+  // 6. Triple Top Reversal
+  if (swingHighs.length >= 3) {
+    const p1 = swingHighs[swingHighs.length - 3];
+    const p2 = swingHighs[swingHighs.length - 2];
+    const p3 = swingHighs[swingHighs.length - 1];
+    const avgPrice = (p1.price + p2.price + p3.price) / 3;
+    const maxDiff = Math.max(Math.abs(p1.price - avgPrice), Math.abs(p2.price - avgPrice), Math.abs(p3.price - avgPrice));
+    if (maxDiff / avgPrice < 0.0028) {
+      matches.push({
+        pattern: 'TRIPLE_TOP',
+        name: 'Triple Top Reversal',
+        bias: 'BEARISH',
+        confidence: 89,
+        levelPrice: Number(avgPrice.toFixed(5)),
+        description: `Three distinct peaks failed to penetrate heavy resistance ceiling ~${avgPrice.toFixed(5)}. Powerful supply zone.`,
+      });
+    }
+  }
+
+  // 7. Triple Bottom Reversal
+  if (swingLows.length >= 3) {
+    const t1 = swingLows[swingLows.length - 3];
+    const t2 = swingLows[swingLows.length - 2];
+    const t3 = swingLows[swingLows.length - 1];
+    const avgPrice = (t1.price + t2.price + t3.price) / 3;
+    const maxDiff = Math.max(Math.abs(t1.price - avgPrice), Math.abs(t2.price - avgPrice), Math.abs(t3.price - avgPrice));
+    if (maxDiff / avgPrice < 0.0028) {
+      matches.push({
+        pattern: 'TRIPLE_BOTTOM',
+        name: 'Triple Bottom Reversal',
+        bias: 'BULLISH',
+        confidence: 89,
+        levelPrice: Number(avgPrice.toFixed(5)),
+        description: `Three distinct troughs defended at institutional demand floor ~${avgPrice.toFixed(5)}. Buyers accumulating aggressively.`,
+      });
+    }
+  }
+
+  // 8. Ascending Triangle (Flat resistance ceiling with ascending higher swing lows)
+  if (swingHighs.length >= 2 && swingLows.length >= 2) {
+    const h1 = swingHighs[swingHighs.length - 2];
+    const h2 = swingHighs[swingHighs.length - 1];
+    const l1 = swingLows[swingLows.length - 2];
+    const l2 = swingLows[swingLows.length - 1];
+
+    const highsFlat = Math.abs(h1.price - h2.price) / h1.price < 0.002;
+    const lowsAscending = l2.price > l1.price && (l2.price - l1.price) / l1.price > 0.001;
+
+    if (highsFlat && lowsAscending) {
+      matches.push({
+        pattern: 'ASCENDING_TRIANGLE',
+        name: 'Ascending Triangle Breakout',
+        bias: 'BULLISH',
+        confidence: 87,
+        levelPrice: Number(h2.price.toFixed(5)),
+        description: `Flat resistance barrier ~${h2.price.toFixed(5)} compressed against rising higher swing lows (${l1.price.toFixed(5)} -> ${l2.price.toFixed(5)}). Pre-breakout compression setup.`,
+      });
+    }
+  }
+
+  // 9. Descending Triangle (Flat support floor with descending lower swing highs)
+  if (swingHighs.length >= 2 && swingLows.length >= 2) {
+    const h1 = swingHighs[swingHighs.length - 2];
+    const h2 = swingHighs[swingHighs.length - 1];
+    const l1 = swingLows[swingLows.length - 2];
+    const l2 = swingLows[swingLows.length - 1];
+
+    const lowsFlat = Math.abs(l1.price - l2.price) / l1.price < 0.002;
+    const highsDescending = h2.price < h1.price && (h1.price - h2.price) / h1.price > 0.001;
+
+    if (lowsFlat && highsDescending) {
+      matches.push({
+        pattern: 'DESCENDING_TRIANGLE',
+        name: 'Descending Triangle Breakdown',
+        bias: 'BEARISH',
+        confidence: 87,
+        levelPrice: Number(l2.price.toFixed(5)),
+        description: `Flat support floor ~${l2.price.toFixed(5)} pressured by descending lower swing highs (${h1.price.toFixed(5)} -> ${h2.price.toFixed(5)}). Distribution breakdown setup.`,
+      });
+    }
+  }
+
+  // 10. Rising Wedge (Contraction with higher highs and higher lows sloping up, bearish breakdown)
+  if (swingHighs.length >= 2 && swingLows.length >= 2) {
+    const h1 = swingHighs[swingHighs.length - 2];
+    const h2 = swingHighs[swingHighs.length - 1];
+    const l1 = swingLows[swingLows.length - 2];
+    const l2 = swingLows[swingLows.length - 1];
+
+    const highSlope = h2.price - h1.price;
+    const lowSlope = l2.price - l1.price;
+
+    // Both sloping up, but lows rising faster than highs (converging)
+    if (highSlope > 0 && lowSlope > 0 && lowSlope > highSlope * 1.1) {
+      matches.push({
+        pattern: 'RISING_WEDGE',
+        name: 'Rising Wedge (Bearish Reversal)',
+        bias: 'BEARISH',
+        confidence: 85,
+        levelPrice: Number(l2.price.toFixed(5)),
+        description: `Price action converging upward inside narrowing ascending boundaries. Diminishing upside momentum signals impending breakdown.`,
+      });
+    }
+  }
+
+  // 11. Falling Wedge (Contraction with lower highs and lower lows sloping down, bullish breakout)
+  if (swingHighs.length >= 2 && swingLows.length >= 2) {
+    const h1 = swingHighs[swingHighs.length - 2];
+    const h2 = swingHighs[swingHighs.length - 1];
+    const l1 = swingLows[swingLows.length - 2];
+    const l2 = swingLows[swingLows.length - 1];
+
+    const highDrop = h1.price - h2.price;
+    const lowDrop = l1.price - l2.price;
+
+    // Both sloping down, but highs dropping faster than lows (converging)
+    if (highDrop > 0 && lowDrop > 0 && highDrop > lowDrop * 1.1) {
+      matches.push({
+        pattern: 'FALLING_WEDGE',
+        name: 'Falling Wedge (Bullish Reversal)',
+        bias: 'BULLISH',
+        confidence: 85,
+        levelPrice: Number(h2.price.toFixed(5)),
+        description: `Price action converging downward inside narrowing descending boundaries. Selling exhaustion signals impending bullish breakout.`,
+      });
+    }
+  }
+
   return matches;
 }

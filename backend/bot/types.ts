@@ -173,15 +173,12 @@ export interface BotTrade {
   stopLoss: number;
   takeProfit: number;
   commandId?: string;
-  ticket?: number;
-  status: 'PENDING' | 'EXECUTED' | 'FAILED' | 'CANCELLED';
+  status: 'PENDING' | 'EXECUTED' | 'FAILED' | 'CANCELLED' | 'CLOSED';
   profit: number;
   openedAt: number;
   closedAt?: number;
   closeReason?: string;
-  exitPrice?: number;
   mode?: BotTradingMode;
-  errorMessage?: string;
 }
 
 export interface BotState {

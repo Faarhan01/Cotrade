@@ -30,8 +30,17 @@ export interface SymbolSpecs {
   freezeLevel?: number;
   tickValue?: number;
   tickSize?: number;
+  tradeMode?: string;
+  spreadFloat?: boolean;
+  fillingMode?: number;
+  marginMaintenance?: number;
+  marginInitial?: number;
+  marginHedged?: number;
+  tradeCalcMode?: number;
+  bookDepth?: boolean;
   currencyBase?: string;
   currencyProfit?: string;
+  currencyMargin?: string;
   tradeAllowed?: boolean;
 }
 
@@ -108,12 +117,18 @@ export function calculatePipValue(specs: {
   point?: number;
   currentPrice?: number;
   tickValue?: number;
+  tickSize?: number;
 }): number {
-  const { symbol, tickValue, currentPrice = 1 } = specs;
+  const { symbol, tickValue, tickSize, currentPrice = 1 } = specs;
   const s = symbol.toUpperCase().trim();
 
+  // If MT5 provided real tickValue from broker, compute exact pip value
   if (typeof tickValue === 'number' && tickValue > 0) {
-    return tickValue * 10;
+    const digits = getSymbolDigits(s, specs.digits);
+    const point = getSymbolPoint(s, specs.point);
+    const effTickSize = typeof tickSize === 'number' && tickSize > 0 ? tickSize : point;
+    const pipDistance = digits === 3 || digits === 5 ? 10 * point : point;
+    return Number(((pipDistance / effTickSize) * tickValue).toFixed(4));
   }
 
   const assetClass = detectAssetClass(s);
@@ -249,7 +264,12 @@ export function calculatePositionSizeByRisk(params: {
   const lotDecimals = lotStep < 0.01 ? 3 : lotStep < 0.1 ? 2 : lotStep < 1 ? 1 : 0;
   finalLots = Number(finalLots.toFixed(lotDecimals));
 
-  const marginRequiredUSD = (finalLots * contractSize * entryPrice) / leverage;
+  // Margin calculation: use broker marginInitial if provided, otherwise compute standard leveraged margin
+  const marginRequiredUSD =
+    symbolInfo?.marginInitial && symbolInfo.marginInitial > 0
+      ? Number((finalLots * symbolInfo.marginInitial).toFixed(2))
+      : Number(((finalLots * contractSize * entryPrice) / leverage).toFixed(2));
+
   if (marginRequiredUSD > balance * 0.8) {
     warnings.push(`High margin requirement: $${marginRequiredUSD.toFixed(2)} exceeds 80% of account balance`);
   }
@@ -270,12 +290,72 @@ export function calculatePositionSizeByRisk(params: {
     stopLossPrice,
     stopLossPoints,
     contractSize,
-    pipValueUSD: Number(calculatePipValue({ symbol, contractSize, digits, point, currentPrice: entryPrice }).toFixed(2)),
+    pipValueUSD: Number(calculatePipValue({ symbol, contractSize, digits, point, currentPrice: entryPrice, tickValue: symbolInfo?.tickValue, tickSize: symbolInfo?.tickSize }).toFixed(2)),
     recommendedLots: finalLots,
     maxLotsAllowed: maxLot,
-    marginRequiredUSD: Number(marginRequiredUSD.toFixed(2)),
+    marginRequiredUSD,
     lossAtStopUSD,
     profitAtTp1USD,
     warnings,
   };
 }
+
+export function calculatePipDistance(symbol: string, price1: number, price2: number, digitsParam?: number): number {
+  const digits = getSymbolDigits(symbol, digitsParam);
+  const point = getSymbolPoint(symbol, digitsParam ? Math.pow(10, -digitsParam) : undefined);
+  const pipUnit = digits === 3 || digits === 5 ? 10 * point : point;
+  if (pipUnit <= 0) return 0;
+  return Number((Math.abs(price1 - price2) / pipUnit).toFixed(1));
+}
+
+export function validateAndAdjustStops(params: {
+  symbol: string;
+  orderType: 'BUY' | 'SELL';
+  entryPrice: number;
+  sl?: number;
+  tp?: number;
+  symbolInfo?: Partial<SymbolSpecs>;
+}): { sl: number; tp: number; adjusted: boolean; reason?: string } {
+  const { symbol, orderType, entryPrice, sl, tp, symbolInfo } = params;
+  const digits = getSymbolDigits(symbol, symbolInfo?.digits);
+  const point = getSymbolPoint(symbol, symbolInfo?.point);
+  const stopsLevelPoints = Math.max(symbolInfo?.stopsLevel ?? 20, 15);
+  const minDistance = stopsLevelPoints * point;
+
+  let adjustedSl = sl ?? 0;
+  let adjustedTp = tp ?? 0;
+  let adjusted = false;
+  let reason = '';
+
+  if (orderType === 'BUY') {
+    if (adjustedSl > 0 && entryPrice - adjustedSl < minDistance) {
+      adjustedSl = entryPrice - minDistance * 1.5;
+      adjusted = true;
+      reason = `SL widened to respect MT5 stopsLevel (${stopsLevelPoints} pts)`;
+    }
+    if (adjustedTp > 0 && adjustedTp - entryPrice < minDistance) {
+      adjustedTp = entryPrice + minDistance * 1.5;
+      adjusted = true;
+      reason = `TP widened to respect MT5 stopsLevel (${stopsLevelPoints} pts)`;
+    }
+  } else if (orderType === 'SELL') {
+    if (adjustedSl > 0 && adjustedSl - entryPrice < minDistance) {
+      adjustedSl = entryPrice + minDistance * 1.5;
+      adjusted = true;
+      reason = `SL widened to respect MT5 stopsLevel (${stopsLevelPoints} pts)`;
+    }
+    if (adjustedTp > 0 && entryPrice - adjustedTp < minDistance) {
+      adjustedTp = entryPrice - minDistance * 1.5;
+      adjusted = true;
+      reason = `TP widened to respect MT5 stopsLevel (${stopsLevelPoints} pts)`;
+    }
+  }
+
+  return {
+    sl: adjustedSl > 0 ? Number(adjustedSl.toFixed(digits)) : 0,
+    tp: adjustedTp > 0 ? Number(adjustedTp.toFixed(digits)) : 0,
+    adjusted,
+    reason,
+  };
+}
+

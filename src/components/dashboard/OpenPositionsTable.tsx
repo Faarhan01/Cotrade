@@ -103,6 +103,26 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
     }
   };
 
+  const handlePartialClose = async (pos: Position) => {
+    const halfVolume = Number((pos.volume / 2).toFixed(2));
+    if (halfVolume <= 0) return;
+    try {
+      setClosingTickets((prev) => ({ ...prev, [pos.ticket]: true }));
+      await api.sendCommand({
+        action: 'CLOSE_POSITION',
+        ticket: pos.ticket,
+        volume: halfVolume,
+        source: 'MANUAL_UI',
+      });
+    } catch (e) {
+      console.error('Failed to partial close:', e);
+    } finally {
+      setTimeout(() => {
+        setClosingTickets((prev) => ({ ...prev, [pos.ticket]: false }));
+      }, 1500);
+    }
+  };
+
   const handleCloseAll = async () => {
     if (confirm('Are you sure you want to close ALL open positions?')) {
       await api.sendCommand({
@@ -182,6 +202,9 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                 const digits = pos.symbol.includes('JPY') ? 3 : pos.symbol.includes('USD') && pos.symbol.length <= 6 ? 5 : 2;
                 const isProfit = pos.profit >= 0;
                 const isClosing = closingTickets[pos.ticket];
+                const pipSize = pos.symbol.includes('JPY') ? 0.01 : (pos.symbol.includes('XAU') || pos.symbol.includes('GOLD')) ? 0.1 : (pos.symbol.includes('BTC') || pos.symbol.includes('US30')) ? 1.0 : 0.0001;
+                const diff = pos.type === 'BUY' ? pos.currentPrice - pos.openPrice : pos.openPrice - pos.currentPrice;
+                const pipsGain = Number((diff / pipSize).toFixed(1));
 
                 return (
                   <tr
@@ -224,9 +247,14 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                       {pos.tp > 0 ? pos.tp.toFixed(digits) : '—'}
                     </td>
                     <td className="py-2.5 px-3 font-bold">
-                      <span className={isProfit ? 'text-emerald-400' : 'text-rose-400'}>
-                        {isProfit ? '+' : ''}${pos.profit.toFixed(2)}
-                      </span>
+                      <div className="flex flex-col">
+                        <span className={isProfit ? 'text-emerald-400' : 'text-rose-400'}>
+                          {isProfit ? '+' : ''}${pos.profit.toFixed(2)}
+                        </span>
+                        <span className={`text-[10px] font-mono ${pipsGain >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                          {pipsGain >= 0 ? '+' : ''}{pipsGain} pips
+                        </span>
+                      </div>
                     </td>
                     <td className="py-2.5 px-3">
                       <div className="flex flex-col gap-1 items-start">
@@ -268,6 +296,17 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                             <span>
                               {lockingTickets[pos.ticket] ? 'Locking...' : pos.breakevenLocked ? 'Protected' : 'B/E'}
                             </span>
+                          </button>
+                        )}
+                        {pos.volume >= 0.02 && (
+                          <button
+                            onClick={() => handlePartialClose(pos)}
+                            disabled={closingTickets[pos.ticket]}
+                            title={`Bank 50% partial profit (Close ${(pos.volume / 2).toFixed(2)} lots)`}
+                            className="px-2 py-1 rounded bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-800/80 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                          >
+                            <Zap className="h-3 w-3" />
+                            <span>50%</span>
                           </button>
                         )}
                         <button

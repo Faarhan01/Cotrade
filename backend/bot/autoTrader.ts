@@ -54,6 +54,9 @@ export class TradingBot {
   public async initialize(): Promise<void> {
     await loadBotConfigFromDb();
     this.config = getBotConfig();
+    await this.tradeExecutor.hydrateTradesFromDb();
+    const stats = this.tradeExecutor.getStats();
+    this.state.tradesExecuted = stats.totalTrades;
     this.signalWatcher.updateConfig({
       symbols: this.config.symbols,
       timeframe: this.config.timeframe,
@@ -262,18 +265,9 @@ export class TradingBot {
 
 
   public handleExecutionResult(cmd: any, res: any): void {
-    const trades = this.tradeExecutor.getTrades();
-    const trade = trades.find((t) => t.commandId === cmd.id);
+    this.tradeExecutor.handleExecutionResult(cmd.id, res);
+    const trade = this.tradeExecutor.getTrades().find((t) => t.commandId === cmd.id);
     if (trade) {
-      if (res.success) {
-        trade.status = 'EXECUTED';
-        if (res.executionPrice) trade.entryPrice = res.executionPrice;
-        if (res.dealTicket) (trade as any).ticket = res.dealTicket;
-      } else {
-        trade.status = 'FAILED';
-        trade.closedAt = Date.now();
-        (trade as any).errorMessage = res.errorMessage || `Error ${res.errorCode}`;
-      }
       broadcast({
         type: 'bot:trade_update',
         payload: { trade, result: res },
@@ -286,10 +280,10 @@ export class TradingBot {
     const openTickets = new Set(openPositions.map((p) => p.ticket));
     const trades = this.tradeExecutor.getTrades();
     for (const trade of trades) {
-      const ticket = (trade as any).ticket;
+      const ticket = trade.ticket;
       if (trade.status === 'EXECUTED' && ticket && !trade.closedAt) {
         if (!openTickets.has(ticket)) {
-          trade.closedAt = Date.now();
+          this.tradeExecutor.closeTrade(trade.id);
           broadcast({
             type: 'bot:trade_closed',
             payload: { trade },
@@ -297,6 +291,15 @@ export class TradingBot {
         }
       }
     }
+  }
+
+  public reconcileDeals(closedDeals: any[]): void {
+    if (!Array.isArray(closedDeals) || closedDeals.length === 0) return;
+    this.tradeExecutor.reconcileDeals(closedDeals);
+    broadcast({
+      type: 'bot:status',
+      payload: this.getState(),
+    });
   }
 
   public getTrades(): any[] {

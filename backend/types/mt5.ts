@@ -70,6 +70,8 @@ export interface TradeCommand {
   slippage?: number;
   timeframe?: string;
   count?: number;
+  from?: number;
+  to?: number;
   status: CommandStatus;
   createdAt: number;
   dispatchedAt?: number;
@@ -268,6 +270,24 @@ export interface PendingOrder {
   timeSetupIso?: string;
 }
 
+export interface ClosedDeal {
+  ticket: number;
+  order: number;
+  positionId: number;
+  symbol: string;
+  type: 'BUY' | 'SELL';
+  volume: number;
+  price: number;
+  profit: number;
+  swap: number;
+  commission: number;
+  fee: number;
+  magic: number;
+  comment: string;
+  time: number;
+  timeIso: string;
+}
+
 export interface MarketDepthItem {
   type: 'BUY' | 'SELL';
   price: number;
@@ -313,6 +333,7 @@ export interface EASyncPayload {
   account: AccountInfo;
   positions: Position[];
   pendingOrders?: PendingOrder[];
+  closedDeals?: ClosedDeal[];
   ticks: TickData[];
   eaVersion: string;
   mt5Time: number;

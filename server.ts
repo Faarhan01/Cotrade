@@ -12,6 +12,7 @@ import { bearerTokenGuard, corsMiddleware, describeExposure, getBindHost } from 
 import { tradingBot } from './backend/bot/index.js';
 import { inspectAndFillChartGaps } from './backend/services/historySyncService.js';
 import { tradeStore } from './backend/services/tradeStore.js';
+import { refreshLiveEconomicCalendar } from './backend/knowledgebase/news/economicCalendar.js';
 
 dotenv.config();
 
@@ -64,6 +65,14 @@ async function startServer() {
   tradingBot.initialize().catch((err: any) => {
     console.warn('[TradingBot] Failed to hydrate initial bot configuration:', err?.message || err);
   });
+
+  // Proactively fetch live Forex Factory weekly economic calendar on startup & refresh hourly
+  refreshLiveEconomicCalendar().catch((err: any) => {
+    console.warn('[EconomicCalendar] Initial calendar fetch warning:', err?.message || err);
+  });
+  setInterval(() => {
+    refreshLiveEconomicCalendar().catch(() => {});
+  }, 60 * 60 * 1000);
 
   // Proactive per-symbol candle history pull (Gap #1).
   // Periodically inspects every tracked symbol + timeframe and requests missing

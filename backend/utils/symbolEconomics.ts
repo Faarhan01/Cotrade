@@ -30,8 +30,17 @@ export interface SymbolSpecs {
   freezeLevel?: number;
   tickValue?: number;
   tickSize?: number;
+  tradeMode?: string;
+  spreadFloat?: boolean;
+  fillingMode?: number;
+  marginMaintenance?: number;
+  marginInitial?: number;
+  marginHedged?: number;
+  tradeCalcMode?: number;
+  bookDepth?: boolean;
   currencyBase?: string;
   currencyProfit?: string;
+  currencyMargin?: string;
   tradeAllowed?: boolean;
 }
 
@@ -136,14 +145,18 @@ export function calculatePipValue(specs: {
   point?: number;
   currentPrice?: number;
   tickValue?: number;
+  tickSize?: number;
 }): number {
-  const { symbol, tickValue, currentPrice = 1 } = specs;
+  const { symbol, tickValue, tickSize, currentPrice = 1 } = specs;
   const s = symbol.toUpperCase().trim();
 
-  // If MT5 provided real tickValue from broker, use it
+  // If MT5 provided real tickValue from broker, compute exact pip value
   if (typeof tickValue === 'number' && tickValue > 0) {
-    const isJpyOrMetal = s.includes('JPY') || s.includes('XAU');
-    return isJpyOrMetal ? tickValue * 10 : tickValue * 10;
+    const digits = getSymbolDigits(s, specs.digits);
+    const point = getSymbolPoint(s, specs.point);
+    const effTickSize = typeof tickSize === 'number' && tickSize > 0 ? tickSize : point;
+    const pipDistance = digits === 3 || digits === 5 ? 10 * point : point;
+    return Number(((pipDistance / effTickSize) * tickValue).toFixed(4));
   }
 
   noteGuess(symbol, 'pipValue', 'using hardcoded asset-class estimate (XAU→$10, XAG→$25, indices/crypto→contractSize, USD-quoted→$10, else $10)');
@@ -306,8 +319,12 @@ export function calculatePositionSizeByRisk(params: {
   const lotDecimals = lotStep < 0.01 ? 3 : lotStep < 0.1 ? 2 : lotStep < 1 ? 1 : 0;
   finalLots = Number(finalLots.toFixed(lotDecimals));
 
-  // Margin calculation
-  const marginRequiredUSD = (finalLots * contractSize * entryPrice) / leverage;
+  // Margin calculation: use broker marginInitial if provided, otherwise compute standard leveraged margin
+  const marginRequiredUSD =
+    symbolInfo?.marginInitial && symbolInfo.marginInitial > 0
+      ? Number((finalLots * symbolInfo.marginInitial).toFixed(2))
+      : Number(((finalLots * contractSize * entryPrice) / leverage).toFixed(2));
+
   if (marginRequiredUSD > balance * 0.8) {
     warnings.push(`High margin requirement: $${marginRequiredUSD.toFixed(2)} exceeds 80% of account balance`);
   }
@@ -328,10 +345,10 @@ export function calculatePositionSizeByRisk(params: {
     stopLossPrice,
     stopLossPoints,
     contractSize,
-    pipValueUSD: Number(calculatePipValue({ symbol, contractSize, digits, point, currentPrice: entryPrice }).toFixed(2)),
+    pipValueUSD: Number(calculatePipValue({ symbol, contractSize, digits, point, currentPrice: entryPrice, tickValue: symbolInfo?.tickValue, tickSize: symbolInfo?.tickSize }).toFixed(2)),
     recommendedLots: finalLots,
     maxLotsAllowed: maxLot,
-    marginRequiredUSD: Number(marginRequiredUSD.toFixed(2)),
+    marginRequiredUSD,
     lossAtStopUSD,
     profitAtTp1USD,
     warnings,

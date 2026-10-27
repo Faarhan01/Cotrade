@@ -1455,6 +1455,17 @@ apiRouter.get('/knowledge/calendar', async (req, res) => {
   }
 });
 
+apiRouter.get('/economic-calendar', async (req, res) => {
+  try {
+    const symbol = req.query.symbol as string;
+    const { getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
+    const calendar = getUpcomingEconomicEvents(symbol);
+    res.json({ success: true, ...calendar });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
 // Comprehensive symbol news and macro impact analysis
 apiRouter.get('/knowledge/impact', async (req, res) => {
   try {
@@ -1575,7 +1586,7 @@ apiRouter.get('/knowledge/chart-diagnostics', async (_req, res) => {
 // TERMINAL_MAXBARS / TERMINAL_DLLS_ALLOWED / TERMINAL_TRADEAPI_DISABLED when
 // the EA reports them). Helps operators verify the EA is talking to genuine
 // broker quotes and whether DLLs/tradeAPI are enabled.
-apiRouter.get('/api/terminal/metadata', async (_req, res) => {
+apiRouter.get(['/terminal/metadata', '/api/terminal/metadata'], async (_req, res) => {
   try {
     const state = tradeStore.getState();
     const permissions = tradeStore.getTerminalPermissions();

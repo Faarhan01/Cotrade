@@ -82,6 +82,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
             selectedSymbol={selectedSymbol}
             ticks={ticks}
             riskGuard={riskGuard}
+            account={account}
+            symbolInfo={allSymbols.find((s) => s.symbol === selectedSymbol) || currentChart}
             onSelectSymbol={setSelectedSymbol}
           />
         </div>

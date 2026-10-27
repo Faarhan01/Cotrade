@@ -888,6 +888,26 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                     : '—'}
                 </span>
               </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">Tick Value / Size</span>
+                <span className="text-white font-bold">
+                  {inspectedSymbol.tickValue !== undefined && inspectedSymbol.tickSize !== undefined
+                    ? `$${Number(inspectedSymbol.tickValue).toFixed(2)} / ${inspectedSymbol.tickSize}`
+                    : '—'}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">Initial / Maint Margin</span>
+                <span className="text-white font-bold">
+                  {inspectedSymbol.marginInitial !== undefined || inspectedSymbol.marginMaintenance !== undefined
+                    ? `$${inspectedSymbol.marginInitial ?? '—'} / $${inspectedSymbol.marginMaintenance ?? '—'}`
+                    : 'Leverage-Derived'}
+                </span>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
+                <span className="text-slate-500 block text-[10px]">Margin Currency</span>
+                <span className="text-white font-bold">{inspectedSymbol.currencyMargin || inspectedSymbol.currencyBase || 'USD'}</span>
+              </div>
               {inspectedSymbol.bookDepth ? (
                 <div className="bg-slate-950 p-3 rounded-lg border border-slate-800">
                   <span className="text-slate-500 block text-[10px]">Market Depth (DOM)</span>

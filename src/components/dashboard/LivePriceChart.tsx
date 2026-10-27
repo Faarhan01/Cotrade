@@ -129,40 +129,48 @@ export const LivePriceChart: React.FC<LivePriceChartProps> = ({
     onSelectTimeframe?.(tf);
     setLoading(true);
     try {
-      // 1. Fetch any cached bars from backend
+      // 1. Fetch any cached bars and gap diagnosis from backend
       const res = await api.getChartHistory(symbol, tf, 100);
       if (res.candles && res.candles.length > 0) {
         setLocalCandles(res.candles);
         setChartMode('candles');
       }
-      // 2. Proactively trigger EA to fetch fresh candles from MT5
-      await api.pullChartHistory(symbol, tf, 100);
-      setFeedback(`Requested 100 ${tf} bars from MT5 EA for ${symbol}`);
+      if (res.gapDiagnosis?.message) {
+        setFeedback(res.gapDiagnosis.message);
+      } else {
+        // 2. Proactively trigger EA to fetch fresh candles from MT5 if needed
+        await api.pullChartHistory(symbol, tf, 100);
+        setFeedback(`Synced ${tf} bars from MT5 for ${symbol}`);
+      }
       onRefresh?.();
     } catch {
       setFeedback('Awaiting MT5 history response');
     } finally {
       setLoading(false);
-      setTimeout(() => setFeedback(null), 3000);
+      setTimeout(() => setFeedback(null), 4000);
     }
   };
 
   const handleManualPull = async () => {
     setLoading(true);
     try {
-      await api.pullChartHistory(symbol, activeTf, 100);
       const res = await api.getChartHistory(symbol, activeTf, 100);
       if (res.candles && res.candles.length > 0) {
         setLocalCandles(res.candles);
         setChartMode('candles');
       }
-      setFeedback(`Synced ${activeTf} candles from MT5`);
+      if (res.gapDiagnosis?.status === 'UP_TO_DATE') {
+        setFeedback(res.gapDiagnosis.message);
+      } else {
+        await api.pullChartHistory(symbol, activeTf, 100);
+        setFeedback(`Synced ${activeTf} candles from MT5 (no duplicate bars)`);
+      }
       onRefresh?.();
     } catch {
       setFeedback('Failed to pull from MT5');
     } finally {
       setLoading(false);
-      setTimeout(() => setFeedback(null), 3000);
+      setTimeout(() => setFeedback(null), 4000);
     }
   };
 

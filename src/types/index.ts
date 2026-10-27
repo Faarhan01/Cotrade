@@ -67,6 +67,10 @@ export interface TradeCommand {
   magic?: number;
   comment?: string;
   slippage?: number;
+  timeframe?: string;
+  count?: number;
+  from?: number;
+  to?: number;
   status: CommandStatus;
   createdAt: number;
   dispatchedAt?: number;
@@ -239,9 +243,13 @@ export interface DetailedSymbolInfo {
   tickSize?: number;
   tickValue?: number;
   marginMaintenance?: number;
+  marginInitial?: number;
+  marginHedged?: number;
+  tradeCalcMode?: number;
   bookDepth?: boolean;
   currencyBase?: string;
   currencyProfit?: string;
+  currencyMargin?: string;
   description?: string;
   high24h?: number;
   low24h?: number;
@@ -253,7 +261,6 @@ export interface DetailedSymbolInfo {
   time?: number;
   swapLong?: number;
   swapShort?: number;
-  marginInitial?: number;
   isCurrentChart?: boolean;
 }
 

@@ -1,3 +1,5 @@
+import { dbSaveNewsCache, dbGetCachedNews } from '../../database/db.js';
+
 export interface MarketNewsItem {
   id: string;
   title: string;
@@ -19,6 +21,33 @@ export interface MarketNewsItem {
 let cachedNews: MarketNewsItem[] = [];
 let lastFetchTime = 0;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Hydrate news from SQLite on server start
+(async () => {
+  try {
+    const saved = await dbGetCachedNews(undefined, undefined, 50);
+    if (saved && saved.length > 0) {
+      cachedNews = saved.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        summary: s.summary,
+        source: s.source,
+        url: s.url || 'https://www.marketwatch.com',
+        publishedAt: s.publishedAt || Date.now(),
+        publishedAtIso: new Date(s.publishedAt || Date.now()).toISOString(),
+        category: s.category || 'MACRO',
+        relevantSymbols: s.relevantSymbols || ['EURUSD'],
+        sentiment: s.sentiment || 'NEUTRAL',
+        sentimentScore: s.sentimentScore || 0,
+        impact: s.impact || 'MEDIUM',
+        dataQuality: 'LIVE',
+      }));
+      lastFetchTime = Date.now();
+    }
+  } catch (err) {
+    console.warn('[NewsEngine] Notice hydrating news cache from DB:', err);
+  }
+})();
 
 /**
  * Curated live feeds and real-world fallback market intelligence
@@ -133,6 +162,9 @@ export async function fetchMarketNews(symbol?: string): Promise<MarketNewsItem[]
     { url: 'https://finance.yahoo.com/news/rssindex', source: 'Yahoo Finance' },
   ];
 
+  const aggregatedItems: MarketNewsItem[] = [];
+  const seenTitles = new Set<string>();
+
   for (const feed of feedUrls) {
     try {
       const controller = new AbortController();
@@ -150,18 +182,57 @@ export async function fetchMarketNews(symbol?: string): Promise<MarketNewsItem[]
       if (res.ok) {
         const xmlText = await res.text();
         const parsedItems = parseRssItems(xmlText, feed.source);
-        if (parsedItems.length > 0) {
-          cachedNews = parsedItems;
-          lastFetchTime = now;
-          return filterNewsBySymbol(cachedNews, symbol);
+        for (const item of parsedItems) {
+          const normTitle = item.title.toLowerCase().trim();
+          if (!seenTitles.has(normTitle)) {
+            seenTitles.add(normTitle);
+            aggregatedItems.push({ ...item, dataQuality: 'LIVE' });
+          }
         }
       }
     } catch {
-      // Try next feed in list
+      // Continue to next feed
     }
   }
 
-  // If live RSS feeds were blocked or unreachable, fall back to the curated set tagged as simulated.
+  if (aggregatedItems.length > 0) {
+    // Sort chronological descending
+    aggregatedItems.sort((a, b) => b.publishedAt - a.publishedAt);
+    cachedNews = aggregatedItems;
+    lastFetchTime = now;
+
+    // Persist live feed items to SQLite
+    dbSaveNewsCache(cachedNews).catch((e) => console.warn('[NewsEngine] Failed to persist news to SQLite:', e));
+    return filterNewsBySymbol(cachedNews, symbol);
+  }
+
+  // If live RSS feeds were temporarily unreachable, check SQLite cache before falling back
+  try {
+    const fromDb = await dbGetCachedNews(symbol, undefined, 50);
+    if (fromDb && fromDb.length > 0) {
+      cachedNews = fromDb.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        summary: s.summary,
+        source: s.source,
+        url: s.url || 'https://www.marketwatch.com',
+        publishedAt: s.publishedAt || Date.now(),
+        publishedAtIso: new Date(s.publishedAt || Date.now()).toISOString(),
+        category: s.category || 'MACRO',
+        relevantSymbols: s.relevantSymbols || ['EURUSD'],
+        sentiment: s.sentiment || 'NEUTRAL',
+        sentimentScore: s.sentimentScore || 0,
+        impact: s.impact || 'MEDIUM',
+        dataQuality: 'LIVE',
+      }));
+      lastFetchTime = now;
+      return filterNewsBySymbol(cachedNews, symbol);
+    }
+  } catch (err) {
+    // Fall back to baseline
+  }
+
+  // Baseline market intelligence
   cachedNews = BASE_MARKET_NEWS.map((n) => ({ ...n, dataQuality: 'SIMULATED' as const }));
   lastFetchTime = now;
   return filterNewsBySymbol(cachedNews, symbol);

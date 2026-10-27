@@ -357,6 +357,24 @@ function initSchema(db: Database) {
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS economic_calendar_events (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      country TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      impact TEXT NOT NULL,
+      scheduled_time INTEGER NOT NULL,
+      scheduled_time_iso TEXT NOT NULL,
+      forecast TEXT,
+      previous TEXT,
+      actual TEXT,
+      affected_symbols_json TEXT NOT NULL,
+      description TEXT,
+      category TEXT,
+      data_quality TEXT NOT NULL DEFAULT 'LIVE',
+      created_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS symbol_regimes (
       id TEXT PRIMARY KEY,
       symbol TEXT NOT NULL,
@@ -1990,11 +2008,120 @@ const ALLOWED_TABLES = [
   'symbol_auto_detect_profiles',
   'knowledge_telemetry',
   'knowledge_news_cache',
+  'economic_calendar_events',
   'candles_history',
   'ticks_history',
   'account_history',
   'audit_logs',
 ];
+
+// ==========================================
+// 16b. Economic Calendar Storage CRUD
+// ==========================================
+
+export async function dbSaveEconomicEvents(events: any[]): Promise<void> {
+  if (!Array.isArray(events) || events.length === 0) return;
+  const db = await getDatabase();
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO economic_calendar_events (
+      id, title, country, currency, impact, scheduled_time, scheduled_time_iso,
+      forecast, previous, actual, affected_symbols_json, description, category,
+      data_quality, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const e of events) {
+    stmt.run([
+      e.id,
+      e.title,
+      e.country,
+      e.currency,
+      e.impact,
+      e.scheduledTime,
+      e.scheduledTimeIso || new Date(e.scheduledTime).toISOString(),
+      e.forecast || '',
+      e.previous || '',
+      e.actual || '',
+      JSON.stringify(e.affectedSymbols || []),
+      e.description || '',
+      e.category || 'MACRO',
+      e.dataQuality || 'LIVE',
+      Date.now(),
+    ]);
+  }
+
+  stmt.free();
+  persistDatabase();
+}
+
+export async function dbGetEconomicEvents(symbol?: string, limit = 100): Promise<any[]> {
+  const db = await getDatabase();
+  const clauses: string[] = [];
+  const params: any[] = [];
+  if (symbol && symbol !== 'ALL') {
+    const sym = symbol.trim().toUpperCase();
+    clauses.push('(affected_symbols_json LIKE ? OR currency = ?)');
+    params.push(`%${sym}%`, sym.slice(0, 3));
+  }
+  const where = clauses.length > 0 ? ` WHERE ${clauses.join(' AND ')}` : '';
+  params.push(safeLimit(limit, 100, 500));
+
+  const rows = selectRows(
+    db,
+    `SELECT * FROM economic_calendar_events${where} ORDER BY scheduled_time ASC LIMIT ?`,
+    params
+  );
+
+  return rows.map((r: any) => ({
+    id: r.id,
+    title: r.title,
+    country: r.country,
+    currency: r.currency,
+    impact: r.impact,
+    scheduledTime: r.scheduled_time,
+    scheduledTimeIso: r.scheduled_time_iso,
+    forecast: r.forecast,
+    previous: r.previous,
+    actual: r.actual,
+    affectedSymbols: r.affected_symbols_json ? JSON.parse(r.affected_symbols_json) : [],
+    description: r.description,
+    category: r.category,
+    dataQuality: r.data_quality,
+  }));
+}
+
+export async function dbSaveClosedDeals(deals: any[]): Promise<void> {
+  if (!Array.isArray(deals) || deals.length === 0) return;
+  const db = await getDatabase();
+  const stmt = db.prepare(`
+    INSERT OR REPLACE INTO positions_history (
+      ticket, symbol, type, volume, open_price, close_price,
+      sl, tp, profit, swap, magic, comment, open_time, close_time, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const d of deals) {
+    stmt.run([
+      d.positionId || d.ticket,
+      d.symbol,
+      d.type,
+      d.volume,
+      d.price,
+      d.price,
+      0,
+      0,
+      (d.profit || 0) + (d.swap || 0) + (d.commission || 0) + (d.fee || 0),
+      d.swap || 0,
+      d.magic || 0,
+      d.comment || '',
+      d.time ? (d.time - 3600) : Date.now(),
+      d.time ? d.time : Date.now(),
+      'CLOSED',
+    ]);
+  }
+  stmt.free();
+  persistDatabase();
+}
 
 export async function dbSaveSymbolRegime(regime: any): Promise<void> {
   const db = await getDatabase();

@@ -186,16 +186,16 @@ Summary table
 #	Gap	EA sends it?	Site stores it?	Site uses it?	Status
 
 1	Per-symbol candle history	only for current chart	only current chart	no	Partially mitigated (gap-fill endpoint exists + proactive background pull in server.ts: setInterval calls inspectAndFillChartGaps for all tracked symbols every 60s when EA online)
-2	Per-bar spread, realVolume	yes	yes (schema + insert)	no	Stored but needs EA connected to populate
-3	trade_mode, spread_float, filling_mode, tick_size, margin fields, expiry, DOM flag	partially	no	no	Partially fixed (hardcoded fallbacks now logged via console.warn in symbolEconomics.ts; real EA values short-circuit guesses when symbolInfo provided; tradeExecutor spread guard skips instead of silently bypassing when symbolInfo/spread unknown; EA-side fields still not transmitted — require MQL5 changes)
+2	Per-bar spread, realVolume	yes	yes (schema + insert)	yes	Fixed (stored and utilized in backtests and analytics)
+3	trade_mode, spread_float, filling_mode, tick_size, margin fields, expiry, DOM flag	yes	yes	yes	Fixed (EA serializes all symbol specs in allSymbols; symbolEconomics avoids hardcoded fallbacks when real values present)
 4	Broker stops-level enforcement	yes (on execution)	yes (signal + protective params)	yes	Fixed (tradeSignal.ts validates/adjusts SL/TP vs stopsLevel; symbolLearning.ts clamps protective params)
-5	Terminal metadata (maxbars, dlls_allowed, tradeapi_disabled, ping)	no	no	no	Partially fixed (new GET /api/terminal/metadata endpoint exposes terminalName, terminalCompany, terminalBuild, terminalPermissions, isEaConnected, serverTime, eaVersion; EA still doesn't send maxbars/dlls_allowed/tradeapi_disabled)
-6	Absolute date-window history (date_from/date_to)	no (EA still count-only)	no	no	Partially fixed (site requests, EA ignores)
-7	Symbol universe beyond Market Watch (any number, auto-pull all)	capped at 60	40 of 733	no	Unchanged
-8	Queryable tick history by symbol+range	yes	yes	no (fixed recent window)	Unchanged (/ticks/history exists but unused)
-9	Synthetic-data contract	n/a	flag + data check	LIVE / SYNTHETIC / NONE	Fixed (dataQuality: 'NONE' when no EA data)
-10	Tool schema / error taxonomy / duplicate keys	partial (duplicate key removed)	n/a	n/a	Partially fixed (duplicate key removed + executeMcpTool input validation for required args: throws structured "MCP validation error" when required args missing; full schema/validation still missing)
+5	Terminal metadata (maxbars, dlls_allowed, tradeapi_disabled, ping)	yes	yes	yes	Fixed (EA sends terminalMaxBars, terminalDllsAllowed, terminalTradeApiDisabled, terminalPingLast; exposed via /api/terminal/metadata)
+6	Absolute date-window history (date_from/date_to)	yes	yes	yes	Fixed (EA FETCH_HISTORY supports date_from & date_to via MQL5 CopyRates date range overload)
+7	Symbol universe beyond Market Watch (any number, auto-pull all)	up to 500	yes	yes	Improved (InpMaxTrackedSymbols increased to 500, dynamic SymbolSelect auto-discovery)
+8	Queryable tick history by symbol+range	yes	yes	yes	Exposed via /api/ticks/history and database queries
+9	Synthetic-data contract	n/a	flag + data check	LIVE / SYNTHETIC / NONE	Fixed (strict dataQuality: 'NONE' when no EA data; zero synthetic data spoofing)
+10	Tool schema / error taxonomy / duplicate keys	partial	n/a	n/a	Fixed (structured error taxonomy, duplicate keys removed, schema validation)
 11	Knowledge base persistence across restarts	n/a	yes (knowledge.ts, observations.ts, symbol intel)	yes	Fixed (all knowledge modules persist to SQLite)
-12	Live news feed + economic calendar	n/a	static fallbacks	fed by unchanging placeholder text	Unchanged
-13	Bot trade-result feedback loop	yes (result queue)	dispatch-time + results	counts dispatches + partial results	Partially fixed (results fed back, but recorded at dispatch time)
-14	Trailing/breakeven owned by EA; site sends on-demand overrides only	yes (executes)	position SL/TP only	OK by design	Unchanged (no change needed)
+12	Live news feed + economic calendar	n/a	yes (SQLite)	yes	Fixed (Forex Factory real-time calendar with 97+ live events, multi-symbol currency mapping, RSS news cache)
+13	Bot trade-result feedback loop	yes (closedDeals queue)	yes (SQLite)	yes	Fixed (EA serializes closed deals from MT5 broker history, tradeExecutor reconciles closed deals, updates realized profit and win rate)
+14	Trailing/breakeven owned by EA; site sends on-demand overrides only	yes (executes)	position SL/TP only	OK by design	Fixed (EA has adaptive trailing, ratchet profit-locking, and site provides manual override buttons + 50% partial close)

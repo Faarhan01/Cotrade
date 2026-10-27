@@ -368,6 +368,32 @@ class TradeStore {
       const histCandles = payload.historyPayload.candles;
       dbInsertCandles(histSym, histTf, histCandles).catch((e) => console.error('DB insert on-demand history error:', e));
 
+      // If on-demand history is for current chart, seamlessly merge into chartHistory so UI updates with no gaps
+      if (
+        this.currentChart &&
+        normalizeSymbol(histSym) === normalizeSymbol(this.currentChart.symbol) &&
+        normalizeTimeframe(histTf) === normalizeTimeframe(this.currentChart.timeframe)
+      ) {
+        const candleMap = new Map<number, CandleData>();
+        for (const c of this.chartHistory) {
+          candleMap.set(c.time, c);
+        }
+        for (const c of histCandles) {
+          candleMap.set(c.time, c);
+        }
+        this.chartHistory = Array.from(candleMap.values()).sort((a, b) => a.time - b.time);
+        this.syntheticDataActive = false;
+        this.indicators = calculateIndicators(this.chartHistory, histSym, histTf);
+        import('./websocketServer.js')
+          .then(({ broadcast }) => {
+            broadcast({
+              type: 'chart:history_updated',
+              payload: { symbol: histSym, timeframe: histTf, candles: this.chartHistory },
+            });
+          })
+          .catch(() => {});
+      }
+
       // Trigger automatic behavior detection across the pulled historical dataset
       import('../knowledgebase/core/auto-detect.js')
         .then(({ runComprehensiveAutoDetection }) => {
@@ -442,6 +468,21 @@ class TradeStore {
       import('../bot/autoTrader.js')
         .then(({ tradingBot }) => {
           tradingBot.reconcilePositions(payload.positions!);
+        })
+        .catch(() => {});
+    }
+
+    // 2b. Reconcile Closed Broker Deals with Bot & Persist to SQLite
+    if (Array.isArray(payload.closedDeals) && payload.closedDeals.length > 0) {
+      import('../database/db.js')
+        .then(({ dbSaveClosedDeals }) => {
+          dbSaveClosedDeals(payload.closedDeals!).catch(() => {});
+        })
+        .catch(() => {});
+
+      import('../bot/autoTrader.js')
+        .then(({ tradingBot }) => {
+          tradingBot.reconcileDeals(payload.closedDeals!);
         })
         .catch(() => {});
     }
@@ -802,6 +843,8 @@ class TradeStore {
       slippage: params.slippage || 10,
       timeframe: params.timeframe,
       count: params.count,
+      from: (params as any).from,
+      to: (params as any).to,
       status: 'pending',
       createdAt: Date.now(),
       source: params.source,
@@ -1343,7 +1386,6 @@ class TradeStore {
     return this.riskGuard;
   }
 
-  // Request on-demand history from EA via command queue (supports count or absolute dates)
   public requestHistoryFromEA(symbol: string, timeframe = 'M1', count = 100, from?: number, to?: number) {
     const payload: any = { timeframe, count };
     if (from && to) {
@@ -1355,9 +1397,11 @@ class TradeStore {
       symbol: symbol.toUpperCase(),
       timeframe,
       count,
+      from,
+      to,
       comment: JSON.stringify(payload),
       source: 'AI_MCP',
-    });
+    } as any);
   }
 
   // Instruct EA to track an additional symbol dynamically

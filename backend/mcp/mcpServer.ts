@@ -1023,18 +1023,18 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
   // Declares required args per tool so callers get a structured 400-style error
   // instead of a cryptic 500 or a silently-wrong default.
   const requiredArgs: Record<string, string[]> = {
-    mt5_get_market_data: [],
-    mt5_get_open_positions: [],
     mt5_execute_trade: ['symbol', 'orderType', 'volume'],
     mt5_modify_position: ['ticket'],
     mt5_close_position: ['ticket'],
-    mt5_get_chart_history: ['symbol', 'timeframe'],
-    mt5_request_chart_history: ['symbol', 'timeframe'],
-    mt5_pull_chart_history_now: ['symbol', 'timeframe'],
-    mt5_get_tick_history: ['symbol'],
-    mt5_calculate_position_size: ['symbol', 'entryPrice', 'stopLossPrice'],
-    mt5_generate_trade_signal: ['symbol'],
-    mt5_knowledge_get_symbol_behavior: ['symbol'],
+    mt5_cancel_pending_order: ['ticket'],
+    mt5_request_chart_history: ['symbol'],
+    mt5_pull_chart_history_now: ['symbol'],
+    mt5_calculate_position_size: ['entryPrice', 'stopLossPrice'],
+    mt5_create_strategy: ['name', 'symbol'],
+    mt5_backtest_strategy: ['strategyId'],
+    mt5_backtest_with_knowledge: ['strategyId'],
+    mt5_record_observation: ['title', 'content'],
+    mt5_knowledge_get_symbol_impact: ['symbol'],
   };
   const required = requiredArgs[name];
   if (required) {

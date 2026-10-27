@@ -58,7 +58,7 @@ export function getAllowedOrigins(): { wildcard: boolean; origins: string[] } {
 }
 
 /**
- * CORS middleware that reflects an allow-list instead of `*`.
+ * CORS middleware that reflects an allow-list and permits Google AI Studio preview/share domains.
  */
 export function corsMiddleware() {
   const { wildcard, origins } = getAllowedOrigins();
@@ -68,11 +68,19 @@ export function corsMiddleware() {
 
     if (wildcard) {
       res.header('Access-Control-Allow-Origin', '*');
-    } else if (requestOrigin && origins.includes(requestOrigin)) {
-      // Reflect the specific origin (required when credentials are involved)
-      // rather than using `*`.
+    } else if (
+      requestOrigin &&
+      (origins.includes(requestOrigin) ||
+        requestOrigin.endsWith('.run.app') ||
+        requestOrigin.endsWith('.googleusercontent.com') ||
+        requestOrigin.endsWith('.aistudio.google.com') ||
+        requestOrigin.includes('localhost') ||
+        requestOrigin.includes('127.0.0.1'))
+    ) {
       res.header('Access-Control-Allow-Origin', requestOrigin);
       res.header('Vary', 'Origin');
+    } else if (!requestOrigin) {
+      res.header('Access-Control-Allow-Origin', '*');
     }
 
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -85,11 +93,11 @@ export function corsMiddleware() {
   };
 }
 
-/** Address the server should bind to. Defaults to loopback. */
+/** Address the server should bind to. Defaults to 0.0.0.0 for containerized and shareable environments. */
 export function getBindHost(): string {
   const host = (process.env.HOST || '').trim();
   if (host) return host;
-  return '127.0.0.1';
+  return '0.0.0.0';
 }
 
 /** True when the bind host is reachable from outside this machine. */

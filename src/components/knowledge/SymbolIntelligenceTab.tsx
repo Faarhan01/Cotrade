@@ -565,213 +565,245 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
           {/* Institutional Imbalances & Session Order Flow Suite */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 font-mono">
             {/* Fair Value Gaps & Liquidity Pools */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-cyan-400" />
-                  <h3 className="font-bold text-sm text-white">Institutional Imbalances & FVGs</h3>
-                </div>
-                {imbalancesData && (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                      imbalancesData.dominantImbalance === 'BULLISH_DOMINANT'
-                        ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
-                        : imbalancesData.dominantImbalance === 'BEARISH_DOMINANT'
-                        ? 'text-rose-400 bg-rose-950/60 border-rose-800'
-                        : 'text-slate-400 bg-slate-950/60 border-slate-800'
-                    }`}
-                  >
-                    {(imbalancesData?.dominantImbalance || '').replace(/_/g, ' ')}
-                  </span>
-                )}
-              </div>
+            {(() => {
+              const imbBias = String(imbalancesData?.dominantImbalance || imbalancesData?.imbalanceBias || 'BALANCED');
+              const bullishCount = imbalancesData?.bullishGapsCount ?? (imbalancesData?.fvgs?.filter((f: any) => f.type === 'BULLISH_FVG')?.length ?? 0);
+              const bearishCount = imbalancesData?.bearishGapsCount ?? (imbalancesData?.fvgs?.filter((f: any) => f.type === 'BEARISH_FVG')?.length ?? 0);
+              const unmitigatedCount = imbalancesData?.unmitigatedCount ?? (imbalancesData?.activeUnmitigatedFvgs?.length ?? 0);
+              const nearestGap = imbalancesData?.nearestUnmitigatedGap || imbalancesData?.nearestBullishFvg || imbalancesData?.nearestBearishFvg || imbalancesData?.activeUnmitigatedFvgs?.[0] || null;
+              const gapTop = Number(nearestGap?.topPrice ?? nearestGap?.top ?? 0);
+              const gapBottom = Number(nearestGap?.bottomPrice ?? nearestGap?.bottom ?? 0);
+              const gapPips = Number(nearestGap?.gapPips ?? 0);
+              const gapType = String(nearestGap?.type ?? 'FAIR_VALUE_GAP');
+              const gapStatus = String(nearestGap?.status ?? 'UNMITIGATED');
 
-              {imbalancesData ? (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
-                      <div className="text-[10px] text-slate-500">Bullish FVGs</div>
-                      <div className="text-base font-bold text-emerald-400 mt-0.5">
-                        {imbalancesData.bullishGapsCount}
-                      </div>
+              const buyPool = imbalancesData?.buySideLiquidityPool || imbalancesData?.liquidityPools?.find((p: any) => p.type === 'BUY_SIDE_POOL' || p.type === 'EQUAL_HIGHS');
+              const sellPool = imbalancesData?.sellSideLiquidityPool || imbalancesData?.liquidityPools?.find((p: any) => p.type === 'SELL_SIDE_POOL' || p.type === 'EQUAL_LOWS');
+              const buyPrice = Number(buyPool?.priceLevel ?? buyPool?.price ?? 0);
+              const sellPrice = Number(sellPool?.priceLevel ?? sellPool?.price ?? 0);
+              const buyTouches = buyPool?.touchCount ?? buyPool?.touches ?? 0;
+              const sellTouches = sellPool?.touchCount ?? sellPool?.touches ?? 0;
+
+              return (
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Target className="h-4 w-4 text-cyan-400" />
+                      <h3 className="font-bold text-sm text-white">Institutional Imbalances & FVGs</h3>
                     </div>
-                    <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
-                      <div className="text-[10px] text-slate-500">Bearish FVGs</div>
-                      <div className="text-base font-bold text-rose-400 mt-0.5">
-                        {imbalancesData.bearishGapsCount}
-                      </div>
-                    </div>
-                    <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
-                      <div className="text-[10px] text-slate-500">Unmitigated</div>
-                      <div className="text-base font-bold text-amber-400 mt-0.5">
-                        {imbalancesData.unmitigatedCount}
-                      </div>
-                    </div>
+                    {imbalancesData && (
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                          imbBias.includes('BULLISH')
+                            ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
+                            : imbBias.includes('BEARISH')
+                            ? 'text-rose-400 bg-rose-950/60 border-rose-800'
+                            : 'text-slate-400 bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        {imbBias.replace(/_/g, ' ')}
+                      </span>
+                    )}
                   </div>
 
-                  {/* Nearest Unmitigated FVG Target */}
-                  {imbalancesData.nearestUnmitigatedGap ? (
-                    <div className="p-3 bg-slate-950/70 border border-cyan-500/30 rounded-lg space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-[10px] text-cyan-400 font-bold uppercase flex items-center gap-1">
-                          <Crosshair className="h-3 w-3" /> Nearest Imbalance Magnet
-                        </span>
-                        <span
-                          className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
-                            imbalancesData.nearestUnmitigatedGap.type === 'BULLISH_FVG'
-                              ? 'text-emerald-300 bg-emerald-950/80 border border-emerald-800'
-                              : 'text-rose-300 bg-rose-950/80 border border-rose-800'
-                          }`}
-                        >
-                          {(imbalancesData?.nearestUnmitigatedGap?.type || '').replace(/_/g, ' ')}
-                        </span>
+                  {imbalancesData ? (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                          <div className="text-[10px] text-slate-500">Bullish FVGs</div>
+                          <div className="text-base font-bold text-emerald-400 mt-0.5">
+                            {bullishCount}
+                          </div>
+                        </div>
+                        <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                          <div className="text-[10px] text-slate-500">Bearish FVGs</div>
+                          <div className="text-base font-bold text-rose-400 mt-0.5">
+                            {bearishCount}
+                          </div>
+                        </div>
+                        <div className="p-2.5 bg-slate-950/60 border border-slate-800/60 rounded-lg">
+                          <div className="text-[10px] text-slate-500">Unmitigated</div>
+                          <div className="text-base font-bold text-amber-400 mt-0.5">
+                            {unmitigatedCount}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-white">
-                        <span>
-                          Zone: <strong className="text-cyan-300">{imbalancesData.nearestUnmitigatedGap.bottom.toFixed(profile?.digits || 5)}</strong> -{' '}
-                          <strong className="text-cyan-300">{imbalancesData.nearestUnmitigatedGap.top.toFixed(profile?.digits || 5)}</strong>
-                        </span>
-                        <span className="text-slate-400 text-[11px]">
-                          {imbalancesData.nearestUnmitigatedGap.gapPips.toFixed(1)} pips
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-400">
-                        Status: <span className="text-amber-300 font-bold">{imbalancesData.nearestUnmitigatedGap.status}</span>
+
+                      {/* Nearest Unmitigated FVG Target */}
+                      {nearestGap && gapTop > 0 && gapBottom > 0 ? (
+                        <div className="p-3 bg-slate-950/70 border border-cyan-500/30 rounded-lg space-y-1.5">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-[10px] text-cyan-400 font-bold uppercase flex items-center gap-1">
+                              <Crosshair className="h-3 w-3" /> Nearest Imbalance Magnet
+                            </span>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                gapType.includes('BULLISH')
+                                  ? 'text-emerald-300 bg-emerald-950/80 border border-emerald-800'
+                                  : 'text-rose-300 bg-rose-950/80 border border-rose-800'
+                              }`}
+                            >
+                              {gapType.replace(/_/g, ' ')}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-white">
+                            <span>
+                              Zone: <strong className="text-cyan-300">{gapBottom.toFixed(profile?.digits || 5)}</strong> -{' '}
+                              <strong className="text-cyan-300">{gapTop.toFixed(profile?.digits || 5)}</strong>
+                            </span>
+                            <span className="text-slate-400 text-[11px]">
+                              {gapPips > 0 ? `${gapPips.toFixed(1)} pips` : ''}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Status: <span className="text-amber-300 font-bold">{gapStatus}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-950/40 border border-slate-800/60 rounded-lg text-xs text-slate-400 text-center">
+                          All nearby Fair Value Gaps fully mitigated
+                        </div>
+                      )}
+
+                      {/* Liquidity Pools: EQH & EQL */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2.5 bg-slate-950/50 border border-slate-800/60 rounded-lg">
+                          <span className="text-[10px] text-slate-500 uppercase block">Buy-Side Pool (EQH)</span>
+                          <div className="text-xs text-emerald-400 font-bold mt-1">
+                            {buyPrice > 0 ? buyPrice.toFixed(profile?.digits || 5) : 'None formed'}
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            {buyTouches} equal touches
+                          </span>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-950/50 border border-slate-800/60 rounded-lg">
+                          <span className="text-[10px] text-slate-500 uppercase block">Sell-Side Pool (EQL)</span>
+                          <div className="text-xs text-rose-400 font-bold mt-1">
+                            {sellPrice > 0 ? sellPrice.toFixed(profile?.digits || 5) : 'None formed'}
+                          </div>
+                          <span className="text-[10px] text-slate-400">
+                            {sellTouches} equal touches
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ) : (
-                    <div className="p-3 bg-slate-950/40 border border-slate-800/60 rounded-lg text-xs text-slate-400 text-center">
-                      All nearby Fair Value Gaps fully mitigated
+                    <div className="text-xs text-slate-500 py-6 text-center">
+                      Waiting for MT5 candle stream to analyze institutional order book imbalances...
                     </div>
                   )}
-
-                  {/* Liquidity Pools: EQH & EQL */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2.5 bg-slate-950/50 border border-slate-800/60 rounded-lg">
-                      <span className="text-[10px] text-slate-500 uppercase block">Buy-Side Pool (EQH)</span>
-                      <div className="text-xs text-emerald-400 font-bold mt-1">
-                        {imbalancesData.buySideLiquidityPool?.priceLevel
-                          ? imbalancesData.buySideLiquidityPool.priceLevel.toFixed(profile?.digits || 5)
-                          : 'None formed'}
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        {imbalancesData.buySideLiquidityPool?.touchCount || 0} equal touches
-                      </span>
-                    </div>
-
-                    <div className="p-2.5 bg-slate-950/50 border border-slate-800/60 rounded-lg">
-                      <span className="text-[10px] text-slate-500 uppercase block">Sell-Side Pool (EQL)</span>
-                      <div className="text-xs text-rose-400 font-bold mt-1">
-                        {imbalancesData.sellSideLiquidityPool?.priceLevel
-                          ? imbalancesData.sellSideLiquidityPool.priceLevel.toFixed(profile?.digits || 5)
-                          : 'None formed'}
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                        {imbalancesData.sellSideLiquidityPool?.touchCount || 0} equal touches
-                      </span>
-                    </div>
-                  </div>
                 </div>
-              ) : (
-                <div className="text-xs text-slate-500 py-6 text-center">
-                  Waiting for MT5 candle stream to analyze institutional order book imbalances...
-                </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* Session Order Flow Bias & Liquidity Sweeps */}
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-2">
-                  <BarChart3 className="h-4 w-4 text-cyan-400" />
-                  <h3 className="font-bold text-sm text-white">Session Order Flow Bias</h3>
-                </div>
-                {sessionOrderFlowData && (
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                      sessionOrderFlowData.bias.includes('BULLISH')
-                        ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
-                        : sessionOrderFlowData.bias.includes('BEARISH')
-                        ? 'text-rose-400 bg-rose-950/60 border-rose-800'
-                        : 'text-slate-400 bg-slate-950/60 border-slate-800'
-                    }`}
-                  >
-                    {(sessionOrderFlowData?.bias || '').replace(/_/g, ' ')}
-                  </span>
-                )}
-              </div>
+            {(() => {
+              const flowBias = String(sessionOrderFlowData?.orderFlowBias || sessionOrderFlowData?.bias || 'RANGE_ACCUMULATION');
+              const asianHigh = Number(sessionOrderFlowData?.asianRange?.high ?? sessionOrderFlowData?.asianHigh ?? 0);
+              const asianLow = Number(sessionOrderFlowData?.asianRange?.low ?? sessionOrderFlowData?.asianLow ?? 0);
+              const asianRangePips = Number(sessionOrderFlowData?.asianRange?.rangePips ?? sessionOrderFlowData?.asianRangePips ?? 0);
+              const sweepDetected = Boolean(sessionOrderFlowData?.judasSwingDetected ?? sessionOrderFlowData?.sweepDetected);
+              const rationale = sessionOrderFlowData?.tacticalGuidance ?? sessionOrderFlowData?.rationale ?? 'Asian session range established.';
+              const targetHigh = Number(sessionOrderFlowData?.expansionTargetHigh ?? (asianHigh > 0 ? asianHigh + (asianHigh - (asianLow || asianHigh)) * 0.618 : 0));
+              const targetLow = Number(sessionOrderFlowData?.expansionTargetLow ?? (asianLow > 0 ? asianLow - ((asianHigh || asianLow) - asianLow) * 0.618 : 0));
+              const asianRangeStatus = sessionOrderFlowData?.asianRangeStatus ?? (sessionOrderFlowData?.asianRange?.highSwept ? 'High Swept' : sessionOrderFlowData?.asianRange?.lowSwept ? 'Low Swept' : 'Intact');
 
-              {sessionOrderFlowData ? (
-                <div className="space-y-3">
-                  {/* Asian Range Metrics */}
-                  <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-[10px] text-slate-400 uppercase font-bold">Asian Range Benchmark (00:00 - 07:00 UTC)</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
-                        {sessionOrderFlowData.asianRangeStatus}
+              return (
+                <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <BarChart3 className="h-4 w-4 text-cyan-400" />
+                      <h3 className="font-bold text-sm text-white">Session Order Flow Bias</h3>
+                    </div>
+                    {sessionOrderFlowData && (
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
+                          flowBias.includes('BULLISH')
+                            ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
+                            : flowBias.includes('BEARISH')
+                            ? 'text-rose-400 bg-rose-950/60 border-rose-800'
+                            : 'text-slate-400 bg-slate-950/60 border-slate-800'
+                        }`}
+                      >
+                        {flowBias.replace(/_/g, ' ')}
                       </span>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs pt-1">
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">High</span>
-                        <strong className="text-emerald-400">{sessionOrderFlowData.asianHigh.toFixed(profile?.digits || 5)}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">Low</span>
-                        <strong className="text-rose-400">{sessionOrderFlowData.asianLow.toFixed(profile?.digits || 5)}</strong>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">Width</span>
-                        <strong className="text-cyan-300">{sessionOrderFlowData.asianRangePips.toFixed(1)} pips</strong>
-                      </div>
-                    </div>
+                    )}
                   </div>
 
-                  {/* Judas Swing Sweep Detection */}
-                  <div
-                    className={`p-3 rounded-lg border text-xs space-y-1 ${
-                      sessionOrderFlowData.sweepDetected
-                        ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
-                        : 'bg-slate-950/40 border-slate-800/60 text-slate-400'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase flex items-center gap-1.5">
-                        <Zap className="h-3.5 w-3.5 text-amber-400" /> Judas Swing Liquidity Sweep
-                      </span>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${sessionOrderFlowData.sweepDetected ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400'}`}>
-                        {sessionOrderFlowData.sweepDetected ? 'SWEEP ACTIVE' : 'NO SWEEP'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] leading-relaxed font-sans">
-                      {sessionOrderFlowData.rationale}
-                    </p>
-                  </div>
+                  {sessionOrderFlowData ? (
+                    <div className="space-y-3">
+                      {/* Asian Range Metrics */}
+                      <div className="p-3 bg-slate-950/60 border border-slate-800/60 rounded-lg space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold">Asian Range Benchmark (00:00 - 07:00 UTC)</span>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
+                            {asianRangeStatus}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs pt-1">
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">High</span>
+                            <strong className="text-emerald-400">{asianHigh > 0 ? asianHigh.toFixed(profile?.digits || 5) : '—'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Low</span>
+                            <strong className="text-rose-400">{asianLow > 0 && asianLow !== Infinity ? asianLow.toFixed(profile?.digits || 5) : '—'}</strong>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-slate-500 block">Width</span>
+                            <strong className="text-cyan-300">{asianRangePips > 0 ? `${asianRangePips.toFixed(1)} pips` : '—'}</strong>
+                          </div>
+                        </div>
+                      </div>
 
-                  {/* Institutional Expansion Targets */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2.5 bg-slate-950/60 border border-emerald-900/40 rounded-lg">
-                      <span className="text-[10px] text-emerald-400 uppercase font-bold block">Expansion Target High</span>
-                      <div className="text-xs text-white font-bold mt-1">
-                        {sessionOrderFlowData.expansionTargetHigh.toFixed(profile?.digits || 5)}
+                      {/* Judas Swing Sweep Detection */}
+                      <div
+                        className={`p-3 rounded-lg border text-xs space-y-1 ${
+                          sweepDetected
+                            ? 'bg-amber-950/30 border-amber-800/60 text-amber-200'
+                            : 'bg-slate-950/40 border-slate-800/60 text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold uppercase flex items-center gap-1.5">
+                            <Zap className="h-3.5 w-3.5 text-amber-400" /> Judas Swing Liquidity Sweep
+                          </span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${sweepDetected ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' : 'bg-slate-800 text-slate-400'}`}>
+                            {sweepDetected ? 'SWEEP ACTIVE' : 'NO SWEEP'}
+                          </span>
+                        </div>
+                        <p className="text-[11px] leading-relaxed font-sans">
+                          {rationale}
+                        </p>
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">1.5x Asian Range extension</span>
-                    </div>
-                    <div className="p-2.5 bg-slate-950/60 border border-rose-900/40 rounded-lg">
-                      <span className="text-[10px] text-rose-400 uppercase font-bold block">Expansion Target Low</span>
-                      <div className="text-xs text-white font-bold mt-1">
-                        {sessionOrderFlowData.expansionTargetLow.toFixed(profile?.digits || 5)}
+
+                      {/* Institutional Expansion Targets */}
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <div className="p-2.5 bg-slate-950/60 border border-emerald-900/40 rounded-lg">
+                          <span className="text-[10px] text-emerald-400 uppercase font-bold block">Expansion Target High</span>
+                          <div className="text-xs text-white font-bold mt-1">
+                            {targetHigh > 0 ? targetHigh.toFixed(profile?.digits || 5) : '—'}
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-0.5 block">1.5x Asian Range extension</span>
+                        </div>
+                        <div className="p-2.5 bg-slate-950/60 border border-rose-900/40 rounded-lg">
+                          <span className="text-[10px] text-rose-400 uppercase font-bold block">Expansion Target Low</span>
+                          <div className="text-xs text-white font-bold mt-1">
+                            {targetLow > 0 ? targetLow.toFixed(profile?.digits || 5) : '—'}
+                          </div>
+                          <span className="text-[10px] text-slate-400 mt-0.5 block">1.5x Asian Range extension</span>
+                        </div>
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-0.5 block">1.5x Asian Range extension</span>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 py-6 text-center">
+                      Calculating Asian session range and London/NY liquidity sweeps...
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <div className="text-xs text-slate-500 py-6 text-center">
-                  Calculating Asian session range and London/NY liquidity sweeps...
-                </div>
-              )}
-            </div>
+              );
+            })()}
           </div>
 
           {/* Two Columns: Trading Sessions & Suggested Risk Parameters */}

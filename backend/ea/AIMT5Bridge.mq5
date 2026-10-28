@@ -69,6 +69,24 @@ bool   g_EnableBreakeven    = InpEnableBreakeven;
 int    g_BreakevenTrigger   = InpBreakevenTrigger;
 int    g_BreakevenLock      = InpBreakevenLock;
 
+//--- Forward declarations (MQL5 requires functions to be declared before use)
+void ParseSymbols();
+void SyncWithBridge();
+string BuildSyncJson();
+void ProcessServerResponse(string json);
+void ProcessTrailingStops();
+void ProcessBreakevenProtection();
+bool AddTrackedSymbol(string sym);
+string EscapeJson(string s);
+string ExtractJsonField(string json, string key);
+string TimeframeToString(ENUM_TIMEFRAMES tf);
+string TimeToISO(datetime t);
+string TranslateRetcode(int code);
+string BuildChartHistoryJson(int count);
+bool AddTrackedSymbol(string sym);
+string NormalizeTimeframe(string tf);
+string NormalizeSymbol(string sym);
+
 //+------------------------------------------------------------------+
 //| Convert string timeframe to ENUM_TIMEFRAMES                      |
 //+------------------------------------------------------------------+
@@ -859,6 +877,7 @@ string BuildSyncJson()
    json += "]";
 
    json += "}";
+}
    return json;
 }
 
@@ -1731,3 +1750,6 @@ string TranslateRetcode(int code)
    }
 }
 //+------------------------------------------------------------------+
+
+
+

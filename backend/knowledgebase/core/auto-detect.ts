@@ -10,6 +10,7 @@ export type AssetClass =
   | 'COMMODITY'
   | 'CRYPTO'
   | 'INDEX'
+  | 'SYNTHETIC'
   | 'EQUITY'
   | 'OTHER';
 
@@ -90,6 +91,27 @@ export interface SymbolAutoDetectProfile {
  */
 export function detectAssetClass(rawSymbol: string): AssetClass {
   const sym = (rawSymbol || '').toUpperCase().trim();
+  const clean = sym.replace(/[^A-Z0-9]/g, '');
+
+  // Synthetic Indices (e.g. Step Index, Volatility 75, Crash, Boom)
+  if (
+    sym.includes('STEP') ||
+    sym.includes('VOLATILITY') ||
+    sym.includes('CRASH') ||
+    sym.includes('BOOM') ||
+    sym.includes('JUMP') ||
+    sym.includes('RANGE BREAK') ||
+    sym.includes('RANGEBREAK') ||
+    sym.includes('DEX') ||
+    sym.includes('DRIFT') ||
+    clean.startsWith('V10') ||
+    clean.startsWith('V25') ||
+    clean.startsWith('V50') ||
+    clean.startsWith('V75') ||
+    clean.startsWith('V100')
+  ) {
+    return 'SYNTHETIC';
+  }
 
   // Crypto
   if (
@@ -200,6 +222,14 @@ export function detectPipMechanics(
 ): { digits: number; point: number; pipSize: number; pipMultiplier: number } {
   const sym = symbol.toUpperCase();
 
+  if (assetClass === 'SYNTHETIC') {
+    const digits = existingDigits !== undefined ? existingDigits : 1;
+    const point = Number(Math.pow(10, -digits).toFixed(digits));
+    const pipMultiplier = digits <= 1 ? 1 : 10;
+    const pipSize = point * pipMultiplier;
+    return { digits, point, pipSize, pipMultiplier };
+  }
+
   if (assetClass === 'CRYPTO') {
     const digits = existingDigits !== undefined ? existingDigits : sym.includes('BTC') ? 2 : 2;
     const point = Number(Math.pow(10, -digits).toFixed(digits));
@@ -269,6 +299,8 @@ export function resolveContractSize(
       return 1;
     case 'INDEX':
       return 1;
+    case 'SYNTHETIC':
+      return 1;
     case 'COMMODITY':
       return 100;
     case 'FOREX_MAJOR':
@@ -307,13 +339,16 @@ export function autoDetectSymbol(
   let baseCurrency = symbolInfo?.currencyBase || '';
   let quoteCurrency = symbolInfo?.currencyProfit || '';
   if (!baseCurrency || !quoteCurrency) {
-    if (assetClass === 'CRYPTO') {
+    if (assetClass === 'SYNTHETIC') {
+      baseCurrency = targetSymbol;
+      quoteCurrency = 'USD';
+    } else if (assetClass === 'CRYPTO') {
       baseCurrency = upper.replace(/USD|USDT/g, '');
       quoteCurrency = 'USD';
     } else if (upper.startsWith('XAU') || upper.startsWith('GOLD')) {
       baseCurrency = 'XAU';
       quoteCurrency = 'USD';
-    } else if (upper.length >= 6) {
+    } else if (upper.length === 6 && !upper.includes(' ')) {
       baseCurrency = upper.slice(0, 3);
       quoteCurrency = upper.slice(3, 6);
     } else {
@@ -891,6 +926,21 @@ export function autoDetectLiquidityAndSessions(symbol: string): LiquiditySession
   const utcMinutes = now.getUTCMinutes();
   const totalMinutes = utcHours * 60 + utcMinutes;
   const currentUtcTime = `${String(utcHours).padStart(2, '0')}:${String(utcMinutes).padStart(2, '0')} UTC`;
+
+  const assetClass = detectAssetClass(sym);
+  if (assetClass === 'SYNTHETIC') {
+    return {
+      symbol: sym,
+      currentUtcTime,
+      activeSession: '24/7 Continuous Algorithmic Session',
+      sessionProgressPct: Math.round((totalMinutes / 1440) * 100),
+      minutesRemainingInSession: 1440 - totalMinutes,
+      liquidityScore: 95,
+      spreadWideningRisk: 'LOW',
+      isSymbolPrimeTime: true,
+      sessionNote: 'Continuous algorithmic price generation 24/7. No interbank rollover widening or weekend market closures.',
+    };
+  }
 
   let activeSession = 'Asian (Tokyo / Sydney)';
   let sessionStart = 0;

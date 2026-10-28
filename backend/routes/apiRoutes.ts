@@ -47,6 +47,36 @@ function resolveTimeframe(queryTimeframe?: string): string {
   return normalizeTimeframe(chartTf) || 'M1';
 }
 
+/**
+ * Resolves historical candles specifically for the queried symbol.
+ * Uses in-memory chart history only if the requested symbol matches the active chart.
+ * Otherwise fetches the queried symbol's true historical candles from SQLite, and requests
+ * on-demand history from MT5 EA if the local database does not have bars yet.
+ */
+async function resolveCandlesForSymbol(targetSymbol: string, queryTimeframe?: string, count = 200) {
+  const currentChart = tradeStore.getCurrentChart();
+  const tf = resolveTimeframe(queryTimeframe);
+  const cleanTarget = normalizeSymbol(targetSymbol);
+
+  if (
+    currentChart &&
+    normalizeSymbol(currentChart.symbol) === cleanTarget &&
+    normalizeTimeframe(currentChart.timeframe) === tf
+  ) {
+    const mem = tradeStore.getChartHistory();
+    if (mem && mem.length > 0) return mem;
+  }
+
+  const { dbGetCandles } = await import('../database/db.js');
+  const dbCandles = await dbGetCandles(cleanTarget, tf, count);
+  if (dbCandles && dbCandles.length > 0) return dbCandles;
+
+  if (tradeStore.getState().connection.isEaConnected) {
+    tradeStore.requestHistoryFromEA(cleanTarget, tf, count);
+  }
+  return [];
+}
+
 // Full state snapshot
 apiRouter.get('/state', (req, res) => {
   res.json(tradeStore.getState());
@@ -898,11 +928,7 @@ apiRouter.get('/knowledge/auto-detect', async (req, res) => {
       allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) ||
       (currentChart && currentChart.symbol.toLowerCase() === targetSymbol.toLowerCase() ? (currentChart as any) : null);
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length === 0) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(normalizeSymbol(targetSymbol), resolveTimeframe(req.query.timeframe as string), 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 200);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
 
     const profile = autoDetectSymbol(targetSymbol, symbolInfo, candles, ticks);
@@ -920,11 +946,7 @@ apiRouter.get('/knowledge/regime', async (req, res) => {
     const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 15) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(targetSymbol, tf, 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, tf, 200);
 
     const { autoDetectMarketRegime } = await import('../knowledgebase/core/auto-detect.js');
     const regime = autoDetectMarketRegime(targetSymbol, candles);
@@ -951,7 +973,7 @@ apiRouter.get('/knowledge/risk-profile', async (req, res) => {
     const allSymbols = tradeStore.getAllSymbols();
     const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) || null;
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
-    const candles = tradeStore.getChartHistory();
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 200);
 
     const specs = autoDetectSymbol(targetSymbol, symbolInfo, candles, ticks);
     const account = tradeStore.getAccount();
@@ -989,11 +1011,7 @@ apiRouter.get('/knowledge/full-analysis', async (req, res) => {
     const account = tradeStore.getAccount();
     const allSymbols = tradeStore.getAllSymbols();
     const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) || null;
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length === 0) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(normalizeSymbol(targetSymbol), resolveTimeframe(req.query.timeframe as string), 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 200);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
 
     const analysis = runComprehensiveAutoDetection(targetSymbol, account, symbolInfo, candles, ticks);
@@ -1019,11 +1037,7 @@ apiRouter.post('/knowledge/auto-detect/run', async (req, res) => {
     const account = tradeStore.getAccount();
     const allSymbols = tradeStore.getAllSymbols();
     const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) || null;
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length === 0) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(normalizeSymbol(targetSymbol), resolveTimeframe(req.body?.timeframe), 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.body?.timeframe, 150);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
 
     const analysis = runComprehensiveAutoDetection(targetSymbol, account, symbolInfo, candles, ticks);
@@ -1082,11 +1096,7 @@ apiRouter.get('/knowledge/auto-detect/volatility', async (req, res) => {
     const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 14) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(targetSymbol, tf, 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
     const { autoDetectVolatilityAndNoise } = await import('../knowledgebase/core/auto-detect.js');
 
@@ -1105,11 +1115,7 @@ apiRouter.get('/knowledge/auto-detect/levels', async (req, res) => {
     const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 10) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(targetSymbol, tf, 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
     const { autoDetectSupportResistanceAndPivots } = await import('../knowledgebase/core/auto-detect.js');
 
     const levels = autoDetectSupportResistanceAndPivots(targetSymbol, candles);
@@ -1129,7 +1135,7 @@ apiRouter.get('/knowledge/auto-detect/safety', async (req, res) => {
     const account = tradeStore.getAccount();
     const allSymbols = tradeStore.getAllSymbols();
     const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) || null;
-    const candles = tradeStore.getChartHistory();
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 100);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
     const { autoDetectExecutionSafetyScore } = await import('../knowledgebase/core/auto-detect.js');
 
@@ -1147,7 +1153,7 @@ apiRouter.get('/knowledge/auto-detect/scalping', async (req, res) => {
     const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const targetSymbol = symbolParam.trim();
 
-    const candles = tradeStore.getChartHistory();
+    const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 100);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
     const { autoDetectScalpingSuitability } = await import('../knowledgebase/core/auto-detect.js');
 
@@ -1166,11 +1172,7 @@ apiRouter.get(['/knowledge/auto-detect/imbalances', '/knowledge/imbalances'], as
     const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 10) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(targetSymbol, tf, 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
     const { autoDetectInstitutionalImbalances } = await import('../knowledgebase/core/auto-detect.js');
     const point = currentChart?.point || 0.0001;
     const imbalances = autoDetectInstitutionalImbalances(targetSymbol, candles, point);
@@ -1188,11 +1190,7 @@ apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-
     const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 15) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(targetSymbol, tf, 100);
-    }
+    const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
     const { autoDetectSessionOrderFlowBias } = await import('../knowledgebase/core/auto-detect.js');
     const sessionOrderFlow = autoDetectSessionOrderFlowBias(targetSymbol, candles);
     res.json({ success: true, sessionOrderFlow });
@@ -1353,7 +1351,7 @@ apiRouter.get('/knowledge/symbol-intelligence/:symbol', async (req, res) => {
     const allSymbols = tradeStore.getAllSymbols();
     const symInfo = allSymbols.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase()) || null;
     const profile = await getLearnedSymbolIntelligence(symbol, symInfo);
-    res.json({ success: true, profile });
+    res.json({ success: true, intelligence: profile, profile });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }
@@ -1405,11 +1403,7 @@ apiRouter.get('/knowledge/patterns', async (req, res) => {
     const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 10) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(symbol, timeframe, 120);
-    }
+    const candles = await resolveCandlesForSymbol(symbol, timeframe, 120);
 
     const { detectAllPatterns } = await import('../knowledgebase/patterns/index.js');
     const patterns = detectAllPatterns(candles, symbol, timeframe);
@@ -1426,11 +1420,7 @@ apiRouter.get('/knowledge/indicators', async (req, res) => {
     const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
-    let candles = tradeStore.getChartHistory();
-    if (!candles || candles.length < 10) {
-      const { dbGetCandles } = await import('../database/db.js');
-      candles = await dbGetCandles(symbol, timeframe, 120);
-    }
+    const candles = await resolveCandlesForSymbol(symbol, timeframe, 120);
 
     const { calculateIndicators } = await import('../knowledgebase/indicators/index.js');
     const indicators = calculateIndicators(candles, symbol, timeframe);

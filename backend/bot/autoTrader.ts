@@ -206,26 +206,29 @@ export class TradingBot {
   }
 
   private async executeSignal(signal: BotSignal): Promise<void> {
-    // If news risk filter is active, check for imminent or current high-impact macro catalysts
+    // If news risk filter is active, check for imminent or current high-impact macro catalysts (Forex/Metals/Commodities only)
     if (this.config.newsRiskFilter) {
       try {
-        const { getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
-        const calendar = getUpcomingEconomicEvents(signal.symbol);
-        const now = Date.now();
-        const imminentHighImpact = (calendar.events || []).find((evt) => {
-          if (evt.impact !== 'HIGH') return false;
-          const diffMins = Math.round((evt.scheduledTime - now) / (60 * 1000));
-          return diffMins >= -15 && diffMins <= 30;
-        });
+        const { isMacroNewsDriven } = await import('../utils/symbolEconomics.js');
+        if (isMacroNewsDriven(signal.symbol)) {
+          const { getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
+          const calendar = getUpcomingEconomicEvents(signal.symbol);
+          const now = Date.now();
+          const imminentHighImpact = (calendar.events || []).find((evt) => {
+            if (evt.impact !== 'HIGH') return false;
+            const diffMins = Math.round((evt.scheduledTime - now) / (60 * 1000));
+            return diffMins >= -15 && diffMins <= 30;
+          });
 
-        if (imminentHighImpact) {
-          tradeStore.addLog(
-            'warn',
-            `Bot News Guard: Held ${signal.direction} ${signal.symbol}`,
-            `Execution suppressed due to imminent high-impact catalyst: "${imminentHighImpact.title}" (${imminentHighImpact.currency}). Avoided spread spike.`,
-            'BOT'
-          );
-          return;
+          if (imminentHighImpact) {
+            tradeStore.addLog(
+              'warn',
+              `Bot News Guard: Held ${signal.direction} ${signal.symbol}`,
+              `Execution suppressed due to imminent high-impact catalyst: "${imminentHighImpact.title}" (${imminentHighImpact.currency}). Avoided spread spike.`,
+              'BOT'
+            );
+            return;
+          }
         }
       } catch (err) {
         console.warn('[TradingBot] News guard check error:', err);
@@ -327,6 +330,29 @@ export class TradingBot {
             payload: { trade },
           });
         }
+      }
+    }
+  }
+
+  public reconcileDeals(closedDeals: any[]): void {
+    if (!Array.isArray(closedDeals) || closedDeals.length === 0) return;
+    const trades = this.tradeExecutor.getTrades();
+    for (const deal of closedDeals) {
+      const posTicket = deal.positionTicket || deal.orderTicket || deal.ticket;
+      const trade = trades.find((t) => (t as any).ticket === posTicket || t.commandId === deal.comment);
+      if (trade && trade.status !== 'CLOSED') {
+        trade.status = 'CLOSED';
+        trade.closedAt = deal.time ? deal.time * 1000 : Date.now();
+        if (typeof deal.profit === 'number') {
+          trade.profit = deal.profit;
+        }
+        import('../database/db.js').then(({ dbUpdateBotTrade }) => {
+          dbUpdateBotTrade(trade.id, { status: 'CLOSED', profit: trade.profit, closedAt: trade.closedAt }).catch(() => {});
+        }).catch(() => {});
+        broadcast({
+          type: 'bot:trade_closed',
+          payload: { trade, deal },
+        });
       }
     }
   }

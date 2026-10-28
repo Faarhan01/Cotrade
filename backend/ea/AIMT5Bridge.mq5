@@ -25,7 +25,7 @@ input int      InpTimerIntervalMs   = 500;                     // Polling & sync
 input group "=== Trade & Execution Parameters ==="
 input ulong    InpMagicNumber       = 889900;                  // EA Magic Number for AI Orders
 input ulong    InpDefaultSlippage   = 10;                      // Slippage points
-input string   InpSymbolsToTrack    = "EURUSD,GBPUSD,USDJPY,XAUUSD,BTCUSD"; // Symbols for live stream (comma-separated)
+input string   InpSymbolsToTrack    = "EURUSD,GBPUSD,USDJPY,XAUUSD,BTCUSD,Step Index"; // Symbols for live stream (comma-separated)
 input int      InpHistoryCandles    = 200;                     // Past chart candles (OHLCV) to transmit on startup
 input int      InpMaxTrackedSymbols = 500;                     // Max Market Watch & auto-discovered symbols to track
 

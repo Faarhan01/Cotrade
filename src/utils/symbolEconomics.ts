@@ -13,6 +13,7 @@ export type AssetClass =
   | 'COMMODITIES'
   | 'INDICES'
   | 'CRYPTO'
+  | 'SYNTHETIC'
   | 'EQUITIES';
 
 export interface SymbolSpecs {
@@ -49,9 +50,37 @@ const METALS = ['XAUUSD', 'XAGUSD', 'GOLD', 'SILVER', 'PLATINUM', 'PALLADIUM'];
 const COMMODITIES = ['WTI', 'BRENT', 'OIL', 'NATGAS', 'COPPER'];
 const INDICES = ['US30', 'NAS100', 'SPX500', 'GER40', 'UK100', 'JP225', 'AUS200', 'FRA40', 'HK50', 'DJ30', 'USTEC'];
 const CRYPTO = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'LTCUSD', 'DOGEUSD', 'BNBUSD'];
+const SYNTHETICS = ['STEP', 'VOLATILITY', 'CRASH', 'BOOM', 'JUMP', 'RANGE BREAK', 'RANGEBREAK', 'DEX', 'DRIFT'];
+
+export function isMacroNewsDriven(symbol: string): boolean {
+  const s = (symbol || '').toUpperCase().trim();
+  const clean = s.replace(/[^A-Z0-9]/g, '');
+  if (
+    SYNTHETICS.some((syn) => s.includes(syn) || clean.includes(syn.replace(/\s+/g, ''))) ||
+    clean.startsWith('V10') ||
+    clean.startsWith('V25') ||
+    clean.startsWith('V50') ||
+    clean.startsWith('V75') ||
+    clean.startsWith('V100')
+  ) {
+    return false;
+  }
+  return true;
+}
 
 export function detectAssetClass(symbol: string): AssetClass {
   const s = symbol.toUpperCase().trim();
+  const clean = s.replace(/[^A-Z0-9]/g, '');
+  if (
+    SYNTHETICS.some((syn) => s.includes(syn) || clean.includes(syn.replace(/\s+/g, ''))) ||
+    clean.startsWith('V10') ||
+    clean.startsWith('V25') ||
+    clean.startsWith('V50') ||
+    clean.startsWith('V75') ||
+    clean.startsWith('V100')
+  ) {
+    return 'SYNTHETIC';
+  }
   if (FOREX_MAJORS.some((m) => s.includes(m))) return 'FOREX_MAJOR';
   if (METALS.some((m) => s.includes(m))) return 'METALS';
   if (COMMODITIES.some((m) => s.includes(m))) return 'COMMODITIES';
@@ -95,6 +124,8 @@ export function getSymbolContractSize(symbol: string, knownContractSize?: number
   if (typeof knownContractSize === 'number' && knownContractSize > 0) return knownContractSize;
   const assetClass = detectAssetClass(symbol);
   switch (assetClass) {
+    case 'SYNTHETIC':
+      return 1;
     case 'METALS':
       return symbol.toUpperCase().includes('XAU') ? 100 : 5000;
     case 'COMMODITIES':

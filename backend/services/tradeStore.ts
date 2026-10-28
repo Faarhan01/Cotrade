@@ -547,14 +547,32 @@ class TradeStore {
         if (existing && existing.bid > 0) {
           const prevTs = existing.timeMsc || (existing.time ? existing.time * 1000 : nowTs - 1000);
           const dtSec = Math.max(0.1, (nowTs - prevTs) / 1000);
-          // Estimate point size from digits or default
+          // Authoritative point size from chart or symbol specs
           const pt = this.currentChart?.symbol === tick.symbol && this.currentChart.point
             ? this.currentChart.point
             : (tick.bid > 100 ? 0.01 : 0.0001);
-          const pipDiff = Math.abs(tick.bid - existing.bid) / (pt * 10);
-          const velocity = pipDiff / dtSec; // pips per second
-          if (velocity > 0 && Number.isFinite(velocity)) {
-            tickTelemetry.push({ velocity: Number(velocity.toFixed(3)), timestamp: nowTs });
+          const pipDiff = (tick.bid - existing.bid) / (pt * 10);
+          const absVelocity = Math.abs(pipDiff) / dtSec; // pips per second
+          if (absVelocity > 0 && Number.isFinite(absVelocity)) {
+            tickTelemetry.push({ velocity: Number(absVelocity.toFixed(3)), timestamp: nowTs });
+            // Record notable market micro-movements into knowledgebase observations
+            if (absVelocity >= 0.5) {
+              const direction: 'up' | 'down' | 'flat' = pipDiff > 0 ? 'up' : pipDiff < 0 ? 'down' : 'flat';
+              import('../knowledgebase/observations.js').then(({ recordObservation }) => {
+                recordObservation({
+                  symbol: tick.symbol,
+                  timestamp: nowTs,
+                  direction,
+                  velocity: Number(absVelocity.toFixed(2)),
+                  price: tick.bid,
+                  tags: ['tick_telemetry', absVelocity > 3 ? 'high_velocity_burst' : 'micro_flow'],
+                  metadata: {
+                    spread: Number(((tick.ask - tick.bid) / (pt * 10)).toFixed(1)),
+                    dtSec: Number(dtSec.toFixed(2)),
+                  },
+                });
+              }).catch(() => {});
+            }
           }
         }
       }

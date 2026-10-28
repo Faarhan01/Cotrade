@@ -10,13 +10,14 @@ export interface CandlestickPatternMatch {
   description: string;
 }
 
-export function detectCandlestickPatterns(candles: CandleData[]): CandlestickPatternMatch[] {
+export function detectCandlestickPatterns(candles: CandleData[], lookbackBars?: number): CandlestickPatternMatch[] {
   const matches: CandlestickPatternMatch[] = [];
   if (!candles || candles.length < 3) return matches;
 
   const n = candles.length;
-  // Inspect last 5 candles
-  const start = Math.max(1, n - 5);
+  // Inspect specified lookback or default to last 5 candles for live pulse
+  const bars = typeof lookbackBars === 'number' && lookbackBars > 0 ? lookbackBars : 5;
+  const start = Math.max(1, n - bars);
 
   for (let i = start; i < n; i++) {
     const c = candles[i];

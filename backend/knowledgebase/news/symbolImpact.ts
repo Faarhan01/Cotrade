@@ -1,7 +1,7 @@
 import { fetchMarketNews, MarketNewsItem } from './newsEngine.js';
 import { getUpcomingEconomicEvents, EconomicEvent } from './economicCalendar.js';
 
-export type MacroAssetClass = 'FOREX' | 'METALS' | 'CRYPTO' | 'INDICES' | 'COMMODITIES';
+export type MacroAssetClass = 'FOREX' | 'METALS' | 'CRYPTO' | 'INDICES' | 'COMMODITIES' | 'SYNTHETIC';
 
 export interface CurrencySentimentDriver {
   currency: string;
@@ -102,6 +102,25 @@ function decomposeSymbol(symbol: string): {
 } {
   const clean = symbol.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
 
+  // Synthetic Indices (Step Index, Volatility, Crash, Boom) - Insulated from macro news
+  if (
+    clean.includes('STEP') ||
+    clean.includes('VOLATILITY') ||
+    clean.includes('CRASH') ||
+    clean.includes('BOOM') ||
+    clean.includes('JUMP') ||
+    clean.includes('RANGEBREAK') ||
+    clean.includes('DEX') ||
+    clean.includes('DRIFT') ||
+    clean.startsWith('V10') ||
+    clean.startsWith('V25') ||
+    clean.startsWith('V50') ||
+    clean.startsWith('V75') ||
+    clean.startsWith('V100')
+  ) {
+    return { assetClass: 'SYNTHETIC', baseAsset: clean, quoteAsset: 'USD', displayName: symbol };
+  }
+
   if (clean.startsWith('XAU') || clean.includes('GOLD')) {
     return { assetClass: 'METALS', baseAsset: 'XAU', quoteAsset: 'USD', displayName: 'Gold / US Dollar' };
   }
@@ -157,6 +176,53 @@ function decomposeSymbol(symbol: string): {
 export async function analyzeSymbolNewsImpact(symbol: string): Promise<SymbolNewsImpact> {
   const cleanSymbol = (symbol || 'EURUSD').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
   const { assetClass, baseAsset, quoteAsset, displayName } = decomposeSymbol(cleanSymbol);
+
+  // If symbol is synthetic, bypass macro news completely
+  if (assetClass === 'SYNTHETIC') {
+    return {
+      symbol: cleanSymbol,
+      assetClass: 'SYNTHETIC',
+      baseAsset: cleanSymbol,
+      quoteAsset: 'USD',
+      baseAssetSentiment: { currency: cleanSymbol, sentimentScore: 0, outlook: 'NEUTRAL', activeDrivers: ['Continuous mathematical tick volatility (Algorithmic / Synthetic)'] },
+      quoteAssetSentiment: { currency: 'USD', sentimentScore: 0, outlook: 'NEUTRAL', activeDrivers: [] },
+      netSentimentScore: 0,
+      overallSentiment: 'NEUTRAL',
+      directionalBias: {
+        direction: 'NEUTRAL',
+        confidence: 50,
+        driverExplanation: 'Synthetic index: Operates on autonomous simulated tick models. Completely insulated from central bank monetary policy, inflation, and GDP news.',
+      },
+      eventRiskLevel: 'LOW',
+      imminentEventsCount: 0,
+      nextHighImpactEvent: null,
+      volatilityExpectation: {
+        expectedAtrMultiplier: 1.0,
+        volatilityState: 'NORMAL',
+        spreadSpikeRisk: 'LOW',
+        typicalSpreadMultiplier: 1.0,
+        slippageHazardRating: 'SAFE',
+        scalpingViability: 'OPTIMAL',
+      },
+      categories: {
+        monetaryPolicy: { score: 0, active: false, catalystsCount: 0, summary: 'Not applicable for synthetic indices.' },
+        inflation: { score: 0, active: false, catalystsCount: 0, summary: 'Not applicable for synthetic indices.' },
+        employment: { score: 0, active: false, catalystsCount: 0, summary: 'Not applicable for synthetic indices.' },
+        geopolitics: { score: 0, active: false, catalystsCount: 0, summary: 'Not applicable for synthetic indices.' },
+        growthAndTrade: { score: 0, active: false, catalystsCount: 0, summary: 'Not applicable for synthetic indices.' },
+      },
+      historicalReactionTendency: 'Pure technical and statistical distribution. No news-driven gaps or slippage.',
+      actionablePrecautions: ['Macroeconomic news filter is bypassed for this asset. Trade strictly based on pattern confluence and volatility bands.'],
+      suggestedStopBufferPoints: 0,
+      drivingCatalysts: [],
+      activeAlerts: [],
+      recentNews: [],
+      upcomingEvents: [],
+      tradingRecommendation: 'Optimal for algorithmic scalping and technical mean-reversion. Insulated from macro calendar releases.',
+      analyzedAt: Date.now(),
+      dataQuality: 'LIVE',
+    };
+  }
 
   // Fetch news & economic events
   const [news, calendar] = await Promise.all([

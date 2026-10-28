@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo } from '../../types';
+import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo, AccountInfo, ChartSymbolInfo } from '../../types';
 import { api } from '../../services/api';
 import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert, Clock, Zap } from 'lucide-react';
 
@@ -8,6 +8,8 @@ interface OrderExecutionDockProps {
   ticks: TickData[];
   symbols?: DetailedSymbolInfo[];
   riskGuard: RiskGuardConfig | null;
+  account?: AccountInfo | null;
+  symbolInfo?: DetailedSymbolInfo | ChartSymbolInfo | null;
   onSelectSymbol: (symbol: string) => void;
 }
 
@@ -16,6 +18,8 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   ticks,
   symbols = [],
   riskGuard,
+  account,
+  symbolInfo: propSymbolInfo,
   onSelectSymbol,
 }) => {
   const [orderCategory, setOrderCategory] = useState<'MARKET' | 'PENDING'>('MARKET');

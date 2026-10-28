@@ -11,7 +11,7 @@ export interface EconomicEvent {
   actual?: string;
   affectedSymbols: string[];
   description: string;
-  category?: 'CENTRAL_BANK' | 'INFLATION' | 'EMPLOYMENT' | 'GDP' | 'TRADE' | 'COMMODITY' | 'CRYPTO';
+  category?: 'CENTRAL_BANK' | 'INFLATION' | 'EMPLOYMENT' | 'GDP' | 'TRADE' | 'COMMODITY' | 'CRYPTO' | 'MACRO';
 }
 
 interface CanonicalEventTemplate {
@@ -210,6 +210,55 @@ const CANONICAL_TEMPLATES: CanonicalEventTemplate[] = [
   },
 ];
 
+let liveRemoteEvents: EconomicEvent[] = [];
+let lastRemoteFetchTime = 0;
+
+export async function refreshLiveEconomicCalendar(): Promise<void> {
+  const now = Date.now();
+  if (now - lastRemoteFetchTime < 60 * 1000 && liveRemoteEvents.length > 0) {
+    return;
+  }
+  try {
+    const res = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TradingBot/1.0)' },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        liveRemoteEvents = data.map((item: any, idx: number) => {
+          const impactStr = String(item.impact || '').toUpperCase();
+          const impact: 'HIGH' | 'MEDIUM' | 'LOW' = impactStr.includes('HIGH')
+            ? 'HIGH'
+            : impactStr.includes('MED')
+            ? 'MEDIUM'
+            : 'LOW';
+          const scheduledTime = item.date ? new Date(item.date).getTime() : Date.now();
+          const currency = String(item.country || 'USD').toUpperCase();
+          return {
+            id: `ff-${idx}-${scheduledTime}`,
+            title: String(item.title || 'Economic Event'),
+            country: String(item.country || ''),
+            currency,
+            impact,
+            scheduledTime,
+            scheduledTimeIso: new Date(scheduledTime).toISOString(),
+            forecast: item.forecast || undefined,
+            previous: item.previous || undefined,
+            actual: item.actual || undefined,
+            affectedSymbols: [currency + 'USD', 'USD' + (currency === 'USD' ? 'JPY' : currency)],
+            description: `${item.title} macroeconomic release for ${item.country}`,
+            category: 'MACRO',
+          } as EconomicEvent;
+        });
+        lastRemoteFetchTime = now;
+      }
+    }
+  } catch (_err) {
+    // Graceful fallback to scheduled canonical market events
+  }
+}
+
 export function getUpcomingEconomicEvents(symbol?: string): {
   events: EconomicEvent[];
   activeAlerts: string[];
@@ -230,7 +279,6 @@ export function getUpcomingEconomicEvents(symbol?: string): {
       tmpl.minuteUtc * 60000;
 
     const hasOccurred = scheduledTime < now;
-    const isImminent = Math.abs(scheduledTime - now) <= 15 * 60 * 1000;
 
     return {
       id: tmpl.id,
@@ -249,19 +297,30 @@ export function getUpcomingEconomicEvents(symbol?: string): {
     };
   });
 
-  // Sort chronologically by scheduled time
-  scheduledEvents.sort((a, b) => a.scheduledTime - b.scheduledTime);
+  const allEvents = liveRemoteEvents.length > 0 ? [...liveRemoteEvents, ...scheduledEvents] : scheduledEvents;
+
+  // Deduplicate and sort chronologically
+  const seen = new Set<string>();
+  const uniqueEvents: EconomicEvent[] = [];
+  for (const evt of allEvents) {
+    const key = `${evt.title}-${evt.scheduledTime}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueEvents.push(evt);
+    }
+  }
+  uniqueEvents.sort((a, b) => a.scheduledTime - b.scheduledTime);
 
   // Filter by symbol if requested
   const filteredEvents = symbol
-    ? scheduledEvents.filter((e) => {
+    ? uniqueEvents.filter((e) => {
         const clean = symbol.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         return (
           e.affectedSymbols.some((s) => clean.includes(s) || s.includes(clean)) ||
           clean.includes(e.currency)
         );
       })
-    : scheduledEvents;
+    : uniqueEvents;
 
   // Active risk alerts (events happening within 30 minutes)
   const oneMinute = 60 * 1000;
@@ -281,6 +340,6 @@ export function getUpcomingEconomicEvents(symbol?: string): {
   return {
     events: filteredEvents,
     activeAlerts,
-    dataQuality: 'SCHEDULED_MARKET_CALENDAR',
+    dataQuality: liveRemoteEvents.length > 0 ? 'LIVE' : 'SCHEDULED_MARKET_CALENDAR',
   };
 }

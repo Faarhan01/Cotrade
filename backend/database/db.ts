@@ -535,6 +535,8 @@ function initSchema(db: Database) {
       key_levels_json TEXT,
       best_trading_hours_json TEXT,
       summary TEXT,
+      protective_params_json TEXT,
+      volatility_state TEXT,
       updated_at INTEGER NOT NULL
     );
 
@@ -551,6 +553,8 @@ function initSchema(db: Database) {
   // Run dynamic schema migrations safely for existing tables
   try { db.exec('ALTER TABLE candles_history ADD COLUMN spread REAL DEFAULT 0;'); } catch (_) {}
   try { db.exec('ALTER TABLE candles_history ADD COLUMN real_volume REAL DEFAULT 0;'); } catch (_) {}
+  try { db.exec('ALTER TABLE knowledge_symbol_intelligence ADD COLUMN protective_params_json TEXT;'); } catch (_) {}
+  try { db.exec('ALTER TABLE knowledge_symbol_intelligence ADD COLUMN volatility_state TEXT;'); } catch (_) {}
 }
 
 /**
@@ -2691,6 +2695,8 @@ export async function dbSaveSymbolIntelligence(data: {
   keyLevels: any;
   bestTradingHours: any;
   summary: string;
+  protectiveParameters?: any;
+  volatilityState?: string;
 }): Promise<void> {
   const db = await getDatabase();
   const cleanSym = normalizeSymbol(data.symbol);
@@ -2698,8 +2704,8 @@ export async function dbSaveSymbolIntelligence(data: {
     INSERT OR REPLACE INTO knowledge_symbol_intelligence (
       symbol, asset_class, typical_spread, spread_min, spread_max, spread_rollover_expansion,
       atr_m1, atr_m15, atr_h1, atr_d1, optimal_sessions_json, pattern_performance_json,
-      key_levels_json, best_trading_hours_json, summary, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      key_levels_json, best_trading_hours_json, summary, protective_params_json, volatility_state, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run([
     cleanSym,
@@ -2717,6 +2723,8 @@ export async function dbSaveSymbolIntelligence(data: {
     JSON.stringify(data.keyLevels || {}),
     JSON.stringify(data.bestTradingHours || []),
     data.summary,
+    JSON.stringify(data.protectiveParameters || null),
+    data.volatilityState || 'NORMAL',
     Date.now(),
   ]);
   stmt.free();
@@ -2749,6 +2757,8 @@ export async function dbGetSymbolIntelligence(symbol: string): Promise<any | nul
     keyLevels: r.key_levels_json ? JSON.parse(r.key_levels_json) : {},
     bestTradingHours: r.best_trading_hours_json ? JSON.parse(r.best_trading_hours_json) : [],
     summary: r.summary,
+    protectiveParameters: r.protective_params_json ? JSON.parse(r.protective_params_json) : null,
+    volatilityState: r.volatility_state || 'NORMAL',
     updatedAt: Number(r.updated_at),
   };
 }

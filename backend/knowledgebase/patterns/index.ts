@@ -28,9 +28,10 @@ export interface ComprehensivePatternResult {
 export function detectAllPatterns(
   candles: CandleData[],
   symbol = 'EURUSD',
-  timeframe = 'M1'
+  timeframe = 'M1',
+  lookbackBars?: number
 ): ComprehensivePatternResult {
-  const candlestick = detectCandlestickPatterns(candles);
+  const candlestick = detectCandlestickPatterns(candles, lookbackBars);
   const indicator = detectIndicatorPatterns(candles);
   const shape = detectShapePatterns(candles);
 

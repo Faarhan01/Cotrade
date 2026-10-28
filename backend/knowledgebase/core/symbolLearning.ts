@@ -179,31 +179,65 @@ export async function learnSymbolBehavior(
     },
   ];
 
-  // 5. Pattern Win-Rate and Occurrence Tracking
-  const detected = detectAllPatterns(candles, sym, 'M15');
+  // 5. Pattern Win-Rate and Occurrence Tracking based on real historical candle forward results
+  const detected = detectAllPatterns(candles, sym, 'M15', candles.length);
   const patternPerformance: Record<string, LearnedPatternPerformance> = {};
 
-  // Standard catalog of patterns to expose
   const knownPatterns = [
-    { key: 'BULLISH_ENGULFING', name: 'Bullish Engulfing', bias: 'BULLISH' as const, baseWinRate: 72 },
-    { key: 'BEARISH_ENGULFING', name: 'Bearish Engulfing', bias: 'BEARISH' as const, baseWinRate: 70 },
-    { key: 'PINBAR_HAMMER', name: 'Pinbar / Hammer', bias: 'BULLISH' as const, baseWinRate: 68 },
-    { key: 'SHOOTING_STAR', name: 'Shooting Star', bias: 'BEARISH' as const, baseWinRate: 67 },
-    { key: 'MORNING_STAR', name: 'Morning Star', bias: 'BULLISH' as const, baseWinRate: 74 },
-    { key: 'EVENING_STAR', name: 'Evening Star', bias: 'BEARISH' as const, baseWinRate: 73 },
-    { key: 'DOUBLE_BOTTOM', name: 'Double Bottom', bias: 'BULLISH' as const, baseWinRate: 75 },
-    { key: 'DOUBLE_TOP', name: 'Double Top', bias: 'BEARISH' as const, baseWinRate: 74 },
-    { key: 'RSI_DIVERGENCE', name: 'RSI Momentum Divergence', bias: 'BULLISH' as const, baseWinRate: 71 },
+    { key: 'BULLISH_ENGULFING', name: 'Bullish Engulfing', bias: 'BULLISH' as const },
+    { key: 'BEARISH_ENGULFING', name: 'Bearish Engulfing', bias: 'BEARISH' as const },
+    { key: 'PINBAR_HAMMER', name: 'Pinbar / Hammer', bias: 'BULLISH' as const },
+    { key: 'SHOOTING_STAR', name: 'Shooting Star', bias: 'BEARISH' as const },
+    { key: 'MORNING_STAR', name: 'Morning Star', bias: 'BULLISH' as const },
+    { key: 'EVENING_STAR', name: 'Evening Star', bias: 'BEARISH' as const },
+    { key: 'DOUBLE_BOTTOM', name: 'Double Bottom', bias: 'BULLISH' as const },
+    { key: 'DOUBLE_TOP', name: 'Double Top', bias: 'BEARISH' as const },
+    { key: 'RSI_DIVERGENCE', name: 'RSI Momentum Divergence', bias: 'BULLISH' as const },
   ];
 
   for (const kp of knownPatterns) {
-    // Count matches in current history
-    const matchCount = detected.candlestick.filter((p) => p.pattern === kp.key).length +
-      detected.shape.filter((p) => p.name.toUpperCase().includes(kp.key)).length;
+    const candleMatches = detected.candlestick.filter((p) => p.pattern === kp.key);
+    const shapeMatches = detected.shape.filter((p) => p.name.toUpperCase().includes(kp.key));
+    const allMatches = [...candleMatches, ...shapeMatches];
+    const occurrences = allMatches.length;
 
-    const occurrences = Math.max(matchCount, 8);
-    const winRatePct = kp.baseWinRate;
-    const winCount = Math.round((occurrences * winRatePct) / 100);
+    let winCount = 0;
+    let totalGain = 0;
+    let totalRisk = 0;
+
+    for (const match of candleMatches) {
+      const idx = (match as any).candleIndex;
+      if (typeof idx === 'number' && idx >= 0 && idx < candles.length - 2) {
+        const entryPrice = candles[idx].close;
+        const horizonCandles = candles.slice(idx + 1, Math.min(candles.length, idx + 4));
+        if (horizonCandles.length > 0) {
+          if (kp.bias === 'BULLISH') {
+            const maxForward = Math.max(...horizonCandles.map((c) => c.high));
+            const minForward = Math.min(...horizonCandles.map((c) => c.low));
+            const gain = maxForward - entryPrice;
+            const risk = Math.max(0.0001, entryPrice - minForward);
+            if (gain > risk || horizonCandles[horizonCandles.length - 1].close > entryPrice) {
+              winCount++;
+            }
+            totalGain += Math.max(0, gain);
+            totalRisk += risk;
+          } else {
+            const minForward = Math.min(...horizonCandles.map((c) => c.low));
+            const maxForward = Math.max(...horizonCandles.map((c) => c.high));
+            const gain = entryPrice - minForward;
+            const risk = Math.max(0.0001, maxForward - entryPrice);
+            if (gain > risk || horizonCandles[horizonCandles.length - 1].close < entryPrice) {
+              winCount++;
+            }
+            totalGain += Math.max(0, gain);
+            totalRisk += risk;
+          }
+        }
+      }
+    }
+
+    const winRatePct = occurrences > 0 ? Math.round((winCount / occurrences) * 100) : 0;
+    const avgRewardRisk = totalRisk > 0 ? Number((totalGain / totalRisk).toFixed(2)) : (occurrences > 0 ? 1.5 : 0);
 
     patternPerformance[kp.key] = {
       pattern: kp.key,
@@ -211,11 +245,13 @@ export async function learnSymbolBehavior(
       occurrences,
       winCount,
       winRatePct,
-      avgRewardRisk: 2.1,
+      avgRewardRisk,
       bias: kp.bias,
-      recommendedAction: kp.bias === 'BULLISH'
-        ? 'Enter BUY on candle close with SL below formation low'
-        : 'Enter SELL on candle close with SL above formation high',
+      recommendedAction: occurrences === 0
+        ? 'Awaiting real pattern formation in MT5 candle stream.'
+        : kp.bias === 'BULLISH'
+        ? `Empirical ${winRatePct}% win-rate (${winCount}/${occurrences} hits). Enter BUY with SL below pattern low.`
+        : `Empirical ${winRatePct}% win-rate (${winCount}/${occurrences} hits). Enter SELL with SL above pattern high.`,
     };
   }
 
@@ -354,6 +390,8 @@ export async function learnSymbolBehavior(
       keyLevels: profile.keyLevels,
       bestTradingHours: profile.bestTradingHours,
       summary: profile.summary,
+      protectiveParameters: profile.protectiveParameters,
+      volatilityState: profile.volatilityState,
     });
   } catch (err) {
     console.error(`[SymbolLearning] Failed to persist intelligence for ${sym}:`, err);
@@ -390,14 +428,14 @@ export async function getLearnedSymbolIntelligence(
         atrM15: dbProfile.atrM15,
         atrH1: dbProfile.atrH1,
         atrD1: dbProfile.atrD1,
-        volatilityState: 'NORMAL',
+        volatilityState: dbProfile.volatilityState || 'NORMAL',
         optimalSessions: dbProfile.optimalSessions,
         patternPerformance: dbProfile.patternPerformance,
         keyLevels: dbProfile.keyLevels,
         bestTradingHours: dbProfile.bestTradingHours,
-        protectiveParameters: {
-          recommendedSlPoints: 150,
-          recommendedTpPoints: 300,
+        protectiveParameters: dbProfile.protectiveParameters || {
+          recommendedSlPoints: Math.max(150, Math.round((dbProfile.atrM15 || 0.0015) * 10000 * 1.5)),
+          recommendedTpPoints: Math.max(300, Math.round((dbProfile.atrM15 || 0.0015) * 10000 * 3.0)),
           breakevenTriggerPoints: 120,
           breakevenLockPoints: 20,
           trailingDistancePoints: 150,

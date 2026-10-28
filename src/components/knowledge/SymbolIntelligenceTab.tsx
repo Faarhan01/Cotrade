@@ -32,7 +32,15 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
 }) => {
   const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
   const [customSymbolInput, setCustomSymbolInput] = useState('');
-  const [activeSymbols, setActiveSymbols] = useState<string[]>(['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'US30']);
+  const [activeSymbols, setActiveSymbols] = useState<string[]>([
+    'EURUSD',
+    'GBPUSD',
+    'USDJPY',
+    'XAUUSD',
+    'BTCUSD',
+    'US30',
+    'Step Index',
+  ]);
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<any | null>(null);
   const [learnedIntel, setLearnedIntel] = useState<SymbolIntelligenceProfile | null>(null);
@@ -242,8 +250,14 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-0.5">
-                    <span>{profile.assetClass}</span>
+                  <div className="flex items-center gap-2 text-xs text-slate-400 font-mono mt-0.5 flex-wrap">
+                    {profile.assetClass === 'SYNTHETIC' ? (
+                      <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700/70">
+                        SYNTHETIC INDEX (24/7 Algorithmic · News Insulated)
+                      </span>
+                    ) : (
+                      <span>{profile.assetClass}</span>
+                    )}
                     {profile.baseCurrency && (
                       <>
                         <span aria-hidden="true">·</span>

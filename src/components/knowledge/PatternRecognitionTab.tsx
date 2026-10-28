@@ -7,6 +7,7 @@ import {
   Layers,
   Sparkles,
   RefreshCw,
+  Download,
   AlertCircle,
   CheckCircle2,
   Sliders,
@@ -28,7 +29,7 @@ export const PatternRecognitionTab: React.FC<PatternRecognitionTabProps> = ({
   const [symbol, setSymbol] = useState(initialSymbol);
   const [timeframe, setTimeframe] = useState('M1');
   const [loading, setLoading] = useState(false);
-  const [simulating, setSimulating] = useState(false);
+  const [pulling, setPulling] = useState(false);
   const [patternData, setPatternData] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -81,25 +82,27 @@ export const PatternRecognitionTab: React.FC<PatternRecognitionTabProps> = ({
     fetchPatterns(symbol, timeframe);
   }, [symbol, timeframe]);
 
-  const handleSimulateCandles = async () => {
+  const handlePullHistory = async () => {
     try {
-      setSimulating(true);
-      const basePrice = symbol.includes('JPY') ? 154.5 : symbol.includes('XAU') ? 2650.0 : symbol.includes('BTC') ? 68000 : 1.085;
-      const res = await fetch('/api/candles/simulate', {
+      setPulling(true);
+      setError(null);
+      const res = await fetch('/api/chart/pull', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, timeframe, count: 80, basePrice }),
+        body: JSON.stringify({ symbol, timeframe, count: 120 }),
       });
       const data = await res.json();
       if (data.success) {
-        setNotice(`Simulated 80 market bars for ${symbol} [${timeframe}]! Scanning fresh patterns...`);
+        setNotice(`Requested 120 real ${symbol} [${timeframe}] bars from MT5 EA! Syncing patterns...`);
         await fetchPatterns(symbol, timeframe);
-        setTimeout(() => setNotice(null), 3500);
+        setTimeout(() => setNotice(null), 4000);
+      } else {
+        setError(data.error || 'Failed to request historical bars from MT5 EA');
       }
     } catch (err: any) {
-      setError(`Simulation failed: ${err.message}`);
+      setError(`Pull failed: ${err.message}`);
     } finally {
-      setSimulating(false);
+      setPulling(false);
     }
   };
 
@@ -183,13 +186,13 @@ export const PatternRecognitionTab: React.FC<PatternRecognitionTabProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={handleSimulateCandles}
-            disabled={simulating}
-            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono transition-colors flex items-center gap-1.5"
-            title="Seed synthetic candles and recalculate patterns"
+            onClick={handlePullHistory}
+            disabled={pulling}
+            className="px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-800 text-cyan-300 text-xs font-mono transition-colors flex items-center gap-1.5"
+            title="Pull authentic historical bars from MetaTrader 5 EA"
           >
-            <Sparkles className={`h-3.5 w-3.5 text-cyan-400 ${simulating ? 'animate-spin' : ''}`} />
-            <span>{simulating ? 'Seeding Bars...' : 'Seed Test Bars'}</span>
+            <Download className={`h-3.5 w-3.5 text-cyan-400 ${pulling ? 'animate-spin' : ''}`} />
+            <span>{pulling ? 'Pulling Bars...' : 'Pull MT5 History'}</span>
           </button>
 
           <button

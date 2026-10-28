@@ -1,5 +1,5 @@
 import { BotConfig, DEFAULT_BOT_CONFIG } from './types.js';
-import { dbGetRiskSettings } from '../database/db.js';
+import { dbGetRiskSettings, dbSaveBotSettings, dbGetBotSettings } from '../database/db.js';
 
 // In-memory config store with DB persistence
 let currentConfig: BotConfig = { ...DEFAULT_BOT_CONFIG };
@@ -10,24 +10,37 @@ export function getBotConfig(): BotConfig {
 
 export function setBotConfig(updates: Partial<BotConfig>): BotConfig {
   currentConfig = { ...currentConfig, ...updates };
+  dbSaveBotSettings(currentConfig).catch((err) => {
+    console.warn('[Bot] Failed to persist bot settings to DB:', err?.message || err);
+  });
   return { ...currentConfig };
 }
 
 export function resetBotConfig(): BotConfig {
   currentConfig = { ...DEFAULT_BOT_CONFIG };
+  dbSaveBotSettings(currentConfig).catch(() => {});
   return { ...currentConfig };
 }
 
 export async function loadBotConfigFromDb(): Promise<BotConfig> {
   try {
-    // Load from risk settings as a base, then override with bot-specific settings
-    const risk = await dbGetRiskSettings();
-    if (risk) {
-      currentConfig.maxOpenPositions = risk.maxOpenPositions || currentConfig.maxOpenPositions;
-      currentConfig.riskPercent = risk.maxDrawdownPercent > 0 ? Math.min(risk.maxDrawdownPercent, 5) : currentConfig.riskPercent;
+    const saved = await dbGetBotSettings();
+    if (saved) {
+      currentConfig = {
+        ...DEFAULT_BOT_CONFIG,
+        ...saved,
+      };
+      console.log(`[Bot] Restored persistent bot configuration from database (Mode: ${currentConfig.mode}, Symbols: ${currentConfig.symbols.join(', ')} [${currentConfig.timeframe}])`);
+    } else {
+      // Load from risk settings as a base, then override with bot-specific settings
+      const risk = await dbGetRiskSettings();
+      if (risk) {
+        currentConfig.maxOpenPositions = risk.maxOpenPositions || currentConfig.maxOpenPositions;
+        currentConfig.riskPercent = risk.maxDrawdownPercent > 0 ? Math.min(risk.maxDrawdownPercent, 5) : currentConfig.riskPercent;
+      }
     }
-  } catch (err) {
-    console.warn('[Bot] Failed to load config from DB:', err);
+  } catch (err: any) {
+    console.warn('[Bot] Failed to load config from DB:', err?.message || err);
   }
   return { ...currentConfig };
 }

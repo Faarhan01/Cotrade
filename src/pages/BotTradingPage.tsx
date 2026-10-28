@@ -217,6 +217,18 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
       higherTimeframes: higherTfs,
       cooldownMinutes: cooldownMins,
     }));
+
+    api.updateBotConfig({
+      mode: newMode,
+      timeframe: targetTf,
+      higherTimeframes: higherTfs,
+      cooldownMs: cooldownMins * 60 * 1000,
+    }).then(() => {
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    }).catch((err) => {
+      console.warn('Mode auto-save notice:', err);
+    });
   };
 
   const handleSaveConfig = async (e: React.FormEvent) => {
@@ -694,6 +706,12 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                     type="text"
                     value={newSymbolInput}
                     onChange={(e) => setNewSymbolInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddSymbol();
+                      }
+                    }}
                     placeholder="Add symbol (e.g. USDJPY)"
                     className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
                   />
@@ -718,7 +736,16 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                     <button
                       key={tf}
                       type="button"
-                      onClick={() => setConfig({ ...config, timeframe: tf })}
+                      onClick={() => {
+                        let higher = ['H1', 'H4'];
+                        if (tf === 'M1') higher = ['M5', 'M15'];
+                        else if (tf === 'M5') higher = ['M15', 'H1'];
+                        else if (tf === 'M15') higher = ['M30', 'H1'];
+                        else if (tf === 'M30') higher = ['H1', 'H4'];
+                        else if (tf === 'H1') higher = ['H4', 'D1'];
+                        else if (tf === 'H4') higher = ['D1', 'W1'];
+                        setConfig({ ...config, timeframe: tf, higherTimeframes: higher });
+                      }}
                       className={`py-1.5 rounded text-xs font-mono font-bold transition-all border ${
                         config.timeframe === tf
                           ? 'bg-cyan-600 text-white border-cyan-400 shadow-md shadow-cyan-600/30'
@@ -765,32 +792,47 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
               </div>
 
               {/* Max Open Trades & Cooldown */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Max Open Trades, Max Per Symbol & Cooldown */}
+              <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-slate-400 uppercase font-semibold mb-1">
+                  <label className="block text-slate-400 uppercase font-semibold mb-1 text-[10px]">
                     Max Open Trades
                   </label>
                   <input
                     type="number"
                     min="1"
-                    max="10"
+                    max="15"
                     value={config.maxOpenPositions}
                     onChange={(e) => setConfig({ ...config, maxOpenPositions: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-slate-400 uppercase font-semibold mb-1">
+                  <label className="block text-slate-400 uppercase font-semibold mb-1 text-[10px]">
+                    Max Per Symbol
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="5"
+                    value={config.maxTradesPerSymbol}
+                    onChange={(e) => setConfig({ ...config, maxTradesPerSymbol: Number(e.target.value) })}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 uppercase font-semibold mb-1 text-[10px]">
                     Cooldown (Mins)
                   </label>
                   <input
                     type="number"
                     min="1"
-                    max="60"
+                    max="120"
                     value={config.cooldownMinutes}
                     onChange={(e) => setConfig({ ...config, cooldownMinutes: Number(e.target.value) })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-slate-200 focus:outline-none focus:border-cyan-500"
                   />
                 </div>
               </div>
@@ -910,6 +952,38 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">SL ATR Multiplier</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.scalperSettings.slAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, slAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">TP ATR Multiplier</label>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={config.scalperSettings.tpAtrMultiplier}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, tpAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
                         <label className="block text-slate-400 text-[10px] mb-1">Breakeven Trigger (pts)</label>
                         <input
                           type="number"
@@ -932,6 +1006,36 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                             setConfig({
                               ...config,
                               scalperSettings: { ...config.scalperSettings, quickBreakevenLockPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Tight Trailing Dist (pts)</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.tightTrailingDistancePoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, tightTrailingDistancePoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Tight Trailing Step (pts)</label>
+                        <input
+                          type="number"
+                          value={config.scalperSettings.tightTrailingStepPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              scalperSettings: { ...config.scalperSettings, tightTrailingStepPoints: Number(e.target.value) },
                             })
                           }
                           className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
@@ -992,6 +1096,66 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                         />
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Trigger (pts)</label>
+                        <input
+                          type="number"
+                          value={config.dayTradeSettings.breakevenTriggerPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, breakevenTriggerPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Lock (pts)</label>
+                        <input
+                          type="number"
+                          value={config.dayTradeSettings.breakevenLockPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, breakevenLockPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Trailing Dist (pts)</label>
+                        <input
+                          type="number"
+                          value={config.dayTradeSettings.trailingDistancePoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, trailingDistancePoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Trailing Step (pts)</label>
+                        <input
+                          type="number"
+                          value={config.dayTradeSettings.trailingStepPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              dayTradeSettings: { ...config.dayTradeSettings, trailingStepPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -1023,6 +1187,36 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                             setConfig({
                               ...config,
                               swingTradeSettings: { ...config.swingTradeSettings, tpAtrMultiplier: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Trigger (pts)</label>
+                        <input
+                          type="number"
+                          value={config.swingTradeSettings.breakevenTriggerPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, breakevenTriggerPoints: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Breakeven Lock (pts)</label>
+                        <input
+                          type="number"
+                          value={config.swingTradeSettings.breakevenLockPoints}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              swingTradeSettings: { ...config.swingTradeSettings, breakevenLockPoints: Number(e.target.value) },
                             })
                           }
                           className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
@@ -1098,17 +1292,79 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                         className="h-4 w-4 rounded accent-cyan-500"
                       />
                     </label>
+                    <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-800/60">
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Scalper Weight %</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={config.mixedOptionsSettings.scalperWeight}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              mixedOptionsSettings: { ...config.mixedOptionsSettings, scalperWeight: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Day Trade Weight %</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={config.mixedOptionsSettings.dayTradeWeight}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              mixedOptionsSettings: { ...config.mixedOptionsSettings, dayTradeWeight: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-400 text-[10px] mb-1">Swing Weight %</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={config.mixedOptionsSettings.swingWeight}
+                          onChange={(e) =>
+                            setConfig({
+                              ...config,
+                              mixedOptionsSettings: { ...config.mixedOptionsSettings, swingWeight: Number(e.target.value) },
+                            })
+                          }
+                          className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-200"
+                        />
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
 
-              <button
-                type="submit"
-                disabled={actionLoading}
-                className="w-full mt-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold tracking-wider uppercase transition-colors"
-              >
-                {actionLoading ? 'Saving...' : 'Apply Bot Parameters'}
-              </button>
+              <div className="flex gap-2 mt-4">
+                <button
+                  type="submit"
+                  disabled={actionLoading}
+                  className="flex-1 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold tracking-wider uppercase transition-colors"
+                >
+                  {actionLoading ? 'Saving...' : 'Apply Bot Parameters'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleSelectMode('DAY_TRADES');
+                  }}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition-colors"
+                  title="Reset to Day Trade defaults"
+                >
+                  <RotateCw className="h-4 w-4" />
+                </button>
+              </div>
             </form>
           </div>
         </div>

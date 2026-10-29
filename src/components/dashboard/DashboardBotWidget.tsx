@@ -9,6 +9,7 @@ interface DashboardBotWidgetProps {
 export const DashboardBotWidget: React.FC<DashboardBotWidgetProps> = ({ onNavigateToBot }) => {
   const [botState, setBotState] = useState<any>(null);
   const [toggling, setToggling] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const fetchBot = async () => {
     try {
@@ -27,6 +28,7 @@ export const DashboardBotWidget: React.FC<DashboardBotWidgetProps> = ({ onNaviga
 
   const handleToggle = async (e: React.MouseEvent) => {
     e.stopPropagation();
+    setErrorMsg(null);
     try {
       setToggling(true);
       if (botState?.running) {
@@ -36,7 +38,8 @@ export const DashboardBotWidget: React.FC<DashboardBotWidgetProps> = ({ onNaviga
       }
       await fetchBot();
     } catch (err: any) {
-      alert(`Bot action failed: ${err?.message || err}`);
+      setErrorMsg(`Bot action failed: ${err?.message || err}`);
+      setTimeout(() => setErrorMsg(null), 4000);
     } finally {
       setToggling(false);
     }
@@ -107,6 +110,13 @@ export const DashboardBotWidget: React.FC<DashboardBotWidgetProps> = ({ onNaviga
           </button>
         )}
       </div>
+
+      {errorMsg && (
+        <div className="w-full mt-2 text-[11px] text-rose-300 bg-rose-950/80 border border-rose-800 rounded-lg px-3 py-1.5 flex items-center justify-between">
+          <span>{errorMsg}</span>
+          <button onClick={() => setErrorMsg(null)} className="text-slate-400 hover:text-white ml-2">×</button>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo, AccountInfo, ChartSymbolInfo } from '../../types';
 import { api } from '../../services/api';
-import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert, Clock, Zap } from 'lucide-react';
+import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert, Clock, Zap, Calculator } from 'lucide-react';
+import { ForexCalculatorModal } from './ForexCalculatorModal';
 
 interface OrderExecutionDockProps {
   selectedSymbol: string;
@@ -31,6 +32,7 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
   const [comment, setComment] = useState<string>('COPILOT_DESK');
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<{ message: string; error?: boolean } | null>(null);
+  const [showCalculator, setShowCalculator] = useState(false);
 
   const activeTick = ticks.find((t) => t.symbol === selectedSymbol);
   const symbolInfo = symbols.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase());
@@ -181,9 +183,20 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
               Asynchronous Order Execution
             </h2>
           </div>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-400 border border-slate-700">
-            Magic #889900
-          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setShowCalculator(true)}
+              title="Open Forex Margin, Pip & Spread Calculator"
+              className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-cyan-400 transition-colors flex items-center gap-1 text-[10px] font-mono border border-slate-700/60"
+            >
+              <Calculator className="h-3 w-3" />
+              <span>Calculator</span>
+            </button>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-cyan-400 border border-slate-700">
+              Magic #889900
+            </span>
+          </div>
         </div>
 
         {/* Trade Mode Broker Restriction Alert (Gap 3) */}
@@ -551,6 +564,16 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
         <span>Channel: Asynchronous WebRequest</span>
         <span>Target: 127.0.0.1:7777</span>
       </div>
+
+      <ForexCalculatorModal
+        isOpen={showCalculator}
+        onClose={() => setShowCalculator(false)}
+        selectedSymbol={selectedSymbol}
+        symbolInfo={symbolInfo}
+        currentTick={activeTick}
+        accountLeverage={account?.leverage || 100}
+        accountBalance={account?.balance || 10000}
+      />
     </div>
   );
 };

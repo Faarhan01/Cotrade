@@ -213,10 +213,10 @@ const CANONICAL_TEMPLATES: CanonicalEventTemplate[] = [
 let liveRemoteEvents: EconomicEvent[] = [];
 let lastRemoteFetchTime = 0;
 
-export async function refreshLiveEconomicCalendar(): Promise<void> {
+export async function refreshLiveEconomicCalendar(force = false): Promise<number> {
   const now = Date.now();
-  if (now - lastRemoteFetchTime < 60 * 1000 && liveRemoteEvents.length > 0) {
-    return;
+  if (!force && now - lastRemoteFetchTime < 60 * 1000 && liveRemoteEvents.length > 0) {
+    return liveRemoteEvents.length;
   }
   try {
     const res = await fetch('https://nfs.faireconomy.media/ff_calendar_thisweek.json', {
@@ -257,6 +257,7 @@ export async function refreshLiveEconomicCalendar(): Promise<void> {
   } catch (_err) {
     // Graceful fallback to scheduled canonical market events
   }
+  return liveRemoteEvents.length;
 }
 
 export function getUpcomingEconomicEvents(symbol?: string): {

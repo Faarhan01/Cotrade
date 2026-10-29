@@ -115,6 +115,9 @@ export const KnowledgeBasePage: React.FC = () => {
     tags: 'LondonOpen, Spread',
   });
 
+  const [confirmingDeleteStrategyId, setConfirmingDeleteStrategyId] = useState<string | null>(null);
+  const [confirmingDeleteObsId, setConfirmingDeleteObsId] = useState<string | null>(null);
+
   const loadAllData = async () => {
     try {
       setLoading(true);
@@ -226,7 +229,13 @@ export const KnowledgeBasePage: React.FC = () => {
   };
 
   const handleDeleteStrategy = async (id: string, name: string) => {
-    if (!confirm(`Delete strategy "${name}" from knowledge base?`)) return;
+    if (confirmingDeleteStrategyId !== id) {
+      setConfirmingDeleteStrategyId(id);
+      showNotification(`Click delete again to confirm removing strategy "${name}".`);
+      setTimeout(() => setConfirmingDeleteStrategyId((curr) => (curr === id ? null : curr)), 5000);
+      return;
+    }
+    setConfirmingDeleteStrategyId(null);
     try {
       await api.deleteStrategy(id);
       showNotification(`Strategy "${name}" deleted.`);
@@ -302,7 +311,13 @@ export const KnowledgeBasePage: React.FC = () => {
   };
 
   const handleDeleteObservation = async (id: string, title: string) => {
-    if (!confirm(`Delete observation "${title}"?`)) return;
+    if (confirmingDeleteObsId !== id) {
+      setConfirmingDeleteObsId(id);
+      showNotification(`Click delete again to confirm removing observation "${title}".`);
+      setTimeout(() => setConfirmingDeleteObsId((curr) => (curr === id ? null : curr)), 5000);
+      return;
+    }
+    setConfirmingDeleteObsId(null);
     try {
       await api.deleteObservation(id);
       showNotification(`Observation deleted.`);

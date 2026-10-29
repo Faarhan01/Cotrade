@@ -83,7 +83,6 @@ string TimeframeToString(ENUM_TIMEFRAMES tf);
 string TimeToISO(datetime t);
 string TranslateRetcode(int code);
 string BuildChartHistoryJson(int count);
-bool AddTrackedSymbol(string sym);
 string NormalizeTimeframe(string tf);
 string NormalizeSymbol(string sym);
 
@@ -208,7 +207,7 @@ int OnInit()
       Print("WARNING: WebRequest test failed! Error code: ", err);
       Print("IMPORTANT: In MT5, go to: Tools -> Options -> Expert Advisors");
       Print("Check 'Allow WebRequest for listed URL' and add: ", InpBridgeUrl);
-      Print("Also add fallback URL if needed: http://127.0.0.1:3000");
+      Print("Also add fallback URL if needed: ", InpBridgeUrlFallback);
    }
    else
    {

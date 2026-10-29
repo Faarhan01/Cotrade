@@ -36,6 +36,7 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
   const [newsCorrelation, setNewsCorrelation] = useState<any | null>(null);
   const [shocksData, setShocksData] = useState<any | null>(null);
   const [activeAlerts, setActiveAlerts] = useState<string[]>([]);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const categories = ['ALL', 'FOREX', 'CRYPTO', 'COMMODITY', 'MACRO', 'CENTRAL_BANK'];
@@ -174,15 +175,46 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
           </div>
         </div>
 
-        <button
-          onClick={() => loadData(symbol, selectedCategory)}
-          disabled={loading}
-          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-          title="Refresh News & Macro Events"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                setLoading(true);
+                const res = await api.refreshKnowledgeCalendar(symbol === 'ALL' ? undefined : symbol);
+                setSyncNotice(`Synced ${res.count || res.events?.length || 0} live macroeconomic calendar events.`);
+                await loadData(symbol, selectedCategory);
+                setTimeout(() => setSyncNotice(null), 4000);
+              } catch (err: any) {
+                setError(err?.message || 'Failed to sync live calendar');
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-800/80 text-cyan-300 text-xs font-mono transition-colors"
+            title="Fetch latest macroeconomic events from live feeds"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <span>Sync Live Calendar</span>
+          </button>
+
+          <button
+            onClick={() => loadData(symbol, selectedCategory)}
+            disabled={loading}
+            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+            title="Refresh News & Macro Events"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
+
+      {syncNotice && (
+        <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-800 text-emerald-300 text-xs font-mono flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <span>{syncNotice}</span>
+        </div>
+      )}
 
       {error && (
         <div className="p-4 rounded-xl bg-rose-950/80 border border-rose-800 text-rose-300 text-xs flex items-center gap-2">

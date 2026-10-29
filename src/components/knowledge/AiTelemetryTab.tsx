@@ -50,7 +50,7 @@ export const AiTelemetryTab: React.FC = () => {
       const res = await api.updateKnowledgeTelemetry(pulseSymbol, [
         {
           velocity: vel,
-          price: pulseSymbol.includes('JPY') ? 154.5 : 1.086,
+          price: String(pulseSymbol || '').includes('JPY') ? 154.5 : 1.086,
           timestamp: Date.now(),
         },
       ]);

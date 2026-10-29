@@ -9,6 +9,7 @@ import { OrderExecutionDock } from '../components/dashboard/OrderExecutionDock';
 import { OpenPositionsTable } from '../components/dashboard/OpenPositionsTable';
 import { AllTrackedSymbolsTable } from '../components/dashboard/AllTrackedSymbolsTable';
 import { DashboardBotWidget } from '../components/dashboard/DashboardBotWidget';
+import { ForexMarketSessions } from '../components/dashboard/ForexMarketSessions';
 
 interface DashboardPageProps {
   state: AppState | null;
@@ -56,7 +57,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
         onRefresh={onRefresh}
       />
 
-      {/* 4. Real-Time Tick Stream Bar */}
+      {/* 4. Global Forex Trading Sessions & Liquidity Overlaps */}
+      <ForexMarketSessions />
+
+      {/* 5. Real-Time Tick Stream Bar */}
       <LiveTickStream
         ticks={ticks}
         selectedSymbol={selectedSymbol}

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { tradeStore } from '../services/tradeStore.js';
 import { commandDispatcher } from '../services/commandDispatcher.js';
-import { tradingBot } from '../bot/index.js';
+import { tradingBot, getBotConfig } from '../bot/index.js';
 import { MCP_TOOLS, executeMcpTool, handleMcpJsonRpc } from '../mcp/mcpServer.js';
 import { broadcast } from '../services/websocketServer.js';
 import { normalizeTimeframe } from '../utils/timeframe.js';
@@ -765,6 +765,10 @@ apiRouter.get('/bot/status', (req, res) => {
   res.json({ success: true, ...tradingBot.getState() });
 });
 
+apiRouter.get('/bot/config', (req, res) => {
+  res.json({ success: true, config: getBotConfig(), state: tradingBot.getState() });
+});
+
 apiRouter.post('/bot/start', (req, res) => {
   const result = tradingBot.start();
   res.json({ success: result.success, message: result.message });
@@ -1183,7 +1187,7 @@ apiRouter.get(['/knowledge/auto-detect/imbalances', '/knowledge/imbalances'], as
 });
 
 // Auto-detect Session Order Flow Bias & Asian Range Liquidity Sweeps
-apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-order-flow'], async (req, res) => {
+apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-order-flow', '/knowledge/order-flow'], async (req, res) => {
   try {
     const currentChart = tradeStore.getCurrentChart();
     const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
@@ -1460,12 +1464,36 @@ apiRouter.get('/knowledge/calendar', async (req, res) => {
   }
 });
 
+apiRouter.post('/knowledge/calendar/refresh', async (req, res) => {
+  try {
+    const symbol = req.query.symbol as string;
+    const { refreshLiveEconomicCalendar, getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
+    const count = await refreshLiveEconomicCalendar(true);
+    const calendar = getUpcomingEconomicEvents(symbol);
+    res.json({ success: true, count, ...calendar });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
 apiRouter.get('/economic-calendar', async (req, res) => {
   try {
     const symbol = req.query.symbol as string;
     const { getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
     const calendar = getUpcomingEconomicEvents(symbol);
     res.json({ success: true, ...calendar });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+apiRouter.post('/economic-calendar/refresh', async (req, res) => {
+  try {
+    const symbol = req.query.symbol as string;
+    const { refreshLiveEconomicCalendar, getUpcomingEconomicEvents } = await import('../knowledgebase/news/economicCalendar.js');
+    const count = await refreshLiveEconomicCalendar(true);
+    const calendar = getUpcomingEconomicEvents(symbol);
+    res.json({ success: true, count, ...calendar });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message });
   }

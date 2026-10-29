@@ -36,6 +36,8 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
   const [closingTickets, setClosingTickets] = useState<Record<number, boolean>>({});
   const [lockingTickets, setLockingTickets] = useState<Record<number, boolean>>({});
   const [cancellingTickets, setCancellingTickets] = useState<Record<number, boolean>>({});
+  const [confirmingCloseAll, setConfirmingCloseAll] = useState(false);
+  const [closingPartialTickets, setClosingPartialTickets] = useState<Record<number, boolean>>({});
 
   const handleQuickBreakeven = async (pos: Position) => {
     try {
@@ -126,12 +128,44 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
     }
   };
 
+  const handlePartialClose = async (pos: Position) => {
+    const halfLots = Number((pos.volume / 2).toFixed(2));
+    if (halfLots <= 0) return;
+    try {
+      setClosingPartialTickets((prev) => ({ ...prev, [pos.ticket]: true }));
+      await api.sendCommand({
+        action: 'CLOSE_POSITION',
+        ticket: pos.ticket,
+        volume: halfLots,
+        source: 'MANUAL_UI',
+      });
+      setActionMessage({ text: `Partial close queued for #${pos.ticket}: ${halfLots} Lots` });
+      setTimeout(() => setActionMessage(null), 3500);
+    } catch (err: any) {
+      setActionMessage({ text: err?.message || 'Partial close failed', error: true });
+    } finally {
+      setTimeout(() => {
+        setClosingPartialTickets((prev) => ({ ...prev, [pos.ticket]: false }));
+      }, 1500);
+    }
+  };
+
   const handleCloseAll = async () => {
-    if (confirm('Are you sure you want to close ALL open positions?')) {
+    if (!confirmingCloseAll) {
+      setConfirmingCloseAll(true);
+      setTimeout(() => setConfirmingCloseAll(false), 4000);
+      return;
+    }
+    try {
+      setConfirmingCloseAll(false);
       await api.sendCommand({
         action: 'CLOSE_ALL',
         source: 'MANUAL_UI',
       });
+      setActionMessage({ text: 'CLOSE_ALL command dispatched for all open positions.' });
+      setTimeout(() => setActionMessage(null), 4000);
+    } catch (err: any) {
+      setActionMessage({ text: err?.message || 'Failed to dispatch Close All', error: true });
     }
   };
 
@@ -191,13 +225,30 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
         {viewTab === 'POSITIONS' && positions.length > 0 && (
           <button
             onClick={handleCloseAll}
-            className="self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80 transition-colors flex items-center gap-1.5"
+            className={`self-start sm:self-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              confirmingCloseAll
+                ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-md shadow-rose-950/50'
+                : 'bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/80'
+            }`}
           >
             <XCircle className="h-3.5 w-3.5" />
-            Close All Positions
+            <span>{confirmingCloseAll ? 'Click again to CONFIRM Close All' : `Close All Positions (${positions.length})`}</span>
           </button>
         )}
       </div>
+
+      {actionMessage && (
+        <div
+          className={`mb-3 p-2.5 rounded-lg text-xs font-mono flex items-center justify-between ${
+            actionMessage.error
+              ? 'bg-rose-950/80 border border-rose-800 text-rose-300'
+              : 'bg-emerald-950/80 border border-emerald-800 text-emerald-300'
+          }`}
+        >
+          <span>{actionMessage.text}</span>
+          <button onClick={() => setActionMessage(null)} className="text-slate-400 hover:text-white ml-2 text-sm">×</button>
+        </div>
+      )}
 
       {viewTab === 'POSITIONS' ? (
         positions.length === 0 ? (
@@ -320,6 +371,16 @@ export const OpenPositionsTable: React.FC<OpenPositionsTableProps> = ({
                               <span>
                                 {lockingTickets[pos.ticket] ? 'Locking...' : pos.breakevenLocked ? 'Protected' : 'B/E'}
                               </span>
+                            </button>
+                          )}
+                          {pos.volume >= 0.02 && (
+                            <button
+                              onClick={() => handlePartialClose(pos)}
+                              disabled={closingPartialTickets[pos.ticket] || isClosing}
+                              title={`Take partial profit: close 50% (${(pos.volume / 2).toFixed(2)} lots)`}
+                              className="px-2 py-1 rounded bg-cyan-950/70 hover:bg-cyan-900 text-cyan-300 border border-cyan-800/80 transition-colors text-[11px] font-bold"
+                            >
+                              {closingPartialTickets[pos.ticket] ? '50%...' : '½ Close'}
                             </button>
                           )}
                           <button

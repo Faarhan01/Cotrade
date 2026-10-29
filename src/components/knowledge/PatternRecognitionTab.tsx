@@ -162,7 +162,7 @@ export const PatternRecognitionTab: React.FC<PatternRecognitionTabProps> = ({
               if (customInput.trim()) {
                 const s = customInput.trim();
                 setSymbol(s);
-                if (!symbols.includes(s)) setSymbols([s, ...symbols]);
+                if (Array.isArray(symbols) && !symbols.includes(s)) setSymbols([s, ...symbols]);
                 setCustomInput('');
               }
             }}

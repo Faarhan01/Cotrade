@@ -170,18 +170,29 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
     return () => clearInterval(timer);
   }, [fetchBotData]);
 
+  const [pageNotice, setPageNotice] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showNotice = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setPageNotice({ text, type });
+    setTimeout(() => {
+      setPageNotice((curr) => (curr?.text === text ? null : curr));
+    }, 4500);
+  };
+
   const handleToggleBot = async () => {
     try {
       setActionLoading(true);
       if (botStatus?.running || config.enabled) {
         await api.stopBot();
+        showNotice('Trading bot worker paused.');
       } else {
         await api.startBot();
+        showNotice('Trading bot worker started.', 'success');
       }
       await fetchBotData();
       onRefresh?.();
     } catch (err: any) {
-      alert(`Bot action failed: ${err?.message || err}`);
+      showNotice(`Bot action failed: ${err?.message || err}`, 'error');
     } finally {
       setActionLoading(false);
     }
@@ -260,7 +271,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
       setTimeout(() => setSaveSuccess(false), 3000);
       await fetchBotData();
     } catch (err: any) {
-      alert(`Failed to save config: ${err?.message || err}`);
+      showNotice(`Failed to save config: ${err?.message || err}`, 'error');
     } finally {
       setActionLoading(false);
     }
@@ -324,7 +335,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
       await fetchBotData();
       onRefresh?.();
     } catch (err: any) {
-      alert(`Order execution error: ${err?.message || err}`);
+      showNotice(`Order execution error: ${err?.message || err}`, 'error');
     } finally {
       setManualExecLoading(null);
     }
@@ -334,6 +345,26 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
 
   return (
     <div className="space-y-6">
+      {pageNotice && (
+        <div
+          className={`p-3.5 rounded-xl border text-xs font-mono flex items-center justify-between ${
+            pageNotice.type === 'error'
+              ? 'bg-rose-950/80 border-rose-800 text-rose-300'
+              : pageNotice.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-800 text-emerald-300'
+              : 'bg-cyan-950/80 border-cyan-800 text-cyan-300'
+          }`}
+        >
+          <span>{pageNotice.text}</span>
+          <button
+            onClick={() => setPageNotice(null)}
+            className="text-slate-400 hover:text-white ml-2 text-sm"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Top Banner: Mind & Physical Worker Concept */}
       <div className="relative overflow-hidden rounded-2xl border border-cyan-800/50 bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-950/40 p-6 shadow-xl">
         <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
@@ -403,7 +434,7 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
                   if (evalRes?.signals) setSignals(evalRes.signals);
                   await fetchBotData();
                 } catch (err: any) {
-                  alert(`Evaluation notice: ${err?.message || err}`);
+                  showNotice(`Evaluation notice: ${err?.message || err}`, 'info');
                 } finally {
                   setActionLoading(false);
                 }

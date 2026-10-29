@@ -55,9 +55,16 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
       if (s?.currentChart?.symbol) {
         setSelectedSymbol(s.currentChart.symbol);
       }
-      if (s?.allSymbols && s.allSymbols.length > 0) {
-        const liveSyms = s.allSymbols.map((item) => item.symbol);
-        const combined = Array.from(new Set([...(s.currentChart ? [s.currentChart.symbol] : []), ...liveSyms]));
+      if (s?.allSymbols && Array.isArray(s.allSymbols) && s.allSymbols.length > 0) {
+        const liveSyms = s.allSymbols
+          .map((item: any) => (typeof item === 'string' ? item : item?.symbol))
+          .filter((sym: any): sym is string => typeof sym === 'string' && sym.length > 0);
+        const combined = Array.from(
+          new Set([
+            ...(s.currentChart?.symbol ? [s.currentChart.symbol] : []),
+            ...liveSyms,
+          ])
+        );
         if (combined.length > 0) setActiveSymbols(combined.slice(0, 15));
       }
     }).catch(() => {});
@@ -111,8 +118,8 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
     if (!customSymbolInput.trim()) return;
     const sym = customSymbolInput.trim();
     setSelectedSymbol(sym);
-    if (!activeSymbols.includes(sym)) {
-      setActiveSymbols((prev) => [sym, ...prev]);
+    if (Array.isArray(activeSymbols) && !activeSymbols.includes(sym)) {
+      setActiveSymbols((prev) => [sym, ...(Array.isArray(prev) ? prev : [])]);
     }
     setCustomSymbolInput('');
   };
@@ -593,10 +600,10 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
             const asianRangeStatus = sessionOrderFlowData?.asianRangeStatus || (asianHigh > 0 ? 'FIXED' : 'AWAITING BARS');
             const judasDetected = Boolean(sessionOrderFlowData?.judasSwingDetected ?? sessionOrderFlowData?.sweepDetected);
             const judasRationale = sessionOrderFlowData?.tacticalGuidance || sessionOrderFlowData?.rationale || 'Asian session liquidity monitoring active.';
-            const expansionTargetHigh = sessionOrderFlowData?.nextInstitutionalMagnet && orderFlowBias.includes('BULLISH')
+            const expansionTargetHigh = sessionOrderFlowData?.nextInstitutionalMagnet && String(orderFlowBias || '').includes('BULLISH')
               ? sessionOrderFlowData.nextInstitutionalMagnet
               : (sessionOrderFlowData?.expansionTargetHigh ?? (asianHigh > 0 ? asianHigh + (asianHigh - asianLow) * 0.618 : 0));
-            const expansionTargetLow = sessionOrderFlowData?.nextInstitutionalMagnet && orderFlowBias.includes('BEARISH')
+            const expansionTargetLow = sessionOrderFlowData?.nextInstitutionalMagnet && String(orderFlowBias || '').includes('BEARISH')
               ? sessionOrderFlowData.nextInstitutionalMagnet
               : (sessionOrderFlowData?.expansionTargetLow ?? (asianLow > 0 ? asianLow - (asianHigh - asianLow) * 0.618 : 0));
 
@@ -614,9 +621,9 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                     {imbalancesData && (
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                          dominantImbalance.includes('BULLISH')
+                          String(dominantImbalance || '').includes('BULLISH')
                             ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
-                            : dominantImbalance.includes('BEARISH')
+                            : String(dominantImbalance || '').includes('BEARISH')
                             ? 'text-rose-400 bg-rose-950/60 border-rose-800'
                             : 'text-slate-400 bg-slate-950/60 border-slate-800'
                         }`}
@@ -725,9 +732,9 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                     {sessionOrderFlowData && (
                       <span
                         className={`text-[10px] px-2 py-0.5 rounded font-bold border ${
-                          orderFlowBias.includes('BULLISH')
+                          String(orderFlowBias || '').includes('BULLISH')
                             ? 'text-emerald-400 bg-emerald-950/60 border-emerald-800'
-                            : orderFlowBias.includes('BEARISH')
+                            : String(orderFlowBias || '').includes('BEARISH')
                             ? 'text-rose-400 bg-rose-950/60 border-rose-800'
                             : 'text-slate-400 bg-slate-950/60 border-slate-800'
                         }`}

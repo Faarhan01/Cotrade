@@ -325,6 +325,13 @@ export const api = {
     return res.json();
   },
 
+  async refreshKnowledgeCalendar(symbol?: string): Promise<{ success: boolean; count: number; events?: any[]; activeAlerts?: string[] }> {
+    const url = symbol ? `/api/economic-calendar/refresh?symbol=${encodeURIComponent(symbol)}` : '/api/economic-calendar/refresh';
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) throw new Error('Failed to refresh economic calendar');
+    return res.json();
+  },
+
   async getKnowledgeImpact(symbol?: string): Promise<{ success: boolean; impact?: any; error?: string }> {
     const url = symbol ? `/api/knowledge/impact?symbol=${encodeURIComponent(symbol)}` : '/api/knowledge/impact';
     const res = await fetch(url);

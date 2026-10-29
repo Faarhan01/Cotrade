@@ -128,6 +128,8 @@ export const DatabaseExplorer: React.FC = () => {
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [inspectRow, setInspectRow] = useState<any | null>(null);
+  const [confirmingPrune, setConfirmingPrune] = useState(false);
+  const [confirmingClear, setConfirmingClear] = useState(false);
 
   const loadAnalytics = async () => {
     try {
@@ -166,19 +168,12 @@ export const DatabaseExplorer: React.FC = () => {
   }, [activeTable]);
 
   const handlePrune = async () => {
-    const confirmed = window.confirm(
-      'Prune the database now?\n\n' +
-        'This will run the full maintenance pass, which truncates:\n' +
-        '  • Unexecuted orders older than 24h\n' +
-        '  • Ticks older than 48h (cap 5,000)\n' +
-        '  • Account snapshots older than 7 days (cap 1,000)\n' +
-        '  • Candles beyond the newest 1,000 per symbol/timeframe\n' +
-        '  • Audit logs beyond the newest 2,000\n' +
-        '  • Backtest results beyond the newest 200\n' +
-        '  • Telemetry / news / regime caches beyond their caps\n\n' +
-        'Continue?'
-    );
-    if (!confirmed) return;
+    if (!confirmingPrune) {
+      setConfirmingPrune(true);
+      setTimeout(() => setConfirmingPrune(false), 5000);
+      return;
+    }
+    setConfirmingPrune(false);
     try {
       setPruning(true);
       const res = await api.pruneDatabase();
@@ -194,10 +189,12 @@ export const DatabaseExplorer: React.FC = () => {
   };
 
   const handleClearActiveTable = async () => {
-    const meta = DATABASE_TABLES.find((t) => t.id === activeTable);
-    if (!confirm(`Are you sure you want to clear all records from table "${meta?.label || activeTable}"? This action cannot be undone.`)) {
+    if (!confirmingClear) {
+      setConfirmingClear(true);
+      setTimeout(() => setConfirmingClear(false), 5000);
       return;
     }
+    setConfirmingClear(false);
     try {
       setLoading(true);
       const res = await api.clearTable(activeTable);
@@ -278,10 +275,14 @@ export const DatabaseExplorer: React.FC = () => {
               onClick={handlePrune}
               disabled={pruning}
               title="Purge unexecuted orders older than 24h & trim old data"
-              className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/60 text-xs font-mono flex items-center gap-1.5 transition-colors"
+              className={`px-3 py-2 rounded-lg text-xs font-mono flex items-center gap-1.5 transition-all ${
+                confirmingPrune
+                  ? 'bg-amber-600 hover:bg-amber-500 text-white animate-pulse shadow-md'
+                  : 'bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-800/60'
+              }`}
             >
               <Trash2 className={`h-3.5 w-3.5 ${pruning ? 'animate-spin' : ''}`} />
-              <span>{pruning ? 'Pruning...' : 'Prune Stale (24h+)'}</span>
+              <span>{confirmingPrune ? 'Click to confirm PRUNE' : pruning ? 'Pruning...' : 'Prune Stale (24h+)'}</span>
             </button>
 
             <button
@@ -462,10 +463,15 @@ export const DatabaseExplorer: React.FC = () => {
             <button
               onClick={handleClearActiveTable}
               disabled={tableData.rows.length === 0}
-              title={`Wipe all data from ${activeTable}`}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-700 transition-colors disabled:opacity-50"
+              title={confirmingClear ? `Click again to CONFIRM wipe of ${activeTable}` : `Wipe all data from ${activeTable}`}
+              className={`px-2 py-1.5 rounded-lg text-xs font-mono transition-all flex items-center gap-1 disabled:opacity-50 ${
+                confirmingClear
+                  ? 'bg-rose-600 hover:bg-rose-500 text-white animate-pulse shadow-md'
+                  : 'bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-slate-700'
+              }`}
             >
               <Trash2 className="h-3.5 w-3.5" />
+              {confirmingClear && <span>Confirm Wipe?</span>}
             </button>
           </div>
         </div>

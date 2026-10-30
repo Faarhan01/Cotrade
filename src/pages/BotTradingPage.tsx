@@ -27,9 +27,10 @@ import { calculatePositionSizeByRisk } from '../utils/symbolEconomics';
 interface BotTradingPageProps {
   state: AppState | null;
   onRefresh?: () => void;
+  onNavigateToTab?: (tab: string, symbol?: string) => void;
 }
 
-export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh }) => {
+export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh, onNavigateToTab }) => {
   const [botStatus, setBotStatus] = useState<any>(null);
   const [signals, setSignals] = useState<any[]>([]);
   const [trades, setTrades] = useState<any[]>([]);
@@ -465,6 +466,31 @@ export const BotTradingPage: React.FC<BotTradingPageProps> = ({ state, onRefresh
               )}
               <span>{isRunning ? 'HALT BOT EXECUTION' : 'START AUTO-TRADER'}</span>
             </button>
+
+            {onNavigateToTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('knowledgebase')}
+                title="Open KnowledgeBase Strategy Library & Alpha Insights"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all border border-indigo-700/60 bg-indigo-950/60 hover:bg-indigo-900/60 text-indigo-300"
+              >
+                <Brain className="h-3.5 w-3.5 text-indigo-400" />
+                <span>KNOWLEDGEBASE</span>
+              </button>
+            )}
+
+            {onNavigateToTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('database')}
+                title="Inspect real-time bot executions, order logs and SQLite tables"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold tracking-wide transition-all border border-slate-700 bg-slate-800/80 hover:bg-slate-700 text-slate-300"
+              >
+                <Settings2 className="h-3.5 w-3.5 text-slate-400" />
+                <span>DB AUDIT</span>
+              </button>
+            )}
+
             <button
               onClick={fetchBotData}
               title="Refresh signals & trades"

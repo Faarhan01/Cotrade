@@ -92,33 +92,36 @@ export class TradeExecutor {
       effectiveSubMode = 'DAY_TRADES';
     }
 
-    // Spread Guard: adjust allowed threshold based on mode
-    const spreadKnown = symbolInfo !== undefined && typeof symbolInfo.spread === 'number' && symbolInfo.spread > 0;
-    const currentSpread = symbolInfo?.spread || 0;
-    if (!spreadKnown) {
-      tradeStore.addLog(
-        'warn',
-        `Bot Spread Protection [${mode}] Skipped`,
-        `Skipped trade for ${signal.symbol}: symbol not in tracked EA symbol list or spread unknown — cannot evaluate spread guard. Add ${signal.symbol} to MT5 Market Watch or ensure EA is streaming symbol specs.`,
-        'BOT'
-      );
-      return null;
-    }
-    let maxAllowedSpread = (symbolInfo?.symbol?.includes('XAU') ? 100 : symbolInfo?.symbol?.includes('JPY') ? 40 : 35);
+    // Spread Guard: dynamically resolve spread from symbolInfo, live ticks, or nominal baseline
+    const liveTick = tradeStore.getTicks().find((t: any) => t.symbol?.toUpperCase() === signal.symbol?.toUpperCase());
+    const point = symbolInfo?.point || (signal.symbol.includes('JPY') ? 0.001 : 0.00001);
+    const tickSpread = (liveTick?.spread && liveTick.spread > 0)
+      ? liveTick.spread
+      : (liveTick?.bid && liveTick?.ask && liveTick.ask > liveTick.bid && point > 0)
+      ? Math.round((liveTick.ask - liveTick.bid) / point)
+      : 0;
+
+    const currentSpread = (symbolInfo?.spread && symbolInfo.spread > 0)
+      ? symbolInfo.spread
+      : tickSpread > 0
+      ? tickSpread
+      : 15; // Default major pair nominal spread if broker hasn't pushed symbol spec yet
+
+    let maxAllowedSpread = (signal.symbol.includes('XAU') ? 100 : signal.symbol.includes('JPY') ? 45 : 35);
     if (effectiveSubMode === 'SCALPER') {
       // Scalping requires tight spreads
-      const scalperCap = this.config.scalperSettings?.maxSpreadPoints || 20;
-      maxAllowedSpread = Math.min(maxAllowedSpread, symbolInfo?.symbol?.includes('XAU') ? 60 : scalperCap);
+      const scalperCap = this.config.scalperSettings?.maxSpreadPoints || 25;
+      maxAllowedSpread = Math.min(maxAllowedSpread, signal.symbol.includes('XAU') ? 70 : scalperCap);
     } else if (effectiveSubMode === 'SWING_TRADES') {
       // Swing trades can tolerate slightly wider spreads
-      maxAllowedSpread = Math.round(maxAllowedSpread * 1.5);
+      maxAllowedSpread = Math.round(maxAllowedSpread * 1.8);
     }
 
     if (currentSpread > maxAllowedSpread) {
       tradeStore.addLog(
         'warn',
         `Bot Spread Protection [${mode}] Triggered`,
-        `Skipped trade for ${signal.symbol}: live spread (${currentSpread} pts) exceeds ${effectiveSubMode} threshold (${maxAllowedSpread} pts)`,
+        `Skipped trade for ${signal.symbol}: live spread (${currentSpread} pts) exceeds ${effectiveSubMode} threshold (${maxAllowedSpread} pts). Waiting for optimal liquidity.`,
         'BOT'
       );
       return null;

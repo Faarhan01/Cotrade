@@ -66,12 +66,29 @@ export default function App() {
                 onNavigateToTab={handleNavigateToTab}
               />
             )}
-            {activeTab === 'bot' && <BotTradingPage state={state} onRefresh={reloadState} />}
+            {activeTab === 'bot' && (
+              <BotTradingPage
+                state={state}
+                onRefresh={reloadState}
+                onNavigateToTab={handleNavigateToTab}
+              />
+            )}
             {activeTab === 'backtest' && <BacktestPage state={state} onNavigateToTab={handleNavigateToTab} />}
-            {(activeTab === 'knowledgebase' || activeTab === 'strategies') && <KnowledgeBasePage />}
+            {(activeTab === 'knowledgebase' || activeTab === 'strategies') && (
+              <KnowledgeBasePage
+                state={state}
+                onRefresh={reloadState}
+                onNavigateToTab={handleNavigateToTab}
+              />
+            )}
             {activeTab === 'mcp' && <McpConsole />}
             {activeTab === 'risk' && <RiskManagementPage state={state} />}
-            {activeTab === 'database' && <DatabaseExplorer />}
+            {activeTab === 'database' && (
+              <DatabaseExplorer
+                state={state}
+                onNavigateToTab={handleNavigateToTab}
+              />
+            )}
             {activeTab === 'ea' && <EaSetupGuide />}
             {activeTab === 'logs' && <AuditLogPage state={state} />}
             {!['dashboard', 'symbols', 'bot', 'backtest', 'knowledgebase', 'strategies', 'mcp', 'risk', 'database', 'ea', 'logs'].includes(activeTab) && (

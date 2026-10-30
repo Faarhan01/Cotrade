@@ -115,7 +115,12 @@ const DATABASE_TABLES: TableMeta[] = [
   },
 ];
 
-export const DatabaseExplorer: React.FC = () => {
+interface DatabaseExplorerProps {
+  state?: any;
+  onNavigateToTab?: (tab: string, symbol?: string) => void;
+}
+
+export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ state, onNavigateToTab }) => {
   const [activeTable, setActiveTable] = useState<string>('orders');
   const [analytics, setAnalytics] = useState<any>(null);
   const [tableData, setTableData] = useState<{ columns: string[]; rows: any[]; totalCount: number }>({
@@ -429,6 +434,54 @@ export const DatabaseExplorer: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
+            {onNavigateToTab && (activeTable === 'bot_trades' || activeTable === 'bot_settings' || activeTable === 'bot_signals') && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('bot')}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 text-xs font-mono flex items-center gap-1 transition-colors"
+                title="Navigate to Bot Trading Desk"
+              >
+                <Zap className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Open Bot Desk</span>
+              </button>
+            )}
+
+            {onNavigateToTab && (activeTable === 'strategies' || activeTable === 'observations' || activeTable === 'economic_calendar_events') && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('knowledgebase')}
+                className="px-2.5 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-800 text-indigo-300 text-xs font-mono flex items-center gap-1 transition-colors"
+                title="Navigate to KnowledgeBase"
+              >
+                <Compass className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Open KnowledgeBase</span>
+              </button>
+            )}
+
+            {onNavigateToTab && (activeTable === 'backtest_results') && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('backtest')}
+                className="px-2.5 py-1.5 rounded-lg bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 text-xs font-mono flex items-center gap-1 transition-colors"
+                title="Navigate to Backtest Studio"
+              >
+                <FlaskConical className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Open Backtester</span>
+              </button>
+            )}
+
+            {onNavigateToTab && (activeTable === 'orders' || activeTable === 'positions_history') && (
+              <button
+                type="button"
+                onClick={() => onNavigateToTab('dashboard')}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 text-xs font-mono flex items-center gap-1 transition-colors"
+                title="Navigate to Dashboard Desk"
+              >
+                <Layers className="h-3.5 w-3.5 text-cyan-400" />
+                <span>Open Dashboard</span>
+              </button>
+            )}
+
             <div className="relative">
               <Search className="h-3.5 w-3.5 text-slate-500 absolute left-2.5 top-2.5" />
               <input

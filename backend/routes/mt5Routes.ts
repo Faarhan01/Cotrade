@@ -76,8 +76,8 @@ mt5Router.post(['/result', '/api/mt5/result'], (req, res) => {
   res.status(400).json({ status: 'error', message: 'Invalid result payload' });
 });
 
-// Live tick push from EA
-mt5Router.post(['/tick', '/api/mt5/tick'], (req, res) => {
+// Live tick push from EA or simulated feeds
+mt5Router.post(['/tick', '/api/mt5/tick', '/api/ea/tick'], (req, res) => {
   const tick = req.body;
   if (tick && tick.symbol) {
     tradeStore.updateTick(tick);
@@ -90,7 +90,20 @@ mt5Router.post(['/tick', '/api/mt5/tick'], (req, res) => {
       type: 'tick',
       payload: tick,
     });
-    return res.json({ status: 'ok' });
+    return res.json({ status: 'ok', success: true });
   }
-  res.status(400).json({ status: 'error', message: 'Invalid tick payload' });
+  res.status(400).json({ status: 'error', success: false, message: 'Invalid tick payload' });
 });
+
+// Queue inspection and command polling endpoint for EA or automated runners
+mt5Router.get(['/poll', '/api/mt5/poll', '/api/ea/poll'], (req, res) => {
+  const queue = tradeStore.getState().commandQueue || [];
+  const pending = queue.filter((c: any) => c.status === 'pending');
+  res.json({
+    status: 'ok',
+    success: true,
+    count: pending.length,
+    commands: pending,
+  });
+});
+

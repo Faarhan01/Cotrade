@@ -703,6 +703,13 @@ class TradeStore {
     } else if (barOpenTime > lastBar.time) {
       // Bar rollover: close previous bar and open new live bar
       lastBar.isClosed = true;
+      const closedCandle = { ...lastBar };
+      const currentSym = this.currentChart?.symbol || tick.symbol;
+      const currentTf = this.currentChart?.timeframe || 'M1';
+      import('../database/db.js')
+        .then(({ dbInsertCandles }) => dbInsertCandles(currentSym, currentTf, [closedCandle]))
+        .catch((e) => console.warn('[TradeStore] Failed to persist closed candle:', e?.message));
+
       const newBar: CandleData = {
         time: barOpenTime,
         timeIso: new Date(barOpenTime * 1000).toISOString(),
@@ -788,9 +795,17 @@ class TradeStore {
     count?: number;
     source: TradeCommand['source'];
   }): { success: boolean; commandId?: string; error?: string } {
-    // Reject a non-trade action without a symbol/volume check.
-    const needsSymbol = params.action !== 'CLOSE_ALL';
-    if (needsSymbol && !params.symbol) {
+    // Auto-populate symbol from ticket if known
+    if (!params.symbol && params.ticket) {
+      const pos = this.positions.get(Number(params.ticket));
+      if (pos) {
+        params.symbol = pos.symbol;
+      }
+    }
+
+    // Only actions opening new orders or querying symbols strictly require an explicit symbol
+    const actionsWithoutMandatorySymbol = ['CLOSE_ALL', 'MODIFY_POSITION', 'CLOSE_POSITION', 'CANCEL_PENDING', 'PROTECT_POSITION'];
+    if (!actionsWithoutMandatorySymbol.includes(params.action) && !params.symbol) {
       return { success: false, error: 'Missing symbol for this action.' };
     }
 

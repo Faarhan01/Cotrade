@@ -30,15 +30,22 @@ import {
   Sparkles,
   Globe,
   Zap,
+  Bot,
 } from 'lucide-react';
 import { api } from '../../services/api';
-import { StrategyDefinition, Observation, BacktestResult } from '../../types';
+import { StrategyDefinition, Observation, BacktestResult, AppState } from '../../types';
 import { SymbolIntelligenceTab } from './SymbolIntelligenceTab';
 import { PatternRecognitionTab } from './PatternRecognitionTab';
 import { MacroNewsTab } from './MacroNewsTab';
 import { AiTelemetryTab } from './AiTelemetryTab';
 
-export const KnowledgeBasePage: React.FC = () => {
+interface KnowledgeBasePageProps {
+  state?: AppState | null;
+  onRefresh?: () => void;
+  onNavigateToTab?: (tab: string, symbol?: string) => void;
+}
+
+export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onRefresh, onNavigateToTab }) => {
   const [activeSubTab, setActiveSubTab] = useState<
     'intelligence' | 'patterns' | 'strategies' | 'backtests' | 'news' | 'telemetry' | 'observations'
   >('intelligence');
@@ -59,6 +66,9 @@ export const KnowledgeBasePage: React.FC = () => {
   const [showObsModal, setShowObsModal] = useState(false);
   const [backtestingStrategyId, setBacktestingStrategyId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+
+  const activeSym = state?.currentChart?.symbol || state?.allSymbols?.[0]?.symbol || 'EURUSD';
+  const activeTf = state?.currentChart?.timeframe || 'M15';
 
   // Strategy Form
   const [stratForm, setStratForm] = useState<{
@@ -82,9 +92,9 @@ export const KnowledgeBasePage: React.FC = () => {
   }>({
     name: '',
     description: '',
-    type: 'RSI_REVERSAL',
-    symbol: 'EURUSD',
-    timeframe: 'M1',
+    type: 'ORDER_BLOCK_CONFLUENCE',
+    symbol: activeSym,
+    timeframe: activeTf,
     rsiOversold: 30,
     rsiOverbought: 70,
     fastEmaPeriod: 9,
@@ -93,7 +103,7 @@ export const KnowledgeBasePage: React.FC = () => {
     takeProfitPoints: 600,
     lotSize: 0.1,
     maxHoldBars: 50,
-    tags: 'RSI, Reversal',
+    tags: 'Institutional, FVG',
     notes: '',
     status: 'active',
   });
@@ -109,14 +119,49 @@ export const KnowledgeBasePage: React.FC = () => {
   }>({
     title: '',
     content: '',
-    symbol: 'EURUSD',
-    timeframe: 'M1',
+    symbol: activeSym,
+    timeframe: activeTf,
     category: 'market_insight',
-    tags: 'LondonOpen, Spread',
+    tags: 'OrderFlow, Imbalance',
   });
 
   const [confirmingDeleteStrategyId, setConfirmingDeleteStrategyId] = useState<string | null>(null);
   const [confirmingDeleteObsId, setConfirmingDeleteObsId] = useState<string | null>(null);
+  const [deployingStratId, setDeployingStratId] = useState<string | null>(null);
+
+  const handleDeployStrategyToBot = async (strategy: StrategyDefinition) => {
+    try {
+      setDeployingStratId(strategy.id);
+      let targetMode: 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' | 'MIXED_OPTIONS' = 'DAY_TRADES';
+      if (strategy.type === 'BOLLINGER_BREAKOUT' || strategy.timeframe === 'M1' || strategy.timeframe === 'M5') {
+        targetMode = 'SCALPER';
+      } else if (strategy.timeframe === 'H1' || strategy.timeframe === 'H4' || strategy.timeframe === 'D1') {
+        targetMode = 'SWING_TRADES';
+      } else if (strategy.type === 'ORDER_BLOCK_CONFLUENCE') {
+        targetMode = 'MIXED_OPTIONS';
+      }
+
+      await api.updateBotConfig({
+        mode: targetMode,
+        symbols: [strategy.symbol],
+        timeframe: strategy.timeframe,
+        autoStopLoss: true,
+        autoTakeProfit: true,
+        trailingStop: true,
+      });
+
+      showNotification(`Strategy "${strategy.name}" deployed to Auto-Trader Bot for ${strategy.symbol} [${strategy.timeframe}].`);
+      if (onNavigateToTab) {
+        setTimeout(() => {
+          onNavigateToTab('bot', strategy.symbol);
+        }, 700);
+      }
+    } catch (err: any) {
+      showNotification(`Failed to deploy strategy to bot: ${err?.message || err}`, 'error');
+    } finally {
+      setDeployingStratId(null);
+    }
+  };
 
   const loadAllData = async () => {
     try {
@@ -689,6 +734,18 @@ export const KnowledgeBasePage: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleDeployStrategyToBot(s);
+                            }}
+                            disabled={deployingStratId === s.id}
+                            className="px-2 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-800 text-emerald-300 font-bold flex items-center gap-1 transition-colors text-[10px]"
+                            title="Deploy this strategy directly to Auto-Trader Bot"
+                          >
+                            <Bot className="h-2.5 w-2.5 text-emerald-400" />
+                            <span>{deployingStratId === s.id ? 'Arming...' : 'Deploy'}</span>
+                          </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
                               handleRunBacktest(s);
                             }}
                             disabled={isBacktesting}
@@ -727,6 +784,16 @@ export const KnowledgeBasePage: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleDeployStrategyToBot(selectedStrategy)}
+                      disabled={deployingStratId === selectedStrategy.id}
+                      className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-emerald-950/40"
+                      title="Deploy this strategy directly to live Auto-Trader Bot"
+                    >
+                      <Bot className="h-3.5 w-3.5 text-emerald-100" />
+                      <span>{deployingStratId === selectedStrategy.id ? 'Deploying...' : 'Deploy to Bot'}</span>
+                    </button>
+
                     <button
                       onClick={() => handleRunBacktest(selectedStrategy, true)}
                       disabled={backtestingStrategyId === selectedStrategy.id}

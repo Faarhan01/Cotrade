@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI MT5 Bridge"
 #property link      "http://127.0.0.1:7777"
-#property version   "2.50"
+#property version   "2.60"
 #property description "Connects MetaTrader 5 to external AI via Local MCP/REST Bridge (http://127.0.0.1:7777 or :3000)"
 #property description "Enables asynchronous AI trade execution, real-time tick streaming, spread protection, and position management."
 
@@ -435,7 +435,7 @@ string BuildSyncJson()
    int tzOffset = (int)((curTime - gmtTime) / 3600);
 
    json += "\"apiKey\":\"" + InpApiKey + "\",";
-   json += "\"eaVersion\":\"2.50\",";
+   json += "\"eaVersion\":\"2.60\",";
    json += "\"mt5Time\":" + IntegerToString((long)curTime) + ",";
    json += "\"mt5TimeIso\":\"" + TimeToISO(curTime) + "\",";
    json += "\"gmtTime\":" + IntegerToString((long)gmtTime) + ",";
@@ -1131,6 +1131,24 @@ void ExecuteSingleCommand(string cmd)
       {
          string posSym = m_position.Symbol();
          int digits = (int)SymbolInfoInteger(posSym, SYMBOL_DIGITS);
+         double pt = SymbolInfoDouble(posSym, SYMBOL_POINT);
+         if(pt <= 0) pt = _Point;
+         int stopsLevel = (int)SymbolInfoInteger(posSym, SYMBOL_TRADE_STOPS_LEVEL);
+         double minStopDist = MathMax(stopsLevel + 5, 10) * pt;
+         double curPrice = m_position.PriceCurrent();
+
+         // Auto-adjust SL/TP to meet broker minimum stops distance and avoid Error 10016
+         if(m_position.PositionType() == POSITION_TYPE_BUY)
+         {
+            if(sl > 0 && (curPrice - sl) < minStopDist) sl = curPrice - minStopDist;
+            if(tp > 0 && (tp - curPrice) < minStopDist) tp = curPrice + minStopDist;
+         }
+         else
+         {
+            if(sl > 0 && (sl - curPrice) < minStopDist) sl = curPrice + minStopDist;
+            if(tp > 0 && (curPrice - tp) < minStopDist) tp = curPrice - minStopDist;
+         }
+
          if(sl > 0) sl = NormalizeDouble(sl, digits);
          if(tp > 0) tp = NormalizeDouble(tp, digits);
          success = m_trade.PositionModify(ticket, sl, tp);

@@ -94,7 +94,7 @@ apiRouter.get('/symbols', (req, res) => {
 
 
 // Enqueue order command from UI or API via unified commandDispatcher
-apiRouter.post('/commands', (req, res) => {
+apiRouter.post(['/commands', '/command', '/orders'], (req, res) => {
   const result = commandDispatcher.dispatchGeneric(req.body, 'MANUAL_UI');
   if (!result.success) {
     return res.status(400).json(result);

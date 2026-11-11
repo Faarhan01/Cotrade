@@ -25,6 +25,8 @@ import {
   Code,
   Filter,
   Sparkles,
+  Bot,
+  Brain,
 } from 'lucide-react';
 
 interface TableMeta {
@@ -42,6 +44,20 @@ const DATABASE_TABLES: TableMeta[] = [
     description: 'MT5 trade commands dispatched via AI MCP or manual UI, with broker tickets and fill prices.',
     icon: Layers,
     badgeColor: 'bg-cyan-950 text-cyan-300 border-cyan-800',
+  },
+  {
+    id: 'bot_trades',
+    label: 'Bot Auto-Trades',
+    description: 'Autonomous worker physical executions on MT5, with profit reconciliation and status.',
+    icon: Bot,
+    badgeColor: 'bg-emerald-950 text-emerald-300 border-emerald-800',
+  },
+  {
+    id: 'bot_signals',
+    label: 'Bot Market Signals',
+    description: 'High-conviction trading signals formulated by the KnowledgeBase Mind.',
+    icon: Brain,
+    badgeColor: 'bg-purple-950 text-purple-300 border-purple-800',
   },
   {
     id: 'strategies',
@@ -425,7 +441,7 @@ export const DatabaseExplorer: React.FC<DatabaseExplorerProps> = ({ state, onNav
                 <h2 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
                   Table: <span className="text-cyan-400">{activeTable}</span>
                 </h2>
-                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-slate-800 text-slate-300 border border-slate-700">
+                <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300 border border-slate-700">
                   {tableData.totalCount} records
                 </span>
               </div>

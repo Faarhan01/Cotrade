@@ -77,16 +77,26 @@ export async function learnSymbolBehavior(
   const point = getSymbolPoint(sym, symbolInfo?.point);
 
   // 1. Retrieve historical bars from database or use provided
-  let candles = liveCandles;
-  if (!candles || candles.length < 20) {
-    candles = await dbGetCandles(sym, 'M15', 300);
+  let candles = liveCandles || [];
+  if (candles.length < 20) {
+    const m15 = await dbGetCandles(sym, 'M15', 300);
+    if (m15 && m15.length > 0) candles = m15;
   }
-  if (!candles || candles.length < 10) {
-    candles = await dbGetCandles(sym, 'M1', 200);
+  if (candles.length < 10) {
+    const m1 = await dbGetCandles(sym, 'M1', 200);
+    if (m1 && m1.length > 0) candles = m1;
+  }
+  if (candles.length < 10) {
+    const h1 = await dbGetCandles(sym, 'H1', 100);
+    if (h1 && h1.length > 0) candles = h1;
+  }
+  if (candles.length < 10) {
+    const d1 = await dbGetCandles(sym, 'D1', 50);
+    if (d1 && d1.length > 0) candles = d1;
   }
 
   // 2. Measure Spread Profile
-  const spreadPoints = candles.map((c) => c.spread || 0).filter((s) => s > 0);
+  const spreadPoints = (candles || []).map((c) => c.spread || 0).filter((s) => s > 0);
   let typicalSpread = symbolInfo?.spread || (spreadPoints.length > 0 ? spreadPoints[Math.floor(spreadPoints.length / 2)] : 15);
   let spreadMin = spreadPoints.length > 0 ? Math.min(...spreadPoints) : Math.max(5, typicalSpread - 5);
   let spreadMax = spreadPoints.length > 0 ? Math.max(...spreadPoints) : typicalSpread * 2.2;

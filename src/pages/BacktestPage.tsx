@@ -80,7 +80,9 @@ const STRATEGY_DEFINITIONS: { id: StrategyType; name: string; description: strin
 
 export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToTab }) => {
   const [selectedStrategy, setSelectedStrategy] = useState<StrategyType>('RSI_REVERSAL');
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(
+    state?.currentChart?.symbol || (state?.allSymbols && state.allSymbols[0]?.symbol) || (state?.ticks && state.ticks[0]?.symbol) || ''
+  );
   const [selectedTimeframe, setSelectedTimeframe] = useState<string>('M1');
   const [candleCount, setCandleCount] = useState<number>(300);
   const [initialBalance, setInitialBalance] = useState<number>(10000);
@@ -116,13 +118,22 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
 
   // Available symbols from MT5 EA
   const availableSymbols = useMemo(() => {
+    const chartSym = state?.currentChart?.symbol ? [state.currentChart.symbol] : [];
     const list = state?.allSymbols?.map((s) => s.symbol) || [];
     const ticks = state?.ticks?.map((t) => t.symbol) || [];
-    const combined = Array.from(new Set([...list, ...ticks, 'EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'US30', 'BTCUSD']));
-    return combined;
+    const combined = Array.from(new Set([...chartSym, ...list, ...ticks]));
+    if (combined.length > 0) return combined;
+    return ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD'];
   }, [state]);
 
   // Sync default spread when symbol changes
+  useEffect(() => {
+    if (!selectedSymbol) {
+      const sym = state?.currentChart?.symbol || (state?.allSymbols && state.allSymbols[0]?.symbol) || (state?.ticks && state.ticks[0]?.symbol);
+      if (sym) setSelectedSymbol(sym);
+    }
+  }, [selectedSymbol, state?.currentChart?.symbol, state?.allSymbols, state?.ticks]);
+
   useEffect(() => {
     const symObj = state?.allSymbols?.find((s) => s.symbol === selectedSymbol);
     if (symObj && symObj.spread > 0) {
@@ -176,13 +187,24 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
   // Apply winning parameters to live Bot
   const handleApplyToBot = async () => {
     try {
+      let targetMode: 'SCALPER' | 'DAY_TRADES' | 'SWING_TRADES' | 'MIXED_OPTIONS' = 'DAY_TRADES';
+      if (selectedStrategy === 'BOLLINGER_BREAKOUT' || selectedTimeframe === 'M1' || selectedTimeframe === 'M5') {
+        targetMode = 'SCALPER';
+      } else if (selectedTimeframe === 'H1' || selectedTimeframe === 'H4' || selectedTimeframe === 'D1' || selectedStrategy === 'BREAKOUT_MOMENTUM') {
+        targetMode = 'SWING_TRADES';
+      } else if (selectedStrategy === 'ORDER_BLOCK_CONFLUENCE') {
+        targetMode = 'MIXED_OPTIONS';
+      }
+
       await api.updateBotConfig({
+        mode: targetMode,
         symbols: [selectedSymbol],
         timeframe: selectedTimeframe,
         riskPercent: riskMode === 'RISK_PERCENT' ? riskPercent : 1.0,
+        trailingStop: true,
       });
-      setBotApplyNotice(`Successfully synced ${selectedSymbol} [${selectedTimeframe}] to Auto-Trader Bot!`);
-      setTimeout(() => setBotApplyNotice(null), 3500);
+      setBotApplyNotice(`Successfully synced ${selectedSymbol} [${selectedTimeframe}] (${targetMode.replace('_', ' ')}) to Auto-Trader Bot!`);
+      setTimeout(() => setBotApplyNotice(null), 4000);
     } catch (err: any) {
       setBotApplyNotice(`Failed to apply to bot: ${err?.message || err}`);
       setTimeout(() => setBotApplyNotice(null), 4000);
@@ -196,6 +218,9 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
     if (tradeFilter === 'LOSSES') return result.trades.filter((t: any) => t.profitUSD < 0);
     return result.trades;
   }, [result, tradeFilter]);
+
+  // Chart View Tab: Equity Curve or Underwater Drawdown
+  const [chartView, setChartView] = useState<'EQUITY' | 'DRAWDOWN'>('EQUITY');
 
   // Render SVG Equity Curve
   const equityPoints: any[] = result?.equityCurve || [];
@@ -216,6 +241,35 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
       })
       .join(' ');
   }, [equityPoints]);
+
+  const drawdownPoints = useMemo(() => {
+    if (!equityPoints || equityPoints.length < 2) return [];
+    let peak = equityPoints[0].equity;
+    return equityPoints.map((p) => {
+      if (p.equity > peak) peak = p.equity;
+      const ddPct = peak > 0 ? ((peak - p.equity) / peak) * 100 : 0;
+      return { time: p.time, ddPct };
+    });
+  }, [equityPoints]);
+
+  const ddSvgPath = useMemo(() => {
+    if (!drawdownPoints || drawdownPoints.length < 2) return { line: '', area: '', maxDd: 0 };
+    const maxDd = Math.max(0.5, ...drawdownPoints.map((d) => d.ddPct));
+    const width = 800;
+    const height = 240;
+    const padding = 20;
+
+    const line = drawdownPoints
+      .map((d, idx) => {
+        const x = padding + (idx / (drawdownPoints.length - 1)) * (width - padding * 2);
+        const y = padding + (d.ddPct / maxDd) * (height - padding * 2);
+        return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+      })
+      .join(' ');
+
+    const area = `${line} L ${width - padding} ${padding} L ${padding} ${padding} Z`;
+    return { line, area, maxDd };
+  }, [drawdownPoints]);
 
   return (
     <div className="space-y-6">
@@ -316,17 +370,21 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-slate-400 block mb-1 text-[11px]">Symbol</label>
-                <select
-                  value={selectedSymbol}
-                  onChange={(e) => setSelectedSymbol(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold focus:border-cyan-500 focus:outline-none"
-                >
-                  {availableSymbols.map((sym) => (
-                    <option key={sym} value={sym}>
-                      {sym}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={selectedSymbol}
+                    onChange={(e) => setSelectedSymbol(e.target.value.toUpperCase())}
+                    placeholder="e.g. XAUUSD"
+                    list="backtest-symbols-list"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold focus:border-cyan-500 focus:outline-none uppercase text-xs"
+                  />
+                  <datalist id="backtest-symbols-list">
+                    {availableSymbols.map((sym) => (
+                      <option key={sym} value={sym} />
+                    ))}
+                  </datalist>
+                </div>
               </div>
 
               <div>
@@ -582,40 +640,96 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
                 </div>
               </div>
 
-              {/* Equity Curve Visualizer */}
-              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs font-mono">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-cyan-400" />
-                    <span className="font-bold text-white">Simulated Equity Curve Progression</span>
+              {/* Equity & Underwater Drawdown Visualizer */}
+              <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 space-y-3 font-mono">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-2 border-b border-slate-800 text-xs gap-2">
+                  <div className="flex items-center gap-1.5 p-1 bg-slate-950 rounded-lg border border-slate-800">
+                    <button
+                      onClick={() => setChartView('EQUITY')}
+                      className={`px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        chartView === 'EQUITY'
+                          ? 'bg-cyan-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <TrendingUp className="h-3.5 w-3.5" />
+                      <span>Equity Curve ($)</span>
+                    </button>
+                    <button
+                      onClick={() => setChartView('DRAWDOWN')}
+                      className={`px-3 py-1 rounded text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        chartView === 'DRAWDOWN'
+                          ? 'bg-rose-950 text-rose-300 border border-rose-800/80 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      <span>Underwater Drawdown (%)</span>
+                    </button>
                   </div>
+
                   <div className="flex items-center gap-3 text-slate-400 text-[11px]">
-                    <span>Start: ${result.initialBalance.toLocaleString()}</span>
-                    <span>→</span>
-                    <span className="text-emerald-400 font-bold">Final: ${result.finalEquity.toLocaleString()}</span>
+                    {chartView === 'EQUITY' ? (
+                      <>
+                        <span>Start: ${result.initialBalance.toLocaleString()}</span>
+                        <span>→</span>
+                        <span className="text-emerald-400 font-bold">Final: ${result.finalEquity.toLocaleString()}</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Max Drawdown: <strong className="text-rose-400">-{result.maxDrawdownPercent.toFixed(1)}%</strong></span>
+                        <span>(-${result.maxDrawdownUSD.toLocaleString()})</span>
+                      </>
+                    )}
                   </div>
                 </div>
 
                 <div className="relative h-60 w-full overflow-hidden flex items-center justify-center bg-slate-950/60 rounded-lg p-2 border border-slate-900">
-                  {svgPath ? (
-                    <svg className="w-full h-full" viewBox="0 0 800 240" preserveAspectRatio="none">
-                      {/* Grid lines */}
-                      <line x1="0" y1="60" x2="800" y2="60" stroke="#1e293b" strokeDasharray="4 4" />
-                      <line x1="0" y1="120" x2="800" y2="120" stroke="#1e293b" strokeDasharray="4 4" />
-                      <line x1="0" y1="180" x2="800" y2="180" stroke="#1e293b" strokeDasharray="4 4" />
-
-                      {/* Main equity path */}
-                      <path
-                        d={svgPath}
-                        fill="none"
-                        stroke="#06b6d4"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                  {chartView === 'EQUITY' ? (
+                    svgPath ? (
+                      <svg className="w-full h-full" viewBox="0 0 800 240" preserveAspectRatio="none">
+                        <line x1="0" y1="60" x2="800" y2="60" stroke="#1e293b" strokeDasharray="4 4" />
+                        <line x1="0" y1="120" x2="800" y2="120" stroke="#1e293b" strokeDasharray="4 4" />
+                        <line x1="0" y1="180" x2="800" y2="180" stroke="#1e293b" strokeDasharray="4 4" />
+                        <path
+                          d={svgPath}
+                          fill="none"
+                          stroke="#06b6d4"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : (
+                      <span className="text-slate-500 text-xs font-mono">Insufficient data points</span>
+                    )
                   ) : (
-                    <span className="text-slate-500 text-xs font-mono">Insufficient data points</span>
+                    ddSvgPath.line ? (
+                      <svg className="w-full h-full" viewBox="0 0 800 240" preserveAspectRatio="none">
+                        <line x1="0" y1="20" x2="800" y2="20" stroke="#059669" strokeWidth="1" strokeDasharray="4 4" />
+                        <line x1="0" y1="80" x2="800" y2="80" stroke="#1e293b" strokeDasharray="4 4" />
+                        <line x1="0" y1="140" x2="800" y2="140" stroke="#1e293b" strokeDasharray="4 4" />
+                        <line x1="0" y1="200" x2="800" y2="200" stroke="#1e293b" strokeDasharray="4 4" />
+
+                        {/* Shaded underwater fill */}
+                        <path
+                          d={ddSvgPath.area}
+                          fill="rgba(244, 63, 94, 0.15)"
+                        />
+
+                        {/* Drawdown curve line */}
+                        <path
+                          d={ddSvgPath.line}
+                          fill="none"
+                          stroke="#f43f5e"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    ) : (
+                      <span className="text-slate-500 text-xs font-mono">No drawdown events recorded</span>
+                    )
                   )}
                 </div>
               </div>
@@ -638,6 +752,13 @@ export const BacktestPage: React.FC<BacktestPageProps> = ({ state, onNavigateToT
                     className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-mono text-xs font-bold transition-all shadow-sm"
                   >
                     Sync With Bot
+                  </button>
+                  <button
+                    onClick={() => onNavigateToTab && onNavigateToTab('bot', selectedSymbol)}
+                    className="px-3.5 py-2 rounded-lg bg-indigo-900/80 hover:bg-indigo-800 text-indigo-200 font-mono text-xs font-bold transition-all border border-indigo-700/80 flex items-center gap-1.5"
+                  >
+                    <Bot className="h-3.5 w-3.5 text-indigo-300" />
+                    <span>Open Bot</span>
                   </button>
                   <button
                     onClick={() => onNavigateToTab && onNavigateToTab('dashboard', selectedSymbol)}

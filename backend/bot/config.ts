@@ -57,6 +57,9 @@ export function validateBotConfig(config: Partial<BotConfig>): { valid: boolean;
   if (config.minConfidence !== undefined && (config.minConfidence < 0 || config.minConfidence > 100)) {
     errors.push('minConfidence must be between 0 and 100');
   }
+  if (config.minRiskRewardRatio !== undefined && (config.minRiskRewardRatio < 1.0 || config.minRiskRewardRatio > 10.0)) {
+    errors.push('minRiskRewardRatio must be between 1.0 and 10.0');
+  }
   if (config.riskPercent !== undefined && (config.riskPercent <= 0 || config.riskPercent > 10)) {
     errors.push('riskPercent must be between 0 and 10');
   }

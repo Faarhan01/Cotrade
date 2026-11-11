@@ -6,7 +6,7 @@
 //+------------------------------------------------------------------+
 #property copyright "AI MT5 Bridge"
 #property link      "http://127.0.0.1:7777"
-#property version   "2.60"
+#property version   "2.75"
 #property description "Connects MetaTrader 5 to external AI via Local MCP/REST Bridge (http://127.0.0.1:7777 or :3000)"
 #property description "Enables asynchronous AI trade execution, real-time tick streaming, spread protection, and position management."
 
@@ -85,6 +85,7 @@ string TranslateRetcode(int code);
 string BuildChartHistoryJson(int count);
 string NormalizeTimeframe(string tf);
 string NormalizeSymbol(string sym);
+string CleanUrl(string url);
 
 //+------------------------------------------------------------------+
 //| Convert string timeframe to ENUM_TIMEFRAMES                      |
@@ -160,6 +161,20 @@ string TimeToISO(datetime t)
    return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ", dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
 }
 
+//+------------------------------------------------------------------+
+//| Trim whitespace and trailing slashes from URL                    |
+//+------------------------------------------------------------------+
+string CleanUrl(string url)
+{
+   StringTrimLeft(url);
+   StringTrimRight(url);
+   while(StringLen(url) > 0 && StringSubstr(url, StringLen(url) - 1, 1) == "/")
+   {
+      url = StringSubstr(url, 0, StringLen(url) - 1);
+   }
+   return url;
+}
+
 //--- Execution Result Queue
 struct TradeResultItem
 {
@@ -200,18 +215,20 @@ int OnInit()
    // Verify WebRequest capability
    char postData[], resultData[];
    string resultHeaders;
-   int res = WebRequest("GET", InpBridgeUrl + "/health", "", 1000, postData, resultData, resultHeaders);
+   string primaryUrl = CleanUrl(InpBridgeUrl);
+   string fallbackUrl = CleanUrl(InpBridgeUrlFallback);
+   int res = WebRequest("GET", primaryUrl + "/health", "", 1000, postData, resultData, resultHeaders);
    if(res == -1)
    {
       int err = GetLastError();
       Print("WARNING: WebRequest test failed! Error code: ", err);
       Print("IMPORTANT: In MT5, go to: Tools -> Options -> Expert Advisors");
-      Print("Check 'Allow WebRequest for listed URL' and add: ", InpBridgeUrl);
-      Print("Also add fallback URL if needed: ", InpBridgeUrlFallback);
+      Print("Check 'Allow WebRequest for listed URL' and add: ", primaryUrl);
+      if(fallbackUrl != "") Print("Also add fallback URL if needed: ", fallbackUrl);
    }
    else
    {
-      Print("SUCCESS: Connected to AI MT5 Bridge at ", InpBridgeUrl, " (HTTP ", res, ")");
+      Print("SUCCESS: Connected to AI MT5 Bridge at ", primaryUrl, " (HTTP ", res, ")");
    }
 
    // Subscribe to Depth of Market / Order Book if supported
@@ -274,6 +291,32 @@ void OnTick()
    if(g_EnableTrailing)
    {
       ProcessTrailingStops();
+   }
+}
+
+//+------------------------------------------------------------------+
+//| Expert trade transaction function (Instant Execution Event)      |
+//+------------------------------------------------------------------+
+void OnTradeTransaction(const MqlTradeTransaction& trans,
+                        const MqlTradeRequest& request,
+                        const MqlTradeResult& result)
+{
+   if(trans.type == TRADE_TRANSACTION_DEAL_ADD)
+   {
+      // Deal added (instant fill, close, sl/tp hit)
+      PrintFormat("MT5 DEAL EVENT: Deal #%I64d, Order #%I64d, Vol: %.2f, Symbol: %s", 
+                  trans.deal, trans.order, trans.volume, trans.symbol);
+      if(!g_isSyncing)
+      {
+         SyncWithBridge();
+      }
+   }
+   else if(trans.type == TRADE_TRANSACTION_ORDER_ADD || trans.type == TRADE_TRANSACTION_ORDER_DELETE)
+   {
+      if(!g_isSyncing)
+      {
+         SyncWithBridge();
+      }
    }
 }
 
@@ -368,6 +411,7 @@ bool AddTrackedSymbol(string sym)
    }
    // Select symbol into Market Watch if not already there
    SymbolSelect(sym, true);
+   MarketBookAdd(sym);
    ArrayResize(g_trackedSymbols, g_trackedCount + 1);
    g_trackedSymbols[g_trackedCount] = sym;
    g_trackedCount++;
@@ -390,13 +434,15 @@ void SyncWithBridge()
    int dataLen = ArraySize(postData) - 1;
    if(dataLen > 0) ArrayResize(postData, dataLen);
 
-   string targetUrl = InpBridgeUrl + "/sync";
+   string primaryUrl = CleanUrl(InpBridgeUrl);
+   string fallbackUrl = CleanUrl(InpBridgeUrlFallback);
+   string targetUrl = primaryUrl + "/sync";
    int httpCode = WebRequest("POST", targetUrl, headers, 1500, postData, resultData, resultHeaders);
    
    // Try fallback if primary fails
-   if(httpCode == -1 && InpBridgeUrlFallback != "")
+   if(httpCode == -1 && fallbackUrl != "")
    {
-      targetUrl = InpBridgeUrlFallback + "/sync";
+      targetUrl = fallbackUrl + "/sync";
       httpCode = WebRequest("POST", targetUrl, headers, 1500, postData, resultData, resultHeaders);
    }
 
@@ -435,7 +481,7 @@ string BuildSyncJson()
    int tzOffset = (int)((curTime - gmtTime) / 3600);
 
    json += "\"apiKey\":\"" + InpApiKey + "\",";
-   json += "\"eaVersion\":\"2.60\",";
+   json += "\"eaVersion\":\"2.75\",";
    json += "\"mt5Time\":" + IntegerToString((long)curTime) + ",";
    json += "\"mt5TimeIso\":\"" + TimeToISO(curTime) + "\",";
    json += "\"gmtTime\":" + IntegerToString((long)gmtTime) + ",";
@@ -569,12 +615,13 @@ string BuildSyncJson()
 
    // All Tracked Symbols Detailed Info
    json += "\"allSymbols\":[";
+   int addedSymbols = 0;
    for(int s = 0; s < g_trackedCount; s++)
    {
       string sym = g_trackedSymbols[s];
       if(SymbolSelect(sym, true))
       {
-         if(s > 0) json += ",";
+         if(addedSymbols > 0) json += ",";
          int sDigits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
          MqlRates symD1[];
          double sOpen = 0.0, sHigh = 0.0, sLow = 0.0;
@@ -627,6 +674,7 @@ string BuildSyncJson()
          json += "\"currencyMargin\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_MARGIN) + "\",";
          json += "\"currencyProfit\":\"" + SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT) + "\"";
          json += "}";
+         addedSymbols++;
       }
    }
    json += "],";
@@ -775,6 +823,7 @@ string BuildSyncJson()
             addedOrders++;
          }
       }
+   }
    json += "],";
 
    // Recent Closed Deals from Broker History (Last 30 closed deals)
@@ -876,7 +925,6 @@ string BuildSyncJson()
    json += "]";
 
    json += "}";
-}
    return json;
 }
 
@@ -1011,13 +1059,24 @@ void ExecuteSingleCommand(string cmd)
    double tp = StringToDouble(ExtractJsonField(cmd, "tp"));
    ulong ticket = (ulong)StringToInteger(ExtractJsonField(cmd, "ticket"));
    ulong magic = (ulong)StringToInteger(ExtractJsonField(cmd, "magic"));
+   if(magic == 0) magic = (ulong)StringToInteger(ExtractJsonField(cmd, "magicNumber"));
    string comment = ExtractJsonField(cmd, "comment");
 
    if(symbol == "") symbol = _Symbol;
    if(magic == 0) magic = InpMagicNumber;
    if(comment == "") comment = "AI_ORDER";
 
+   AddTrackedSymbol(symbol);
+
    m_trade.SetExpertMagicNumber(magic);
+
+   ulong cmdSlippage = (ulong)StringToInteger(ExtractJsonField(cmd, "slippage"));
+   if(cmdSlippage == 0) cmdSlippage = (ulong)StringToInteger(ExtractJsonField(cmd, "deviation"));
+   if(cmdSlippage == 0 && comment != "")
+   {
+      cmdSlippage = (ulong)StringToInteger(ExtractJsonField(comment, "slippage"));
+   }
+   m_trade.SetDeviationInPoints(cmdSlippage > 0 ? cmdSlippage : InpDefaultSlippage);
 
    bool success = false;
    ulong dealTicket = 0;
@@ -1108,11 +1167,28 @@ void ExecuteSingleCommand(string cmd)
             execPrice = (price > 0) ? NormalizeDouble(price, digits) : tick.bid;
             success = m_trade.SellStop(volume, execPrice, symbol, sl, tp, ORDER_TIME_GTC, 0, comment);
          }
+         else if(orderType == "BUY_STOP_LIMIT")
+         {
+            execPrice = (price > 0) ? NormalizeDouble(price, digits) : tick.ask;
+            double limitPrice = StringToDouble(ExtractJsonField(cmd, "stopLimitPrice"));
+            if(limitPrice <= 0.0) limitPrice = execPrice;
+            else limitPrice = NormalizeDouble(limitPrice, digits);
+            success = m_trade.OrderOpen(symbol, ORDER_TYPE_BUY_STOP_LIMIT, volume, limitPrice, execPrice, sl, tp, ORDER_TIME_GTC, 0, comment);
+         }
+         else if(orderType == "SELL_STOP_LIMIT")
+         {
+            execPrice = (price > 0) ? NormalizeDouble(price, digits) : tick.bid;
+            double limitPrice = StringToDouble(ExtractJsonField(cmd, "stopLimitPrice"));
+            if(limitPrice <= 0.0) limitPrice = execPrice;
+            else limitPrice = NormalizeDouble(limitPrice, digits);
+            success = m_trade.OrderOpen(symbol, ORDER_TYPE_SELL_STOP_LIMIT, volume, limitPrice, execPrice, sl, tp, ORDER_TIME_GTC, 0, comment);
+         }
 
          if(success)
          {
             dealTicket = m_trade.ResultDeal();
             orderTicket = m_trade.ResultOrder();
+            if(dealTicket == 0 && orderTicket > 0) dealTicket = orderTicket;
             execPrice = m_trade.ResultPrice();
             Print("AI/MANUAL TRADE EXECUTED: Deal #", dealTicket, " at ", execPrice, " (", orderType, " ", volume, " ", symbol, ")");
          }
@@ -1168,7 +1244,7 @@ void ExecuteSingleCommand(string cmd)
          errMsg = "Position not found: " + IntegerToString(ticket);
       }
    }
-   else if(action == "CLOSE_POSITION")
+   else if(action == "CLOSE_POSITION" || action == "PARTIAL_CLOSE" || action == "CLOSE_PARTIAL")
    {
       if(ticket > 0 && m_position.SelectByTicket(ticket))
       {
@@ -1198,8 +1274,9 @@ void ExecuteSingleCommand(string cmd)
          errMsg = "Position ticket not found: " + IntegerToString(ticket);
       }
    }
-   else if(action == "CLOSE_ALL")
+   else if(action == "CLOSE_ALL" || action == "CLOSE_PROFITABLE" || action == "CLOSE_PROFITABLE_ONLY")
    {
+      bool onlyProfitable = (action == "CLOSE_PROFITABLE" || action == "CLOSE_PROFITABLE_ONLY");
       int closedCount = 0;
       int total = PositionsTotal();
       for(int i = total - 1; i >= 0; i--)
@@ -1207,6 +1284,7 @@ void ExecuteSingleCommand(string cmd)
          ulong t = PositionGetTicket(i);
          if(t > 0 && m_position.SelectByTicket(t))
          {
+            if(onlyProfitable && m_position.Profit() <= 0.0) continue;
             if(symbol == "" || symbol == "ALL" || m_position.Symbol() == symbol)
             {
                if(m_trade.PositionClose(t)) closedCount++;
@@ -1230,6 +1308,45 @@ void ExecuteSingleCommand(string cmd)
          {
             errCode = (int)m_trade.ResultRetcode();
             errMsg = m_trade.ResultRetcodeDescription();
+         }
+      }
+      else
+      {
+         errCode = 4753;
+         errMsg = "Missing pending order ticket";
+      }
+   }
+   else if(action == "MODIFY_PENDING" || action == "MODIFY_ORDER")
+   {
+      if(ticket > 0)
+      {
+         if(OrderSelect(ticket))
+         {
+            string ordSym = OrderGetString(ORDER_SYMBOL);
+            if(ordSym != "") symbol = ordSym;
+            int digits = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+            if(price <= 0.0) price = OrderGetDouble(ORDER_PRICE_OPEN);
+            if(price > 0.0) price = NormalizeDouble(price, digits);
+            if(sl > 0.0) sl = NormalizeDouble(sl, digits);
+            if(tp > 0.0) tp = NormalizeDouble(tp, digits);
+            ENUM_ORDER_TYPE_TIME type_time = (ENUM_ORDER_TYPE_TIME)OrderGetInteger(ORDER_TYPE_TIME);
+            datetime expiration = (datetime)OrderGetInteger(ORDER_TIME_EXPIRATION);
+            success = m_trade.OrderModify(ticket, price, sl, tp, type_time, expiration);
+            if(success)
+            {
+               dealTicket = ticket;
+               Print("PENDING ORDER MODIFIED: #", ticket, " [", symbol, "] Price: ", price, " SL: ", sl, " TP: ", tp);
+            }
+            else
+            {
+               errCode = (int)m_trade.ResultRetcode();
+               errMsg = m_trade.ResultRetcodeDescription();
+            }
+         }
+         else
+         {
+            errCode = 4753;
+            errMsg = "OrderSelect failed for ticket #" + IntegerToString(ticket);
          }
       }
       else
@@ -1371,7 +1488,7 @@ void ExecuteSingleCommand(string cmd)
          errMsg = "Missing symbol name";
       }
    }
-   else if(action == "PROTECT_POSITION")
+   else if(action == "PROTECT_POSITION" || action == "BREAKEVEN" || action == "SET_BREAKEVEN" || action == "APPLY_BREAKEVEN")
    {
       if(ticket == 0)
       {
@@ -1438,9 +1555,11 @@ void ExecuteSingleCommand(string cmd)
 
    // Calculate execution slippage in points if applicable
    int slippagePts = 0;
-   if(success && execPrice > 0 && price > 0 && _Point > 0)
+   if(success && execPrice > 0 && price > 0)
    {
-      slippagePts = (int)MathRound(MathAbs(execPrice - price) / _Point);
+      double symPt = SymbolInfoDouble(symbol, SYMBOL_POINT);
+      if(symPt <= 0) symPt = _Point;
+      if(symPt > 0) slippagePts = (int)MathRound(MathAbs(execPrice - price) / symPt);
    }
 
    // Record result in queue to inform Bridge

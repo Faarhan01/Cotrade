@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TickData } from '../../types';
 import { ArrowUpRight, ArrowDownRight, Zap } from 'lucide-react';
+import { getSymbolDigits } from '../../utils/symbolEconomics';
 
 interface LiveTickStreamProps {
   ticks: TickData[];
@@ -56,7 +57,7 @@ export const LiveTickStream: React.FC<LiveTickStreamProps> = ({
             Awaiting Real Market Ticks from MetaTrader 5
           </div>
           <p className="text-slate-500">
-            No fake simulated ticks. Attach <code className="text-cyan-400">AIMT5Bridge.mq5</code> to any chart in MT5 with whitelisted URL <code className="text-cyan-400">http://127.0.0.1:7777</code> to begin live tick streaming.
+            Attach <code className="text-cyan-400">AIMT5Bridge.mq5</code> to any chart in MT5 with whitelisted WebRequest URL <code className="text-cyan-400">http://127.0.0.1:3000</code> (or fallback <code className="text-cyan-400">http://127.0.0.1:7777</code>) to begin real-time streaming.
           </p>
         </div>
       ) : (
@@ -64,7 +65,7 @@ export const LiveTickStream: React.FC<LiveTickStreamProps> = ({
           {ticks.map((tick) => {
           const isSelected = selectedSymbol === tick.symbol;
           const flash = flashStates[tick.symbol];
-          const digits = tick.symbol.includes('JPY') ? 3 : tick.symbol.includes('USD') && tick.symbol.length <= 6 ? 5 : 2;
+          const digits = getSymbolDigits(tick.symbol);
 
           return (
             <div
@@ -80,7 +81,7 @@ export const LiveTickStream: React.FC<LiveTickStreamProps> = ({
                 <span className="font-bold text-xs font-mono text-white tracking-wide">
                   {tick.symbol}
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
                   Sprd: {tick.spread} pts
                 </span>
               </div>

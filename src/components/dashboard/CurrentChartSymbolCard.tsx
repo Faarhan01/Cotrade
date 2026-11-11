@@ -261,7 +261,7 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
                 <span className="text-slate-300 font-semibold">
                   Active Bar 0 Status:
                 </span>
-                <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${chartDiagnostics.isBarClosed ? 'bg-slate-800 text-slate-300' : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'}`}>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${chartDiagnostics.isBarClosed ? 'bg-slate-800 text-slate-300' : 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60'}`}>
                   {chartDiagnostics.isBarClosed ? 'CLOSED' : 'FORMING (LIVE)'}
                 </span>
               </div>
@@ -274,9 +274,9 @@ export const CurrentChartSymbolCard: React.FC<CurrentChartSymbolCardProps> = ({
             </div>
 
             {/* Visual Progress Bar */}
-            <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden border border-slate-800">
+            <div className="w-full bg-slate-900 rounded-sm h-1.5 overflow-hidden border border-slate-800">
               <div
-                className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-1.5 rounded-full transition-all duration-500"
+                className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-1.5 rounded-sm transition-all duration-500"
                 style={{ width: `${Math.min(100, Math.max(2, chartDiagnostics.barProgressPct))}%` }}
               />
             </div>

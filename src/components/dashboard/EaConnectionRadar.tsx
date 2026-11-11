@@ -65,7 +65,7 @@ export const EaConnectionRadar: React.FC<EaConnectionRadarProps> = ({ state, onR
                 <span className="font-extrabold text-sm font-mono text-emerald-300 uppercase tracking-wider">
                   MT5 EA Live & Running
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700">
                   {elapsedSeconds === 0 ? 'Active < 1s' : `${elapsedSeconds}s ago`}
                 </span>
               </div>

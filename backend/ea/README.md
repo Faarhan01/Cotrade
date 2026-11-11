@@ -11,8 +11,8 @@ Because MetaTrader 5 blocks outgoing HTTP connections by default, you **must all
 3. Select the **Expert Advisors** tab.
 4. Check **"Allow WebRequest for listed URL"**.
 5. Click the green `+` icon and add:
-   - `http://127.0.0.1:7777`
-   - *(Optional fallback)* `http://127.0.0.1:3000`
+   - `http://127.0.0.1:3000` (Primary unified terminal port)
+   - `http://127.0.0.1:7777` (Fallback listener port)
 6. Also check **"Allow Algo Trading"**.
 7. Click **OK**.
 
@@ -26,12 +26,14 @@ Because MetaTrader 5 blocks outgoing HTTP connections by default, you **must all
 
 ### 3. Configure Input Parameters
 In the EA properties dialog:
-- **InpBridgeUrl**: `http://127.0.0.1:7777` (the primary local bridge)
+- **InpBridgeUrl**: `http://127.0.0.1:3000` (the primary unified bridge)
+- **InpBridgeUrlFallback**: `http://127.0.0.1:7777` (dedicated listener)
 - **InpApiKey**: `mt5_bridge_secret_key`
 - **InpTimerIntervalMs**: `500` (500ms sync loop for sub-second AI reaction)
 - **InpMagicNumber**: `889900`
 - **InpEnableTrailing**: `true` (dynamic trailing stop engine)
-- **InpSymbolsToTrack**: `EURUSD,GBPUSD,USDJPY,XAUUSD,BTCUSD`
+- **InpEnableBreakeven**: `true` (automated breakeven profit locking)
+- **InpSymbolsToTrack**: `EURUSD,GBPUSD,USDJPY,XAUUSD,BTCUSD,Step Index`
 
 Ensure the **"Allow Algo Trading"** button in the MT5 top toolbar is **Green** (active).
 You will see the EA initialization message and successful connection in the **Experts** tab at the bottom of MT5!
@@ -51,7 +53,7 @@ When the EA is running, external AI agents (such as Claude Desktop, Cursor, Open
 - `mt5_get_execution_queue`: Inspect asynchronous order status.
 - `mt5_pull_chart_history_now`: Request real historical candlestick bars directly from MetaTrader 5 on demand.
 
-## ⚡ Architecture & Real-Time Intelligence (v2.30)
+## ⚡ Architecture & Real-Time Intelligence (v2.70)
 - **Zero Synthetic / Demo Fallbacks**: All charts, patterns, backtests, and signals operate strictly on authentic broker quotes and real MT5 candles.
 - **Escaped JSON Field Extraction**: Robust string parser in `AIMT5Bridge.mq5` handles escaped quotes without truncation, enabling reliable parameterized commands (`FETCH_HISTORY`, dynamic comments).
 - **Proactive Symbol Auto-Discovery**: As soon as the EA connects, all symbols from the MT5 Market Watch are analyzed and profiled for volatility, tick value, spread hazard, and session boundaries.

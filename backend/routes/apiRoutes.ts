@@ -48,6 +48,18 @@ function resolveTimeframe(queryTimeframe?: string): string {
 }
 
 /**
+ * Resolves the target symbol dynamically without falling back to any hardcoded symbol.
+ * If user passes a symbol, normalizes it. Otherwise pulls the active symbol from the EA chart,
+ * market watch ticks, universe symbols, or open positions via tradeStore.
+ */
+function resolveTargetSymbol(input?: any): string {
+  if (typeof input === 'string' && input.trim()) {
+    return normalizeSymbol(input);
+  }
+  return tradeStore.resolveActiveSymbol();
+}
+
+/**
  * Resolves historical candles specifically for the queried symbol.
  * Uses in-memory chart history only if the requested symbol matches the active chart.
  * Otherwise fetches the queried symbol's true historical candles from SQLite, and requests
@@ -83,7 +95,7 @@ apiRouter.get('/state', (req, res) => {
 });
 
 // All tracked symbols transmitted by MT5 EA
-apiRouter.get('/symbols', (req, res) => {
+apiRouter.get(['/symbols', '/symbols/all'], (req, res) => {
   const symbols = tradeStore.getAllSymbols();
   res.json({
     success: true,
@@ -100,6 +112,14 @@ apiRouter.post(['/commands', '/command', '/orders'], (req, res) => {
     return res.status(400).json(result);
   }
   res.json(result);
+});
+
+// Get current risk guard parameters
+apiRouter.get('/risk', (_req, res) => {
+  res.json({
+    status: 'ok',
+    riskGuard: tradeStore.getRiskGuard(),
+  });
 });
 
 // Update risk guard parameters
@@ -285,6 +305,18 @@ apiRouter.get('/database/orders', async (req, res) => {
   }
 });
 
+// Query closed positions history from SQLite database
+apiRouter.get(['/positions/history', '/database/positions-history', '/history/positions'], async (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 100;
+    const { dbGetPositionsHistory } = await import('../database/db.js');
+    const history = await dbGetPositionsHistory(limit);
+    res.json({ success: true, count: history.length, history });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
 // Dynamic Multi-Table Inspection for Database & KnowledgeBase
 apiRouter.get('/database/tables/:table', async (req, res) => {
   try {
@@ -340,9 +372,12 @@ apiRouter.post('/database/prune', async (req, res) => {
 // Query candles history from SQLite database
 apiRouter.get('/database/candles', async (req, res) => {
   try {
-    const symbol = (req.query.symbol as string) || 'EURUSD';
+    const symbol = resolveTargetSymbol(req.query.symbol);
     const timeframe = (req.query.timeframe as string) || 'M1';
     const limit = Number(req.query.limit) || 100;
+    if (!symbol) {
+      return res.json({ symbol: '', timeframe, count: 0, candles: [] });
+    }
     const { dbGetCandles } = await import('../database/db.js');
     const candles = await dbGetCandles(symbol, timeframe, limit);
     res.json({ symbol, timeframe, count: candles.length, candles });
@@ -376,22 +411,27 @@ apiRouter.get('/database/account-history', async (req, res) => {
   }
 });
 
-// Simulate synthetic candles for strategy backtesting without waiting for live ticks
+// Load authentic candles for analysis or chart display (synthetic random walk removed)
 apiRouter.post('/candles/simulate', async (req, res) => {
   try {
-    const { symbol, timeframe, count, basePrice } = req.body;
-    const result = await tradeStore.seedCandles(
-      symbol || 'EURUSD',
+    const { symbol, timeframe, count } = req.body;
+    const targetSym = resolveTargetSymbol(symbol) || tradeStore.resolveActiveSymbol();
+    if (!targetSym) {
+      return res.status(400).json({ error: 'A valid trading symbol is required.' });
+    }
+    const result = await tradeStore.loadAuthenticCandles(
+      targetSym,
       timeframe || 'M1',
-      Number(count) || 60,
-      Number(basePrice) || 1.085
+      Number(count) || 100
     );
-    broadcast({
-      type: 'ea:sync',
-      payload: {
-        chartHistory: result.candles,
-      },
-    });
+    if (result.candles && result.candles.length > 0) {
+      broadcast({
+        type: 'ea:sync',
+        payload: {
+          chartHistory: result.candles,
+        },
+      });
+    }
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(500).json({ error: err?.message });
@@ -429,31 +469,12 @@ apiRouter.get('/database/download', async (req, res) => {
   }
 });
 
-// Trigger a live tick update for testing
+// Simulated tick disabled to protect execution fidelity: real ticks stream live from MT5 EA
 apiRouter.post('/simulate-tick', (req, res) => {
-  const { symbol, bid, ask } = req.body;
-  if (!symbol) return res.status(400).json({ error: 'Missing symbol' });
-
-  const current = tradeStore.getTicks().find((t) => t.symbol === symbol);
-  const newBid = bid || (current ? current.bid * (1 + (Math.random() - 0.5) * 0.001) : 1.085);
-  const newAsk = ask || newBid + 0.00015;
-
-  tradeStore.updateTick({
-    symbol,
-    bid: Number(newBid.toFixed(5)),
-    ask: Number(newAsk.toFixed(5)),
-    last: Number(newBid.toFixed(5)),
-    spread: 15,
-    volume: 500,
-    time: Math.floor(Date.now() / 1000),
+  res.status(400).json({
+    success: false,
+    error: 'Synthetic tick generation has been disabled. Real-time prices stream authoritatively from the MetaTrader 5 EA.',
   });
-
-  broadcast({
-    type: 'tick',
-    payload: tradeStore.getTicks().find((t) => t.symbol === symbol),
-  });
-
-  res.json({ success: true, tick: tradeStore.getTicks().find((t) => t.symbol === symbol) });
 });
 
 // ==========================================
@@ -498,7 +519,7 @@ apiRouter.post('/strategies', async (req, res) => {
       name,
       description: description || '',
       type: type || 'RSI_REVERSAL',
-      symbol: symbol ? String(symbol).trim() : 'EURUSD',
+      symbol: resolveTargetSymbol(symbol) || 'MARKET',
       timeframe: timeframe ? String(timeframe).trim() : 'M1',
       parameters: parameters || {},
       status: status || 'active',
@@ -663,8 +684,10 @@ apiRouter.post('/strategies/:id/knowledge-backtest', async (req, res) => {
 // Detect which news events greatly affected a symbol on historical candles
 apiRouter.get('/knowledge/news/impact-detector', async (req, res) => {
   try {
-    const symbolParam = (req.query.symbol as string) || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
-    const sym = symbolParam.trim().toUpperCase();
+    const sym = resolveTargetSymbol(req.query.symbol);
+    if (!sym) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const tf = resolveTimeframe(req.query.timeframe as string);
     const limit = Math.min(Math.max(Number(req.query.limit) || 200, 20), 1000);
 
@@ -689,8 +712,10 @@ apiRouter.get('/knowledge/news/impact-detector', async (req, res) => {
 
 apiRouter.post('/knowledge/news/impact-detector', async (req, res) => {
   try {
-    const symbolParam = (req.body?.symbol as string) || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
-    const sym = symbolParam.trim().toUpperCase();
+    const sym = resolveTargetSymbol(req.body?.symbol);
+    if (!sym) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const tf = resolveTimeframe(req.body?.timeframe as string);
     const limit = Math.min(Math.max(Number(req.body?.limit) || 200, 20), 1000);
 
@@ -717,8 +742,10 @@ apiRouter.post('/knowledge/news/impact-detector', async (req, res) => {
 // ==========================================
 apiRouter.post('/trade/signal', async (req, res) => {
   try {
-    const symbol = (req.body?.symbol as string) || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
-    const targetSymbol = symbol.trim();
+    const targetSymbol = resolveTargetSymbol(req.body?.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const account = tradeStore.getAccount();
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
     const currentPrice = ticks.length > 0 ? ticks[0].bid : (tradeStore.getCurrentChart()?.bid || 0);
@@ -742,7 +769,10 @@ apiRouter.post('/trade/signal', async (req, res) => {
 apiRouter.post('/trade/position-size', async (req, res) => {
   try {
     const { symbol, entryPrice, stopLossPrice, riskPercent, accountBalance, contractSize } = req.body;
-    const targetSymbol = (symbol || 'EURUSD').trim();
+    const targetSymbol = resolveTargetSymbol(symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'A valid trading symbol is required for position sizing.' });
+    }
     const balance = Number(accountBalance) || tradeStore.getAccount().balance || 10000;
     const risk = Number(riskPercent) || 1;
     const entry = Number(entryPrice) || 0;
@@ -761,7 +791,7 @@ apiRouter.post('/trade/position-size', async (req, res) => {
 // ==========================================
 // Trading Bot (Auto-Trader) Endpoints
 // ==========================================
-apiRouter.get('/bot/status', (req, res) => {
+apiRouter.get(['/bot/status', '/bot/state'], (req, res) => {
   res.json({ success: true, ...tradingBot.getState() });
 });
 
@@ -781,10 +811,10 @@ apiRouter.post('/bot/stop', (req, res) => {
 
 apiRouter.post('/bot/config', (req, res) => {
   const result = tradingBot.updateConfig(req.body || {});
-  res.json({ success: result.success, message: result.message, state: tradingBot.getState() });
+  res.json({ success: result.success, message: result.message, config: getBotConfig(), state: tradingBot.getState() });
 });
 
-apiRouter.post('/bot/evaluate', async (_req, res) => {
+apiRouter.post(['/bot/evaluate', '/bot/scan'], async (_req, res) => {
   try {
     const result = await tradingBot.evaluateNow();
     res.json({ success: true, ...result });
@@ -922,12 +952,14 @@ apiRouter.get('/backtests/:id', async (req, res) => {
 // Auto-detect symbol profile, asset class, session windows, optimal risk & strategies
 apiRouter.get('/knowledge/auto-detect', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const { autoDetectSymbol } = await import('../knowledgebase/core/auto-detect.js');
     const allSymbols = tradeStore.getAllSymbols();
+    const currentChart = tradeStore.getCurrentChart();
     const symbolInfo =
       allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) ||
       (currentChart && currentChart.symbol.toLowerCase() === targetSymbol.toLowerCase() ? (currentChart as any) : null);
@@ -945,9 +977,11 @@ apiRouter.get('/knowledge/auto-detect', async (req, res) => {
 // Auto-detect Market Regime (Trending, Range, Squeeze, Breakout)
 apiRouter.get('/knowledge/regime', async (req, res) => {
   try {
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(targetSymbol, tf, 200);
@@ -968,9 +1002,10 @@ apiRouter.get('/knowledge/regime', async (req, res) => {
 // Auto-detect Account-Tailored Risk & Position Sizing Profile
 apiRouter.get('/knowledge/risk-profile', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const riskPercent = Number(req.query.riskPercent) || 1.0;
 
     const { autoDetectSymbol, autoDetectAccountRiskProfile } = await import('../knowledgebase/core/auto-detect.js');
@@ -992,9 +1027,10 @@ apiRouter.get('/knowledge/risk-profile', async (req, res) => {
 // Auto-detect Global Market Clock & Session Liquidity
 apiRouter.get('/knowledge/sessions', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const { autoDetectLiquidityAndSessions } = await import('../knowledgebase/core/auto-detect.js');
     const session = autoDetectLiquidityAndSessions(targetSymbol);
@@ -1007,9 +1043,10 @@ apiRouter.get('/knowledge/sessions', async (req, res) => {
 // Comprehensive Full-Spectrum Symbol Analysis (Specs + Regime + Session + Risk + Microstructure + Volatility + Levels + Safety + Scalping)
 apiRouter.get('/knowledge/full-analysis', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const { runComprehensiveAutoDetection } = await import('../knowledgebase/core/auto-detect.js');
     const account = tradeStore.getAccount();
@@ -1033,13 +1070,15 @@ apiRouter.get('/knowledge/full-analysis', async (req, res) => {
 // Run and persist Auto-Detection on a symbol
 apiRouter.post('/knowledge/auto-detect/run', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.body?.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbol.trim();
+    const targetSymbol = resolveTargetSymbol(req.body?.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const { runComprehensiveAutoDetection } = await import('../knowledgebase/core/auto-detect.js');
     const account = tradeStore.getAccount();
     const allSymbols = tradeStore.getAllSymbols();
+    const currentChart = tradeStore.getCurrentChart();
     const symbolInfo = allSymbols.find((s) => s.symbol.toLowerCase() === targetSymbol.toLowerCase()) || null;
     const candles = await resolveCandlesForSymbol(targetSymbol, req.body?.timeframe, 150);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
@@ -1075,9 +1114,10 @@ apiRouter.get('/knowledge/auto-detect/all', async (req, res) => {
 // Auto-detect symbol microstructure and economics
 apiRouter.get('/knowledge/auto-detect/microstructure', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const { autoDetectSymbolMicrostructure } = await import('../knowledgebase/core/auto-detect.js');
     const allSymbols = tradeStore.getAllSymbols();
@@ -1095,9 +1135,11 @@ apiRouter.get('/knowledge/auto-detect/microstructure', async (req, res) => {
 // Auto-detect Volatility Regime, Choppiness Index and Noise
 apiRouter.get('/knowledge/auto-detect/volatility', async (req, res) => {
   try {
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
@@ -1114,9 +1156,11 @@ apiRouter.get('/knowledge/auto-detect/volatility', async (req, res) => {
 // Auto-detect Floor Trader Pivots and Camarilla Levels
 apiRouter.get('/knowledge/auto-detect/levels', async (req, res) => {
   try {
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
@@ -1132,9 +1176,10 @@ apiRouter.get('/knowledge/auto-detect/levels', async (req, res) => {
 // Auto-detect Execution Safety Score
 apiRouter.get('/knowledge/auto-detect/safety', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const account = tradeStore.getAccount();
     const allSymbols = tradeStore.getAllSymbols();
@@ -1153,9 +1198,10 @@ apiRouter.get('/knowledge/auto-detect/safety', async (req, res) => {
 // Auto-detect Scalping Viability
 apiRouter.get('/knowledge/auto-detect/scalping', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
 
     const candles = await resolveCandlesForSymbol(targetSymbol, req.query.timeframe as string, 100);
     const ticks = tradeStore.getTicks().filter((t) => t.symbol.toLowerCase() === targetSymbol.toLowerCase());
@@ -1171,9 +1217,11 @@ apiRouter.get('/knowledge/auto-detect/scalping', async (req, res) => {
 // Auto-detect Institutional Fair Value Gaps (FVG) and Liquidity Pools
 apiRouter.get(['/knowledge/auto-detect/imbalances', '/knowledge/imbalances'], async (req, res) => {
   try {
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
@@ -1189,9 +1237,11 @@ apiRouter.get(['/knowledge/auto-detect/imbalances', '/knowledge/imbalances'], as
 // Auto-detect Session Order Flow Bias & Asian Range Liquidity Sweeps
 apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-order-flow', '/knowledge/order-flow'], async (req, res) => {
   try {
+    const targetSymbol = resolveTargetSymbol(req.query.symbol);
+    if (!targetSymbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbolParam = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
-    const targetSymbol = symbolParam.trim();
     const tf = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(targetSymbol, tf, 100);
@@ -1207,8 +1257,26 @@ apiRouter.get(['/knowledge/auto-detect/session-order-flow', '/knowledge/session-
 apiRouter.get('/chart/history', async (req, res) => {
   try {
     const currentChart = tradeStore.getCurrentChart();
-    const sym = (req.query.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
+    const allSymbols = tradeStore.getAllSymbols();
+    const sym = (req.query.symbol as string)?.trim() || currentChart?.symbol || (allSymbols.length > 0 ? allSymbols[0].symbol : '');
     const tf = (req.query.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
+
+    if (!sym) {
+      return res.json({
+        success: true,
+        symbol: '',
+        timeframe: tf,
+        count: 0,
+        candles: [],
+        stats: null,
+        gapDiagnosis: null,
+        indicators: null,
+        tickMovements: [],
+        tickStats: null,
+        awaitingEaData: true,
+        isEaConnected: tradeStore.getState().connection.isEaConnected,
+      });
+    }
     const limit = Math.min(Number(req.query.limit) || 100, 5000);
     const includeIndicators = req.query.includeIndicators !== 'false';
     const includeTicks = req.query.includeTicks !== 'false';
@@ -1278,8 +1346,12 @@ apiRouter.get('/chart/history', async (req, res) => {
 // Explicit Chart Gap Inspector & Reconciler
 apiRouter.get('/chart/gap-status', async (req, res) => {
   try {
-    const sym = (req.query.symbol as string)?.trim() || tradeStore.getCurrentChart()?.symbol || 'EURUSD';
-    const tf = (req.query.timeframe as string)?.trim() || tradeStore.getCurrentChart()?.timeframe || 'M1';
+    const sym = resolveTargetSymbol(req.query.symbol);
+    if (!sym) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
+    const currentChart = tradeStore.getCurrentChart();
+    const tf = (req.query.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
     const { inspectAndFillChartGaps } = await import('../services/historySyncService.js');
     const result = await inspectAndFillChartGaps(sym, tf);
     res.json({ success: true, ...result });
@@ -1291,8 +1363,11 @@ apiRouter.get('/chart/gap-status', async (req, res) => {
 // Trigger chart history pull from MT5 EA via unified commandDispatcher
 apiRouter.post('/chart/pull', async (req, res) => {
   try {
+    const sym = resolveTargetSymbol(req.body.symbol);
+    if (!sym) {
+      return res.status(400).json({ success: false, error: 'A trading symbol is required to pull history from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const sym = (req.body.symbol as string)?.trim() || currentChart?.symbol || 'EURUSD';
     const tf = (req.body.timeframe as string)?.trim() || currentChart?.timeframe || 'M1';
     const count = Math.min(Number(req.body.count) || 100, 2000);
     const from = req.body.from ? Number(req.body.from) : undefined;
@@ -1314,7 +1389,7 @@ apiRouter.post('/chart/pull', async (req, res) => {
 });
 
 // Instruct EA to activate native authoritative breakeven on a position ticket
-apiRouter.post('/position/protect', (req, res) => {
+apiRouter.post(['/position/protect', '/position/breakeven'], (req, res) => {
   try {
     const ticket = Number(req.body.ticket);
     if (!ticket || ticket <= 0) {
@@ -1323,6 +1398,28 @@ apiRouter.post('/position/protect', (req, res) => {
     const result = commandDispatcher.dispatchGeneric({
       action: 'PROTECT_POSITION',
       ticket,
+      source: 'MANUAL_UI',
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message });
+  }
+});
+
+// Partial close open position via MT5 EA
+apiRouter.post('/position/partial-close', (req, res) => {
+  try {
+    const ticket = Number(req.body.ticket);
+    const volume = Number(req.body.volume);
+    if (!ticket || ticket <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid position ticket required' });
+    }
+    if (!volume || volume <= 0) {
+      return res.status(400).json({ success: false, error: 'Valid partial close volume required' });
+    }
+    const result = commandDispatcher.partialClose({
+      ticket,
+      volume,
       source: 'MANUAL_UI',
     });
     res.json(result);
@@ -1403,8 +1500,11 @@ apiRouter.post('/database/optimize', async (req, res) => {
 // Scan candlestick, indicator, and shape patterns
 apiRouter.get('/knowledge/patterns', async (req, res) => {
   try {
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(symbol, timeframe, 120);
@@ -1420,8 +1520,11 @@ apiRouter.get('/knowledge/patterns', async (req, res) => {
 // Comprehensive technical indicators calculation
 apiRouter.get('/knowledge/indicators', async (req, res) => {
   try {
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
 
     const candles = await resolveCandlesForSymbol(symbol, timeframe, 120);
@@ -1435,7 +1538,7 @@ apiRouter.get('/knowledge/indicators', async (req, res) => {
 });
 
 // Real-time market news and sentiment
-apiRouter.get('/knowledge/news', async (req, res) => {
+apiRouter.get(['/knowledge/news', '/knowledge/market-news'], async (req, res) => {
   try {
     const symbol = req.query.symbol as string;
     const category = req.query.category as string;
@@ -1502,8 +1605,10 @@ apiRouter.post('/economic-calendar/refresh', async (req, res) => {
 // Comprehensive symbol news and macro impact analysis
 apiRouter.get('/knowledge/impact', async (req, res) => {
   try {
-    const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const { analyzeSymbolNewsImpact } = await import('../knowledgebase/news/symbolImpact.js');
     const impact = await analyzeSymbolNewsImpact(symbol);
     res.json({ success: true, impact });
@@ -1529,7 +1634,10 @@ apiRouter.get('/knowledge/telemetry', async (req, res) => {
 apiRouter.post('/knowledge/telemetry', async (req, res) => {
   try {
     const { symbol, telemetry } = req.body;
-    const sym = symbol || 'EURUSD';
+    const sym = resolveTargetSymbol(symbol);
+    if (!sym) {
+      return res.status(400).json({ success: false, error: 'A trading symbol is required for telemetry update.' });
+    }
     const { updateKnowledgeBaseFromTelemetry } = await import('../knowledgebase/knowledge.js');
     const result = updateKnowledgeBaseFromTelemetry(sym, telemetry || []);
 
@@ -1553,7 +1661,10 @@ apiRouter.post('/knowledge/telemetry', async (req, res) => {
 // Observation insights and velocity statistics
 apiRouter.get('/knowledge/insights', async (req, res) => {
   try {
-    const symbol = (req.query.symbol as string) || 'EURUSD';
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const { getObservationInsights } = await import('../knowledgebase/observations.js');
     const insights = getObservationInsights(symbol);
     res.json({ success: true, insights });
@@ -1575,8 +1686,11 @@ apiRouter.get('/knowledge/strategies/templates', async (req, res) => {
 // Rapid Sudden Movements & News Event Attribution
 apiRouter.get(['/knowledge/rapid-shocks', '/knowledge/shocks'], async (req, res) => {
   try {
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
     const { detectRapidMovementsAndAttribution, isSymbolInShockCoolingOff, getAllRegisteredShocks } = await import('../knowledgebase/news/rapidShockDetector.js');
     const shocks = await detectRapidMovementsAndAttribution(symbol, undefined, timeframe);
@@ -1637,7 +1751,7 @@ apiRouter.get(['/terminal/metadata', '/api/terminal/metadata'], async (_req, res
       marketWatchSymbolsCount: permissions?.marketWatchSymbolsCount ?? null,
       isEaConnected: state.connection.isEaConnected,
       serverTime: state.connection.serverTime || Date.now(),
-      eaVersion: state.connection.eaVersion || '2.30',
+      eaVersion: state.connection.eaVersion || '2.70',
       timestamp: Date.now(),
     });
   } catch (err: any) {
@@ -1648,8 +1762,11 @@ apiRouter.get(['/terminal/metadata', '/api/terminal/metadata'], async (_req, res
 // Multi-Timeframe Trend & Signal Concordance
 apiRouter.get(['/bot/multitimeframe', '/knowledge/multi-timeframe'], async (req, res) => {
   try {
+    const symbol = resolveTargetSymbol(req.query.symbol);
+    if (!symbol) {
+      return res.status(400).json({ success: false, error: 'No active trading symbol specified or connected from MT5 EA.' });
+    }
     const currentChart = tradeStore.getCurrentChart();
-    const symbol = (req.query.symbol as string) || currentChart?.symbol || 'EURUSD';
     const timeframe = (req.query.timeframe as string) || currentChart?.timeframe || 'M1';
     const higherTfs = req.query.higherTimeframes ? String(req.query.higherTimeframes).split(',').map((s) => s.trim()) : undefined;
 

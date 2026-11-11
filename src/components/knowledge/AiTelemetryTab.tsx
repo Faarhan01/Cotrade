@@ -14,12 +14,16 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 
-export const AiTelemetryTab: React.FC = () => {
+interface AiTelemetryTabProps {
+  initialSymbol?: string;
+}
+
+export const AiTelemetryTab: React.FC<AiTelemetryTabProps> = ({ initialSymbol }) => {
   const [loading, setLoading] = useState(false);
   const [telemetry, setTelemetry] = useState<any | null>(null);
   const [recentMetrics, setRecentMetrics] = useState<any[]>([]);
   const [pulsing, setPulsing] = useState(false);
-  const [pulseSymbol, setPulseSymbol] = useState('EURUSD');
+  const [pulseSymbol, setPulseSymbol] = useState(initialSymbol || 'EURUSD');
   const [pulseVelocity, setPulseVelocity] = useState('38.5');
   const [pulseNotice, setPulseNotice] = useState<string | null>(null);
 

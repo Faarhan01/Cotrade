@@ -98,14 +98,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                   MT5 <span className="text-cyan-400">AI COPILOT</span>
                 </span>
                 <span className="hidden sm:inline text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/60">
-                  MCP v2.10
+                  MCP v2.75
                 </span>
               </div>
               <p className="hidden sm:flex text-xs text-slate-400 font-mono items-center gap-1.5 truncate">
-                Bridge: <span className="text-slate-300">http://127.0.0.1:7777</span>
+                Bridge: <span className="text-slate-300">http://127.0.0.1:3000</span>
                 <button
-                  onClick={copyEndpoint}
-                  title="Copy local bridge URL for MT5 WebRequest"
+                  onClick={() => {
+                    navigator.clipboard.writeText('http://127.0.0.1:3000');
+                    setCopiedEndpoint(true);
+                    setTimeout(() => setCopiedEndpoint(false), 2000);
+                  }}
+                  title="Copy Primary Bridge URL (http://127.0.0.1:3000) for MT5 WebRequest"
                   className="hover:text-cyan-400 text-slate-500 transition-colors p-0.5 shrink-0"
                 >
                   {copiedEndpoint ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
@@ -132,12 +136,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Icon className={`h-4 w-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                   {item.label}
                   {item.badge && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700/80 text-cyan-300 font-mono border border-slate-600">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono border border-slate-700">
                       {item.badge}
                     </span>
                   )}
                   {item.id === 'mcp' && (
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 font-mono border border-cyan-800/60">
                       AI Ready
                     </span>
                   )}
@@ -153,12 +157,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* MT5 EA Status */}
             <div
-              className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 rounded-full border text-xs font-mono transition-colors ${
+              className={`flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 rounded-md border text-xs font-mono transition-colors ${
                 isEaOnline
                   ? 'bg-emerald-950/60 text-emerald-300 border-emerald-800/60 shadow-sm shadow-emerald-900/30'
                   : 'bg-amber-950/40 text-amber-300 border-amber-800/50'
               }`}
-              title={isEaOnline ? 'MT5 Expert Advisor sending live ticks & executing orders' : 'Waiting for EA to attach in MT5 at http://127.0.0.1:7777'}
+              title={isEaOnline ? 'MT5 Expert Advisor sending live ticks & executing orders' : 'Waiting for EA to attach in MT5 at http://127.0.0.1:3000 (or fallback :7777)'}
             >
               <span
                 className={`h-2 w-2 rounded-full ${
@@ -171,7 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* WebSocket Latency */}
             <div
-              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-800/80 border border-slate-700 text-xs font-mono text-slate-300"
+              className="hidden xl:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-800/80 border border-slate-700 text-xs font-mono text-slate-300"
               title="Low-latency WebSocket channel"
             >
               <Radio
@@ -239,12 +243,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                   <Icon className={`h-4 w-4 ${isActive ? 'text-cyan-400' : 'text-slate-400'}`} />
                   {item.label}
                   {item.badge && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700/80 text-cyan-300 font-mono border border-slate-600">
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-mono border border-slate-700">
                       {item.badge}
                     </span>
                   )}
                   {item.id === 'mcp' && (
-                    <span className="ml-auto text-[10px] px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-cyan-300 font-mono">
+                    <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-cyan-950/80 text-cyan-300 font-mono border border-cyan-800/60">
                       AI Ready
                     </span>
                   )}

@@ -295,7 +295,7 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
                   {impactData.baseAssetSentiment?.sentimentScore >= 0 ? `+${impactData.baseAssetSentiment?.sentimentScore}` : impactData.baseAssetSentiment?.sentimentScore} pts
                 </span>
               </div>
-              <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-1.5 w-full bg-slate-800 rounded-sm overflow-hidden">
                 <div
                   className={`h-full ${impactData.baseAssetSentiment?.sentimentScore >= 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
                   style={{ width: `${Math.min(100, Math.max(10, Math.abs(impactData.baseAssetSentiment?.sentimentScore || 0)))}%` }}
@@ -319,7 +319,7 @@ export const MacroNewsTab: React.FC<MacroNewsTabProps> = ({ initialSymbol = 'EUR
                   {impactData.quoteAssetSentiment?.sentimentScore >= 0 ? `+${impactData.quoteAssetSentiment?.sentimentScore}` : impactData.quoteAssetSentiment?.sentimentScore} pts
                 </span>
               </div>
-              <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-1.5 w-full bg-slate-800 rounded-sm overflow-hidden">
                 <div
                   className={`h-full ${impactData.quoteAssetSentiment?.sentimentScore >= 0 ? 'bg-purple-500' : 'bg-rose-500'}`}
                   style={{ width: `${Math.min(100, Math.max(10, Math.abs(impactData.quoteAssetSentiment?.sentimentScore || 0)))}%` }}

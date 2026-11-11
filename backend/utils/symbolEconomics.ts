@@ -231,6 +231,30 @@ export function calculatePipValue(specs: {
   }
 }
 
+/**
+ * Return institutional recommended slippage allowance in points based on asset class volatility.
+ */
+export function getRecommendedSlippagePoints(symbol: string): number {
+  const assetClass = detectAssetClass(symbol);
+  switch (assetClass) {
+    case 'METALS':
+      return 50; // Gold/Silver 5 pips / 50 points
+    case 'INDICES':
+      return 80; // Dow/Nasdaq/DAX fast slippage protection
+    case 'CRYPTO':
+      return 150; // High volatility crypto spreads
+    case 'COMMODITIES':
+      return 40; // Oil/Gas
+    case 'SYNTHETIC':
+      return 20;
+    case 'FOREX_MINOR':
+      return 20;
+    case 'FOREX_MAJOR':
+    default:
+      return 10; // Forex majors standard 1 pip / 10 points
+  }
+}
+
 export interface PositionSizeResult {
   symbol: string;
   accountBalance: number;

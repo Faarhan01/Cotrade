@@ -22,15 +22,17 @@ import { api } from '../../services/api';
 import { SymbolIntelligenceProfile } from '../../types';
 
 interface SymbolIntelligenceTabProps {
+  initialSymbol?: string;
   onSelectStrategyTemplate?: (template: any) => void;
   onApplyRiskParams?: (params: any) => void;
 }
 
 export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
+  initialSymbol,
   onSelectStrategyTemplate,
   onApplyRiskParams,
 }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState('EURUSD');
+  const [selectedSymbol, setSelectedSymbol] = useState(initialSymbol || 'EURUSD');
   const [customSymbolInput, setCustomSymbolInput] = useState('');
   const [activeSymbols, setActiveSymbols] = useState<string[]>([
     'EURUSD',
@@ -411,7 +413,7 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-xs text-white truncate max-w-[140px]">{pat.name}</span>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded border ${
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                             pat.bias === 'BULLISH' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' :
                             pat.bias === 'BEARISH' ? 'bg-rose-950 text-rose-300 border-rose-800' :
                             'bg-slate-800 text-slate-300 border-slate-700'
@@ -427,9 +429,9 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                           </span>
                         </div>
 
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-1.5 bg-slate-800 rounded-sm overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${
+                            className={`h-full rounded-sm ${
                               pat.winRatePct >= 55 ? 'bg-emerald-500' : pat.winRatePct >= 45 ? 'bg-amber-500' : 'bg-rose-500'
                             }`}
                             style={{ width: `${pat.winRatePct}%` }}
@@ -982,9 +984,9 @@ export const SymbolIntelligenceTab: React.FC<SymbolIntelligenceTabProps> = ({
                   </div>
 
                   {/* Progress bar */}
-                  <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-1.5 w-full bg-slate-800 rounded-sm overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-full"
+                      className="h-full bg-gradient-to-r from-cyan-500 to-emerald-400 rounded-sm"
                       style={{ width: `${strat.suitabilityScore}%` }}
                     />
                   </div>

@@ -67,7 +67,7 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onR
   const [backtestingStrategyId, setBacktestingStrategyId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
-  const activeSym = state?.currentChart?.symbol || state?.allSymbols?.[0]?.symbol || 'EURUSD';
+  const activeSym = state?.currentChart?.symbol || state?.allSymbols?.[0]?.symbol || state?.ticks?.[0]?.symbol || '';
   const activeTf = state?.currentChart?.timeframe || 'M15';
 
   // Strategy Form
@@ -143,11 +143,15 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onR
 
       await api.updateBotConfig({
         mode: targetMode,
-        symbols: [strategy.symbol],
+        activeStrategyId: strategy.id,
+        activeStrategyName: strategy.name,
+        symbols: strategy.symbol && strategy.symbol !== 'ALL' ? [strategy.symbol] : undefined,
         timeframe: strategy.timeframe,
         autoStopLoss: true,
         autoTakeProfit: true,
-        trailingStop: true,
+        trailingStop: strategy.parameters?.trailingStop !== undefined ? Boolean(strategy.parameters.trailingStop) : true,
+        trailingDistancePoints: strategy.parameters?.trailingDistancePoints ? Number(strategy.parameters.trailingDistancePoints) : undefined,
+        trailingStepPoints: strategy.parameters?.trailingStepPoints ? Number(strategy.parameters.trailingStepPoints) : undefined,
       });
 
       showNotification(`Strategy "${strategy.name}" deployed to Auto-Trader Bot for ${strategy.symbol} [${strategy.timeframe}].`);
@@ -567,6 +571,7 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onR
       {/* SUBTAB: INTELLIGENCE */}
       {activeSubTab === 'intelligence' && (
         <SymbolIntelligenceTab
+          initialSymbol={activeSym}
           onSelectStrategyTemplate={handleSelectTemplate}
           onApplyRiskParams={handleApplyRiskParams}
         />
@@ -575,6 +580,7 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onR
       {/* SUBTAB: PATTERNS */}
       {activeSubTab === 'patterns' && (
         <PatternRecognitionTab
+          initialSymbol={activeSym}
           onApplyStrategyRule={(rule) => {
             setActiveSubTab('strategies');
           }}
@@ -583,12 +589,12 @@ export const KnowledgeBasePage: React.FC<KnowledgeBasePageProps> = ({ state, onR
 
       {/* SUBTAB: MACRO NEWS */}
       {activeSubTab === 'news' && (
-        <MacroNewsTab />
+        <MacroNewsTab initialSymbol={activeSym} />
       )}
 
       {/* SUBTAB: AI TELEMETRY */}
       {activeSubTab === 'telemetry' && (
-        <AiTelemetryTab />
+        <AiTelemetryTab initialSymbol={activeSym} />
       )}
 
       {/* SUBTAB: STRATEGIES */}

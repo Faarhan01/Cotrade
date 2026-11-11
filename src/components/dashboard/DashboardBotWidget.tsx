@@ -65,7 +65,7 @@ export const DashboardBotWidget: React.FC<DashboardBotWidgetProps> = ({ onNaviga
               Auto-Trader Bot
             </span>
             <span
-              className={`px-2 py-0.2 rounded-full text-[10px] font-bold uppercase tracking-wider border ${
+              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
                 isRunning
                   ? 'bg-emerald-950 text-emerald-300 border-emerald-700/60 animate-pulse'
                   : 'bg-slate-800 text-slate-400 border-slate-700'

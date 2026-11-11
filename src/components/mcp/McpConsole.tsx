@@ -397,13 +397,13 @@ print("Asynchronous Order Dispatched to EA:", trade_res)
                           {tool.name}
                         </span>
                         {isKb && (
-                          <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-800">
+                          <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800">
                             KB
                           </span>
                         )}
                       </div>
                       {tool.inputSchema.required && tool.inputSchema.required.length > 0 && (
-                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-slate-800 text-slate-400">
+                        <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-slate-800 text-slate-400">
                           {tool.inputSchema.required.length} required
                         </span>
                       )}

@@ -130,6 +130,24 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     },
   },
   {
+    name: 'mt5_partial_close',
+    description: 'Partially close an open MetaTrader 5 position by ticket, specifying the exact volume in lots to close (e.g. 0.05 out of 0.10 lots).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket: {
+          type: 'number',
+          description: 'Unique ticket number of the open position to partially close',
+        },
+        volume: {
+          type: 'number',
+          description: 'Volume in lots to close (e.g. 0.01, 0.05)',
+        },
+      },
+      required: ['ticket', 'volume'],
+    },
+  },
+  {
     name: 'mt5_close_all',
     description: 'Emergency liquidation: Close all open positions immediately or all open positions for a designated symbol.',
     inputSchema: {
@@ -293,6 +311,32 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
         ticket: {
           type: 'number',
           description: 'Order ticket ID to cancel',
+        },
+      },
+      required: ['ticket'],
+    },
+  },
+  {
+    name: 'mt5_modify_pending',
+    description: 'Modify an active pending limit or stop order in MetaTrader 5 (change trigger price, stop loss, and/or take profit) by order ticket ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket: {
+          type: 'number',
+          description: 'Pending order ticket ID to modify',
+        },
+        price: {
+          type: 'number',
+          description: 'New trigger activation price (optional if only modifying SL/TP)',
+        },
+        sl: {
+          type: 'number',
+          description: 'New stop loss price (0 to clear SL)',
+        },
+        tp: {
+          type: 'number',
+          description: 'New take profit price (0 to clear TP)',
         },
       },
       required: ['ticket'],
@@ -1071,11 +1115,18 @@ export class McpError extends Error {
   }
 }
 
-export async function executeMcpTool(name: string, args: Record<string, any> = {}): Promise<any> {
+export async function executeMcpTool(rawName: string, args: Record<string, any> = {}): Promise<any> {
+  // Normalize tool name with or without 'mt5_' prefix
+  const name = MCP_TOOLS.some((t) => t.name === rawName)
+    ? rawName
+    : MCP_TOOLS.some((t) => t.name === `mt5_${rawName}`)
+    ? `mt5_${rawName}`
+    : rawName;
+
   // --- MCP input validation & taxonomy (Gap #10) ---
   const validTool = MCP_TOOLS.some((t) => t.name === name);
   if (!validTool) {
-    throw new McpError('TOOL_NOT_FOUND', `Unknown MCP tool: "${name}"`);
+    throw new McpError('TOOL_NOT_FOUND', `Unknown MCP tool: "${rawName}"`);
   }
 
   const requiredArgs: Record<string, string[]> = {
@@ -1175,7 +1226,27 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       if (args.symbol && args.symbol.toUpperCase() !== 'ALL') {
         const found = ticks.find((t) => t.symbol.toUpperCase() === args.symbol.toUpperCase());
         if (!found) {
-          throw new Error(`Symbol ${args.symbol} not found in tracked market feed.`);
+          const symInfo = tradeStore.getAllSymbols().find((s) => s.symbol.toUpperCase() === args.symbol.toUpperCase());
+          if (symInfo) {
+            return {
+              symbol: symInfo.symbol,
+              bid: symInfo.bid,
+              ask: symInfo.ask,
+              spread: symInfo.spread,
+              digits: symInfo.digits,
+              point: symInfo.point,
+              time: new Date().toISOString(),
+              status: 'cached_symbol_spec',
+            };
+          }
+          return {
+            symbol: String(args.symbol).toUpperCase(),
+            bid: 0,
+            ask: 0,
+            spread: 0,
+            status: 'awaiting_tick',
+            message: `No active tick for ${args.symbol}. Symbol may need to be added to MetaTrader 5 Market Watch.`,
+          };
         }
         return found;
       }
@@ -1234,6 +1305,25 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
 
       if (!res.success) {
         throw new Error(`Modify rejected: ${res.error}`);
+      }
+
+      return res;
+    }
+
+    case 'mt5_partial_close': {
+      const { ticket, volume } = args;
+      if (!ticket) throw new Error('Missing required argument: ticket');
+      if (!volume || Number(volume) <= 0) throw new Error('Missing or invalid volume parameter for partial close');
+
+      const res = commandDispatcher.partialClose({
+        ticket: Number(ticket),
+        volume: Number(volume),
+        source: 'AI_MCP',
+        comment: 'AI_MCP_PARTIAL_CLOSE',
+      });
+
+      if (!res.success) {
+        throw new Error(`Partial close rejected: ${res.error}`);
       }
 
       return res;
@@ -1408,6 +1498,22 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       return res;
     }
 
+    case 'mt5_modify_pending':
+    case 'mt5_modify_pending_order': {
+      const ticket = Number(args.ticket);
+      if (!ticket) throw new Error('Missing ticket parameter');
+      const res = commandDispatcher.modifyPendingOrder({
+        ticket,
+        price: args.price !== undefined ? Number(args.price) : undefined,
+        sl: args.sl !== undefined ? Number(args.sl) : undefined,
+        tp: args.tp !== undefined ? Number(args.tp) : undefined,
+        source: 'AI_MCP',
+        comment: 'AI_MCP_MODIFY_PENDING',
+      });
+      if (!res.success) throw new Error(res.error);
+      return res;
+    }
+
     case 'mt5_request_chart_history': {
       const sym = String(args.symbol || '').toUpperCase();
       if (!sym) throw new Error('Missing symbol parameter');
@@ -1499,16 +1605,32 @@ export async function executeMcpTool(name: string, args: Record<string, any> = {
       let dataQuality: 'LIVE' | 'SYNTHETIC' | 'NONE' = candles.length >= 20 ? 'LIVE' : 'SYNTHETIC';
       if (candles.length < 20) {
         const live = tradeStore.getChartHistory();
-        if (live && live.length >= 20) {
+        if (live && live.length >= 20 && tradeStore.getCurrentChart()?.symbol === strategy.symbol) {
           candles = live;
           dataQuality = tradeStore.getDataQuality();
         } else {
-          // Auto-seed synthetic candles for smooth testing experience.
-          // These bars are a random walk and must be labelled as such.
-          const seeded = await tradeStore.seedCandles(strategy.symbol, strategy.timeframe, 100);
-          candles = seeded.candles;
-          dataQuality = 'SYNTHETIC';
+          for (const altTf of ['M1', 'M5', 'M15', 'M30', 'H1']) {
+            if (altTf !== strategy.timeframe) {
+              const alt = await dbGetCandles(strategy.symbol, altTf, candleLimit);
+              if (alt && alt.length >= 20) {
+                candles = alt;
+                dataQuality = 'LIVE';
+                break;
+              }
+            }
+          }
         }
+      }
+
+      if (candles.length < 20) {
+        if (tradeStore.getState().connection.isEaConnected) {
+          tradeStore.requestHistoryFromEA(strategy.symbol, strategy.timeframe, candleLimit);
+        }
+        return {
+          success: false,
+          dataQuality: 'NONE',
+          error: `Insufficient authentic historical candles for ${strategy.symbol} [${strategy.timeframe}]. Connect MT5 EA to stream live broker bars. Backtests on random synthetic data are suppressed.`,
+        };
       }
 
       const backtest = runStrategyBacktest(strategy, candles, initialDeposit);

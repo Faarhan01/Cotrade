@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { EaConnectionRadar } from '../components/dashboard/EaConnectionRadar';
-import { CurrentChartSymbolCard } from '../components/dashboard/CurrentChartSymbolCard';
 import { AccountMetricsBar } from '../components/dashboard/AccountMetricsBar';
-import { LiveTickStream } from '../components/dashboard/LiveTickStream';
 import { LivePriceChart } from '../components/dashboard/LivePriceChart';
 import { OrderExecutionDock } from '../components/dashboard/OrderExecutionDock';
 import { OpenPositionsTable } from '../components/dashboard/OpenPositionsTable';
@@ -19,16 +17,26 @@ interface DashboardPageProps {
 }
 
 export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, onNavigateToTab, initialSymbol }) => {
-  const [selectedSymbol, setSelectedSymbol] = useState<string>(initialSymbol || 'EURUSD');
+  // Dynamically resolve symbol: prioritize initialSymbol, then current EA chart symbol, then first tracked symbol, or empty
+  const defaultSymbol = initialSymbol || state?.currentChart?.symbol || state?.allSymbols?.[0]?.symbol || state?.ticks?.[0]?.symbol || '';
+  const [selectedSymbol, setSelectedSymbol] = useState<string>(defaultSymbol);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialSymbol) {
       setSelectedSymbol(initialSymbol);
+    } else if (!selectedSymbol) {
+      if (state?.currentChart?.symbol) {
+        setSelectedSymbol(state.currentChart.symbol);
+      } else if (state?.allSymbols && state.allSymbols.length > 0) {
+        setSelectedSymbol(state.allSymbols[0].symbol);
+      } else if (state?.ticks && state.ticks.length > 0) {
+        setSelectedSymbol(state.ticks[0].symbol);
+      }
     }
-  }, [initialSymbol]);
+  }, [initialSymbol, state?.currentChart?.symbol, state?.allSymbols, state?.ticks, selectedSymbol]);
 
   const ticks = state?.ticks || [];
-  const currentTick = ticks.find((t) => t.symbol === selectedSymbol) || ticks[0];
+  const currentTick = ticks.find((t) => t.symbol.toUpperCase() === selectedSymbol.toUpperCase()) || ticks[0];
   const history = (state?.tickHistory && state.tickHistory[selectedSymbol]) || [];
   const positions = state?.positions || [];
   const pendingOrders = state?.pendingOrders || [];
@@ -45,40 +53,30 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
       {/* 2. Account High-Level Metrics */}
       <AccountMetricsBar account={account} />
 
-      {/* 2b. Auto-Trader Physical Bot Status & Quick Controls */}
+      {/* 3. Auto-Trader Physical Bot Status & Quick Controls */}
       <DashboardBotWidget onNavigateToBot={() => onNavigateToTab?.('bot')} />
-
-      {/* 3. Section for Current Symbol (EA Connected Chart) */}
-      <CurrentChartSymbolCard
-        currentChart={currentChart}
-        chartDiagnostics={state?.chartDiagnostics}
-        terminalPermissions={state?.terminalPermissions}
-        onSelectSymbol={setSelectedSymbol}
-        onRefresh={onRefresh}
-      />
 
       {/* 4. Global Forex Trading Sessions & Liquidity Overlaps */}
       <ForexMarketSessions />
 
-      {/* 5. Real-Time Tick Stream Bar */}
-      <LiveTickStream
-        ticks={ticks}
-        selectedSymbol={selectedSymbol}
-        onSelectSymbol={setSelectedSymbol}
-      />
-
-      {/* 5. Main Operational Grid: Live Chart + Async Order Pad */}
+      {/* 5. Main Centerpiece: Single Professional MT5 Chart + Async Order Pad */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-8">
           <LivePriceChart
             symbol={selectedSymbol}
             history={history}
-            candles={state?.chartHistory}
-            indicators={state?.indicators}
+            candles={selectedSymbol.toUpperCase() === currentChart?.symbol.toUpperCase() ? state?.chartHistory : undefined}
+            indicators={selectedSymbol.toUpperCase() === currentChart?.symbol.toUpperCase() ? state?.indicators : undefined}
             chartDiagnostics={state?.chartDiagnostics}
+            terminalPermissions={state?.terminalPermissions}
+            currentChart={currentChart}
+            allSymbols={allSymbols}
+            ticks={ticks}
             currentTick={currentTick}
             positions={positions}
+            marketDepth={state?.marketDepth}
             currentTimeframe={state?.currentChart?.timeframe || 'M1'}
+            onSelectSymbol={setSelectedSymbol}
             onRefresh={onRefresh}
           />
         </div>
@@ -89,7 +87,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
             symbols={allSymbols}
             riskGuard={riskGuard}
             account={account}
-            symbolInfo={allSymbols.find((s) => s.symbol === selectedSymbol) || currentChart}
+            symbolInfo={allSymbols.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase()) || currentChart}
             onSelectSymbol={setSelectedSymbol}
           />
         </div>
@@ -113,4 +111,5 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ state, onRefresh, 
     </div>
   );
 };
+
 

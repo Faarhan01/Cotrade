@@ -99,7 +99,7 @@ class TradeStore {
     trailingStopStepPoints: 30,
     maxLotSizePerTrade: 2.0,
     maxOpenPositions: 5,
-    allowedSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'AUDUSD'],
+    allowedSymbols: ['*'], // Default permits any broker symbol dynamically
     autoCloseOnMarginLevelBelow: 100, // 100% margin call safety
   };
 
@@ -123,7 +123,7 @@ class TradeStore {
 
   private eaConnected: boolean = false;
   private lastEaSync: number = 0;
-  private eaVersion: string = '2.10';
+  private eaVersion: string = '2.75';
   private mt5ServerTime: number = 0;
   private terminalName: string = '';
   private terminalCompany: string = '';
@@ -192,7 +192,8 @@ class TradeStore {
   private async hydrateChartHistoryFromDb(): Promise<void> {
     try {
       const { dbGetCandles } = await import('../database/db.js');
-      const currentSym = this.currentChart?.symbol || 'EURUSD';
+      const currentSym = this.currentChart?.symbol || (this.allSymbols.length > 0 ? this.allSymbols[0].symbol : '');
+      if (!currentSym) return;
       const currentTf = this.currentChart?.timeframe || 'M1';
       const candles = await dbGetCandles(currentSym, currentTf, 120);
       if (candles && candles.length > 0) {
@@ -268,10 +269,10 @@ class TradeStore {
     if (Array.isArray(payload.chartHistory) && payload.chartHistory.length > 0) {
       this.chartHistory = payload.chartHistory;
       this.syntheticDataActive = false;
-      const currentSym = this.currentChart?.symbol || 'EURUSD';
+      const currentSym = this.currentChart?.symbol || payload.currentChart?.symbol || (this.allSymbols.length > 0 ? this.allSymbols[0].symbol : '') || 'ACTIVE_CHART';
       // The EA reports the MT5 enum name (`PERIOD_H1`); normalise it so the
       // rows are readable by every other part of the app.
-      const currentTf = normalizeTimeframe(this.currentChart?.timeframe || 'M1') || 'M1';
+      const currentTf = normalizeTimeframe(this.currentChart?.timeframe || payload.currentChart?.timeframe || 'M1') || 'M1';
       dbInsertCandles(currentSym, currentTf, payload.chartHistory).catch((e) =>
         console.error('DB insert candles error:', e)
       );
@@ -804,7 +805,22 @@ class TradeStore {
     }
 
     // Only actions opening new orders or querying symbols strictly require an explicit symbol
-    const actionsWithoutMandatorySymbol = ['CLOSE_ALL', 'MODIFY_POSITION', 'CLOSE_POSITION', 'CANCEL_PENDING', 'PROTECT_POSITION'];
+    const actionsWithoutMandatorySymbol = [
+      'CLOSE_ALL',
+      'CLOSE_PROFITABLE',
+      'CLOSE_PROFITABLE_ONLY',
+      'MODIFY_POSITION',
+      'CLOSE_POSITION',
+      'PARTIAL_CLOSE',
+      'CLOSE_PARTIAL',
+      'CANCEL_PENDING',
+      'MODIFY_PENDING',
+      'PROTECT_POSITION',
+      'BREAKEVEN',
+      'SET_BREAKEVEN',
+      'APPLY_BREAKEVEN',
+      'SET_RISK_GUARD',
+    ];
     if (!actionsWithoutMandatorySymbol.includes(params.action) && !params.symbol) {
       return { success: false, error: 'Missing symbol for this action.' };
     }
@@ -1379,6 +1395,27 @@ class TradeStore {
     return hasEaData ? 'LIVE' : 'NONE';
   }
 
+  public resolveActiveSymbol(requestedSymbol?: string): string {
+    if (requestedSymbol && requestedSymbol.trim()) {
+      return normalizeSymbol(requestedSymbol);
+    }
+    if (this.currentChart?.symbol) {
+      return normalizeSymbol(this.currentChart.symbol);
+    }
+    const ticks = Array.from(this.ticks.values());
+    if (ticks.length > 0 && ticks[0]?.symbol) {
+      return normalizeSymbol(ticks[0].symbol);
+    }
+    if (this.allSymbols.length > 0 && this.allSymbols[0]?.symbol) {
+      return normalizeSymbol(this.allSymbols[0].symbol);
+    }
+    const pos = Array.from(this.positions.values());
+    if (pos.length > 0 && pos[0]?.symbol) {
+      return normalizeSymbol(pos[0].symbol);
+    }
+    return '';
+  }
+
   public getCurrentChart() {
     return this.currentChart;
   }
@@ -1458,56 +1495,38 @@ class TradeStore {
   }
 
   /**
-   * Seed synthetic candles for instant testing and AI model validation.
-   *
-   * The generated bars are a random walk: they contain no market information.
-   * They are kept in memory only and are never written to `candles_history`,
-   * because that table is the archive of real MT5 data and mixing the two
-   * meant backtests, indicators and auto-detect profiles were silently
-   * computed on random noise and presented as live analysis.
+   * Load authentic candles from SQLite database or request history from MT5 EA.
+   * Synthetic random walk generation is strictly removed to prevent fake market analysis.
    */
-  public async seedCandles(symbol: string, timeframe = 'M1', count = 60, basePrice = 1.085) {
-    const sym = normalizeSymbol(symbol);
+  public async loadAuthenticCandles(symbol: string, timeframe = 'M1', count = 100) {
+    const sym = normalizeSymbol(symbol) || this.resolveActiveSymbol();
     const tf = normalizeTimeframe(timeframe) || 'M1';
-    const barCount = Math.min(Math.max(Math.floor(Number(count)) || 60, 1), 5000);
-    const intervalSec = tf === 'M5' ? 300 : tf === 'M15' ? 900 : tf === 'H1' ? 3600 : 60;
-    const nowSec = Math.floor(Date.now() / 1000);
-    const generated: CandleData[] = [];
-    let cur = basePrice;
+    const barCount = Math.min(Math.max(Math.floor(Number(count)) || 100, 20), 5000);
 
-    for (let i = barCount - 1; i >= 0; i--) {
-      const candleTime = nowSec - i * intervalSec;
-      const change = (Math.random() - 0.49) * (cur * 0.001);
-      const open = Number(cur.toFixed(5));
-      const close = Number((cur + change).toFixed(5));
-      const high = Number((Math.max(open, close) + Math.random() * (cur * 0.0005)).toFixed(5));
-      const low = Number((Math.min(open, close) - Math.random() * (cur * 0.0005)).toFixed(5));
-      const volume = Math.floor(50 + Math.random() * 200);
-
-      generated.push({
-        time: candleTime,
-        timeIso: new Date(candleTime * 1000).toISOString(),
-        open,
-        high,
-        low,
-        close,
-        volume,
-      });
-      cur = close;
+    const { dbGetCandles } = await import('../database/db.js');
+    let candles = await dbGetCandles(sym, tf, barCount);
+    if (!candles || candles.length < 20) {
+      if (this.connection.isEaConnected) {
+        this.requestHistoryFromEA(sym, tf, barCount);
+      }
+    } else {
+      this.chartHistory = candles;
+      this.syntheticDataActive = false;
+      this.indicators = calculateIndicators(this.chartHistory, sym, tf);
     }
 
-    this.chartHistory = generated;
-    this.markSyntheticDataActive(true);
-    this.indicators = calculateIndicators(this.chartHistory, sym, tf);
-    this.addLog('info', `Seeded ${barCount} test candles`, `${sym} [${tf}] starting @ ${basePrice} (synthetic, not persisted)`, 'TEST_SIMULATOR');
     return {
       symbol: sym,
       timeframe: tf,
-      count: generated.length,
-      dataQuality: 'SYNTHETIC' as const,
-      candles: generated,
+      count: candles ? candles.length : 0,
+      dataQuality: (candles && candles.length >= 20 ? 'LIVE' : 'NONE') as const,
+      candles: candles || [],
       indicators: this.indicators,
     };
+  }
+
+  public async seedCandles(symbol: string, timeframe = 'M1', count = 100) {
+    return this.loadAuthenticCandles(symbol, timeframe, count);
   }
 }
 

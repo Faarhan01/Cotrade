@@ -19,8 +19,21 @@ const BacktestPage = lazy(() => import('./pages/BacktestPage').then((m) => ({ de
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
-  const [selectedSymbol, setSelectedSymbol] = useState<string>('EURUSD');
+  const [selectedSymbol, setSelectedSymbol] = useState<string>('');
   const { state, wsStatus, lastPingMs, reloadState } = useBridgeData();
+
+  // Dynamically sync selectedSymbol with connected MT5 chart or symbols
+  React.useEffect(() => {
+    if (!selectedSymbol) {
+      if (state?.currentChart?.symbol) {
+        setSelectedSymbol(state.currentChart.symbol);
+      } else if (state?.allSymbols && state.allSymbols.length > 0) {
+        setSelectedSymbol(state.allSymbols[0].symbol);
+      } else if (state?.ticks && state.ticks.length > 0) {
+        setSelectedSymbol(state.ticks[0].symbol);
+      }
+    }
+  }, [state?.currentChart?.symbol, state?.allSymbols, state?.ticks, selectedSymbol]);
 
   const handleNavigateToTab = (tab: string, symbol?: string) => {
     if (symbol) {

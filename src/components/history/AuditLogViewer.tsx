@@ -109,11 +109,11 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
                   </p>
 
                   <div className="flex items-center gap-2 pt-1 text-[10px] text-slate-500">
-                    <span className="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-slate-400">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400">
                       Source: {log.source}
                     </span>
                     {log.ticket && (
-                      <span className="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-cyan-300">
+                      <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-cyan-300">
                         Ticket #{log.ticket}
                       </span>
                     )}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { DetailedSymbolInfo, TickData } from '../../types';
 import { Layers, Search, Zap, ExternalLink, ShieldCheck, CheckCircle2, Plus } from 'lucide-react';
 import { api } from '../../services/api';
+import { getSymbolDigits, getSymbolPoint, getSymbolContractSize } from '../../utils/symbolEconomics';
 
 interface AllTrackedSymbolsTableProps {
   symbols: DetailedSymbolInfo[];
@@ -50,12 +51,12 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
           bid: t.bid,
           ask: t.ask,
           spread: t.spread,
-          digits: t.symbol.includes('JPY') ? 3 : 5,
-          point: t.symbol.includes('JPY') ? 0.001 : 0.00001,
+          digits: getSymbolDigits(t.symbol),
+          point: getSymbolPoint(t.symbol),
           minLot: 0.01,
           maxLot: 100.0,
           lotStep: 0.01,
-          contractSize: 100000,
+          contractSize: getSymbolContractSize(t.symbol),
           tradeAllowed: true,
           high24h: t.high24h,
           low24h: t.low24h,
@@ -174,7 +175,7 @@ export const AllTrackedSymbolsTable: React.FC<AllTrackedSymbolsTableProps> = ({
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-white text-xs">{item.symbol}</span>
                         {item.isCurrentChart && (
-                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60">
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60">
                             Active Chart
                           </span>
                         )}

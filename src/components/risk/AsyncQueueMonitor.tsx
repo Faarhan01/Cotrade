@@ -78,7 +78,7 @@ export const AsyncQueueMonitor: React.FC<AsyncQueueMonitorProps> = ({ queue }) =
                       {cmd.ticket && <span>Ticket #{cmd.ticket}</span>}
                     </td>
                     <td className="py-2.5 px-3">
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-950 text-slate-400 border border-slate-800">
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800">
                         {cmd.source}
                       </span>
                     </td>

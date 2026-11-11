@@ -28,10 +28,16 @@ export const RiskSettingsPanel: React.FC<RiskSettingsPanelProps> = ({ riskGuard 
       trailingStopStepPoints: 30,
       maxLotSizePerTrade: 2.0,
       maxOpenPositions: 5,
-      allowedSymbols: ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD'],
+      allowedSymbols: ['*'],
       autoCloseOnMarginLevelBelow: 100,
     }
   );
+
+  React.useEffect(() => {
+    if (riskGuard) {
+      setFormData(riskGuard);
+    }
+  }, [riskGuard]);
 
   const [saving, setSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -85,6 +91,44 @@ export const RiskSettingsPanel: React.FC<RiskSettingsPanelProps> = ({ riskGuard 
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
+        {/* Emergency Kill Switch Failsafe */}
+        <div className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono transition-all ${
+          formData.emergencyKillSwitch
+            ? 'bg-rose-950/70 border-rose-800 text-rose-200'
+            : 'bg-slate-950/80 border-slate-800 text-slate-300'
+        }`}>
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${formData.emergencyKillSwitch ? 'bg-rose-600 text-white animate-pulse' : 'bg-slate-800 text-slate-400'}`}>
+              <AlertOctagon className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm text-white">Emergency Kill Switch</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
+                  formData.emergencyKillSwitch ? 'bg-rose-600 text-white' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {formData.emergencyKillSwitch ? 'ACTIVE - ORDERS BLOCKED' : 'STANDBY'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Instantly locks all order execution across the Web terminal, AI bots, and external MCP agents.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setFormData({ ...formData, emergencyKillSwitch: !formData.emergencyKillSwitch })}
+            className={`px-4 py-2 rounded-lg font-bold text-xs uppercase tracking-wider transition-all shadow-md ${
+              formData.emergencyKillSwitch
+                ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+            }`}
+          >
+            {formData.emergencyKillSwitch ? 'Deactivate Kill Switch' : 'Activate Kill Switch'}
+          </button>
+        </div>
+
         {/* Section 1: Portfolio Limits */}
         <div>
           <h3 className="text-xs font-mono uppercase text-slate-400 mb-3 flex items-center gap-1.5 font-bold">
@@ -288,6 +332,25 @@ export const RiskSettingsPanel: React.FC<RiskSettingsPanelProps> = ({ riskGuard 
               />
               <p className="text-[10px] text-slate-500 font-mono mt-1">
                 Emergency close all if MT5 margin level drops under this percentage.
+              </p>
+            </div>
+
+            <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-lg md:col-span-3">
+              <label className="block text-xs font-mono text-slate-400 mb-1">
+                Allowed Trading Symbols Whitelist (comma-separated, * for all symbols)
+              </label>
+              <input
+                type="text"
+                value={formData.allowedSymbols?.join(', ') || '*'}
+                onChange={(e) => {
+                  const val = e.target.value.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+                  setFormData({ ...formData, allowedSymbols: val.length > 0 ? val : ['*'] });
+                }}
+                placeholder="e.g. EURUSD, GBPUSD, XAUUSD, BTCUSD or *"
+                className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-sm font-mono text-white focus:border-cyan-500 focus:outline-none"
+              />
+              <p className="text-[10px] text-slate-500 font-mono mt-1">
+                Only orders for symbols in this list are permitted. Set to * or ALL to allow any broker symbol dynamically.
               </p>
             </div>
           </div>

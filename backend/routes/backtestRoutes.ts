@@ -2,11 +2,9 @@ import { Router } from 'express';
 import { runIsolatedBacktest } from '../backtest/backtestEngine.js';
 import { backtestStore } from '../backtest/backtestStore.js';
 import { tradeStore } from '../services/tradeStore.js';
-import { dbGetCandles, dbInsertCandles, dbSaveBacktestResult, dbGetBacktestResults, dbGetBacktestById } from '../database/db.js';
+import { dbGetCandles, dbSaveBacktestResult, dbGetBacktestResults, dbGetBacktestById } from '../database/db.js';
 import { normalizeSymbol } from '../utils/symbol.js';
 import { normalizeTimeframe } from '../utils/timeframe.js';
-import { timeframeToSeconds } from '../services/historySyncService.js';
-import { CandleData } from '../types/mt5.js';
 
 export const backtestRouter = Router();
 
@@ -17,7 +15,7 @@ backtestRouter.post('/run', async (req, res) => {
       strategyId = 'strat-backtest-custom',
       strategyName = 'Custom Strategy',
       strategyType = 'RSI_REVERSAL',
-      symbol = 'EURUSD',
+      symbol = '',
       timeframe = 'M1',
       candleCount = 300,
       parameters = {},
@@ -31,25 +29,48 @@ backtestRouter.post('/run', async (req, res) => {
       knowledgeAssisted = false,
     } = req.body;
 
-    const normSym = normalizeSymbol(symbol) || 'EURUSD';
+    const normSym = normalizeSymbol(symbol) || tradeStore.resolveActiveSymbol();
+    if (!normSym) {
+      return res.status(400).json({ success: false, error: 'A valid trading symbol is required for backtesting.' });
+    }
     const normTf = normalizeTimeframe(timeframe) || 'M1';
 
     // Retrieve real historical candles from SQLite or in-memory tradeStore
     let candles = await dbGetCandles(normSym, normTf, Math.min(2000, Math.max(50, candleCount)));
 
-    if (!candles || candles.length < 30) {
+    if (!candles || candles.length < 20) {
       const inMem = tradeStore.getChartHistory();
-      if (inMem && inMem.length >= 30 && tradeStore.getCurrentChart()?.symbol === normSym) {
+      if (inMem && inMem.length >= 20 && tradeStore.getCurrentChart()?.symbol === normSym) {
         candles = inMem;
       }
     }
 
-    // If candles are still insufficient, bootstrap realistic bars based on live price
-    if (!candles || candles.length < 30) {
-      const needed = Math.max(100, Math.min(1000, Number(candleCount) || 200));
-      candles = generateBootstrapCandles(normSym, normTf, needed);
-      dbInsertCandles(normSym, normTf, candles).catch((err) => {
-        console.warn('[Backtest] Failed to persist bootstrap candles:', err?.message || err);
+    // If candles for this timeframe are insufficient, inspect alternative timeframes in DB
+    if (!candles || candles.length < 20) {
+      for (const altTf of ['M1', 'M5', 'M15', 'M30', 'H1']) {
+        if (altTf !== normTf) {
+          const altCandles = await dbGetCandles(normSym, altTf, Math.min(2000, Math.max(50, candleCount)));
+          if (altCandles && altCandles.length >= 20) {
+            candles = altCandles;
+            break;
+          }
+        }
+      }
+    }
+
+    // Reject backtesting on non-existent or synthetic data: demand authentic broker bars
+    if (!candles || candles.length < 20) {
+      const neededBars = Math.max(100, Math.min(1000, Number(candleCount) || 200));
+      if (tradeStore.getState().connection.isEaConnected) {
+        tradeStore.requestHistoryFromEA(normSym, normTf, neededBars);
+        return res.status(400).json({
+          success: false,
+          error: `History sync for ${normSym} [${normTf}] dispatched to MT5 EA. Please allow a few seconds for authentic broker candles to sync before backtesting.`,
+        });
+      }
+      return res.status(400).json({
+        success: false,
+        error: `Insufficient authentic historical candles for ${normSym} [${normTf}]. Please connect the MetaTrader 5 EA to stream live historical bars rather than simulated random data.`,
       });
     }
 
@@ -76,28 +97,7 @@ backtestRouter.post('/run', async (req, res) => {
 
     // Also persist summary to SQLite
     try {
-      await dbSaveBacktestResult({
-        id: result.id,
-        strategyId: result.strategyId,
-        strategyName: result.strategyName,
-        symbol: result.symbol,
-        timeframe: result.timeframe,
-        evaluatedAt: result.evaluatedAt,
-        candleCount: result.candleCount,
-        initialBalance: result.initialBalance,
-        finalEquity: result.finalEquity,
-        netProfitUSD: result.netProfitUSD,
-        winRate: result.winRate,
-        profitFactor: result.profitFactor,
-        maxDrawdownPercent: result.maxDrawdownPercent,
-        totalTrades: result.totalTrades,
-        winningTrades: result.winningTrades,
-        losingTrades: result.losingTrades,
-        tradesJson: JSON.stringify(result.trades.slice(0, 100)),
-        parametersJson: JSON.stringify(result.parameters),
-        dataQuality: result.dataQuality,
-        knowledgeAssisted: result.knowledgeAssisted ? 1 : 0,
-      });
+      await dbSaveBacktestResult(result);
     } catch (dbErr) {
       console.warn('[BacktestRouter] Notice persisting to db:', dbErr);
     }
@@ -149,68 +149,5 @@ backtestRouter.get('/results/:id', async (req, res) => {
 });
 
 // Delete backtest result
-backtestRouter.delete('/results/:id', (req, res) => {
-  const { id } = req.params;
-  const deleted = backtestStore.delete(id);
-  res.json({ success: true, deleted });
 });
-
-function generateBootstrapCandles(symbol: string, timeframe: string, count: number): CandleData[] {
-  const normSym = normalizeSymbol(symbol);
-  let basePrice = 1.0850;
-  let typicalVolatility = 0.0008;
-
-  if (normSym.includes('JPY')) {
-    basePrice = 154.50;
-    typicalVolatility = 0.15;
-  } else if (normSym.includes('GBP')) {
-    basePrice = 1.2950;
-    typicalVolatility = 0.0012;
-  } else if (normSym.includes('XAU')) {
-    basePrice = 2650.0;
-    typicalVolatility = 4.5;
-  } else if (normSym.includes('BTC')) {
-    basePrice = 67500.0;
-    typicalVolatility = 250.0;
-  } else if (normSym.includes('US30')) {
-    basePrice = 42500.0;
-    typicalVolatility = 80.0;
-  }
-
-  // Look up live tick if present
-  const liveTick = tradeStore.getTicks().find((t: any) => t.symbol?.toUpperCase() === normSym.toUpperCase());
-  if (liveTick?.bid && liveTick.bid > 0) {
-    basePrice = liveTick.bid;
-  }
-
-  const tfSecs = timeframeToSeconds(timeframe);
-  const now = Math.floor(Date.now() / 1000);
-  const startTime = now - count * tfSecs;
-
-  const candles: CandleData[] = [];
-  let current = basePrice;
-
-  for (let i = 0; i < count; i++) {
-    const time = startTime + i * tfSecs;
-    const wave = Math.sin(i / 10) * typicalVolatility * 0.9;
-    const noise = (Math.random() - 0.49) * typicalVolatility * 1.6;
-    const open = current;
-    const close = Math.max(0.0001, open + wave + noise);
-    const high = Math.max(open, close) + Math.random() * typicalVolatility * 0.9;
-    const low = Math.min(open, close) - Math.random() * typicalVolatility * 0.9;
-    const volume = Math.floor(50 + Math.random() * 250);
-
-    candles.push({
-      time,
-      open: Number(open.toFixed(5)),
-      high: Number(high.toFixed(5)),
-      low: Number(low.toFixed(5)),
-      close: Number(close.toFixed(5)),
-      volume,
-    });
-    current = close;
-  }
-
-  return candles;
-}
 

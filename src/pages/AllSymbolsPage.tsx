@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { AppState, DetailedSymbolInfo, TickData } from '../types';
 import { api } from '../services/api';
+import { detectAssetClass } from '../utils/symbolEconomics';
 
 interface AllSymbolsPageProps {
   state: AppState | null;
@@ -34,22 +35,17 @@ interface AllSymbolsPageProps {
   onNavigateToTab?: (tab: string, symbol?: string) => void;
 }
 
-type AssetCategory = 'ALL' | 'FOREX_MAJOR' | 'FOREX_MINOR' | 'METALS' | 'INDICES' | 'CRYPTO';
-
-const MAJOR_FOREX = ['EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD', 'AUDUSD', 'NZDUSD'];
-const METALS_COMMODITIES = ['XAUUSD', 'XAGUSD', 'WTI', 'BRENT', 'OIL', 'COPPER', 'GOLD', 'SILVER'];
-const INDICES = ['US30', 'NAS100', 'SPX500', 'GER40', 'UK100', 'JP225', 'AUS200', 'FRA40', 'HK50', 'DJ30', 'USTEC'];
-const CRYPTO = ['BTCUSD', 'ETHUSD', 'SOLUSD', 'XRPUSD', 'LTCUSD', 'DOGEUSD', 'BNBUSD'];
+type AssetCategory = 'ALL' | 'FOREX_MAJOR' | 'FOREX_MINOR' | 'METALS' | 'COMMODITIES' | 'INDICES' | 'CRYPTO' | 'SYNTHETIC';
 
 function categorizeSymbol(sym: string): AssetCategory {
-  const upper = sym.toUpperCase();
-  if (MAJOR_FOREX.some((m) => upper.includes(m))) return 'FOREX_MAJOR';
-  if (METALS_COMMODITIES.some((m) => upper.includes(m))) return 'METALS';
-  if (INDICES.some((m) => upper.includes(m))) return 'INDICES';
-  if (CRYPTO.some((m) => upper.includes(m))) return 'CRYPTO';
-  if (upper.length === 6 && (upper.endsWith('USD') || upper.endsWith('EUR') || upper.endsWith('JPY') || upper.endsWith('GBP') || upper.endsWith('CHF') || upper.endsWith('AUD') || upper.endsWith('CAD') || upper.endsWith('NZD'))) {
-    return 'FOREX_MINOR';
-  }
+  const asset = detectAssetClass(sym);
+  if (asset === 'SYNTHETIC') return 'SYNTHETIC';
+  if (asset === 'FOREX_MAJOR') return 'FOREX_MAJOR';
+  if (asset === 'FOREX_MINOR') return 'FOREX_MINOR';
+  if (asset === 'METALS') return 'METALS';
+  if (asset === 'COMMODITIES') return 'COMMODITIES';
+  if (asset === 'INDICES') return 'INDICES';
+  if (asset === 'CRYPTO') return 'CRYPTO';
   return 'ALL';
 }
 
@@ -74,7 +70,7 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
 
   const rawSymbols = state?.allSymbols || [];
   const ticks = state?.ticks || [];
-  const currentChartSymbol = state?.currentChart?.symbol || 'EURUSD';
+  const currentChartSymbol = state?.currentChart?.symbol || (rawSymbols.length > 0 ? rawSymbols[0].symbol : '');
   const isEaOnline = state?.connection.isEaConnected ?? false;
 
   // Compile final symbols list: fallback to ticks if allSymbols is not yet populated
@@ -215,11 +211,13 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
     try {
       setBotUpdatingSymbol(symbol);
       const botStatus = await api.getBotStatus().catch(() => null);
-      const currentSyms: string[] = botStatus?.config?.symbols || ['EURUSD', 'GBPUSD', 'XAUUSD'];
+      const currentSyms: string[] = (botStatus?.config?.symbols && botStatus.config.symbols.length > 0)
+        ? botStatus.config.symbols
+        : (currentChartSymbol ? [currentChartSymbol] : (rawSymbols.length > 0 ? [rawSymbols[0].symbol] : [symbol]));
       let updated: string[];
       if (currentSyms.includes(symbol)) {
         updated = currentSyms.filter((s) => s !== symbol);
-        if (updated.length === 0) updated = ['EURUSD']; // enforce at least 1
+        if (updated.length === 0) updated = [currentChartSymbol || symbol]; // enforce at least 1
         setBotActionNotice(`Removed ${symbol} from Auto-Trader Bot target list.`);
       } else {
         updated = [...currentSyms, symbol];
@@ -422,9 +420,11 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
             { id: 'ALL', label: 'All Instruments' },
             { id: 'FOREX_MAJOR', label: 'Forex Majors' },
             { id: 'FOREX_MINOR', label: 'Crosses & Minors' },
-            { id: 'METALS', label: 'Metals & Energies' },
+            { id: 'METALS', label: 'Metals' },
+            { id: 'COMMODITIES', label: 'Commodities & Oil' },
             { id: 'INDICES', label: 'Stock Indices' },
             { id: 'CRYPTO', label: 'Crypto' },
+            { id: 'SYNTHETIC', label: 'Synthetics (Volatility/Step)' },
           ].map((cat) => {
             const isActive = selectedCategory === cat.id;
             return (
@@ -514,7 +514,7 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                               {item.symbol}
                             </span>
                             {isCurrent && (
-                              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/80">
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/80">
                                 Active Chart
                               </span>
                             )}
@@ -560,7 +560,7 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                               <span className="text-rose-400">{low.toFixed(digits)}</span>
                               <span className="text-emerald-400">{high.toFixed(digits)}</span>
                             </div>
-                            <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden flex">
+                            <div className="h-1.5 bg-slate-800 rounded-sm overflow-hidden flex">
                               <div
                                 className="bg-gradient-to-r from-rose-500 via-amber-400 to-emerald-400 h-full"
                                 style={{ width: `${rangePct}%` }}
@@ -588,7 +588,7 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                       {/* Trading Status */}
                       <td className="py-3 px-3">
                         {item.tradeMode ? (
-                          <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-bold border ${
+                          <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded font-bold border ${
                             item.tradeMode === 'FULL'
                               ? 'text-emerald-400 bg-emerald-950/70 border-emerald-800/70'
                               : item.tradeMode === 'CLOSEONLY'
@@ -599,12 +599,12 @@ export const AllSymbolsPage: React.FC<AllSymbolsPageProps> = ({ state, onRefresh
                             {item.tradeMode}
                           </span>
                         ) : item.tradeAllowed ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-2 py-0.5 rounded-full font-bold">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-950/70 border border-emerald-800/70 px-2 py-0.5 rounded font-bold">
                             <Check className="h-2.5 w-2.5" />
                             Enabled
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-rose-400 bg-rose-950/70 border border-rose-800/70 px-2 py-0.5 rounded-full font-bold">
+                          <span className="inline-flex items-center gap-1 text-[10px] text-rose-400 bg-rose-950/70 border border-rose-800/70 px-2 py-0.5 rounded font-bold">
                             Disabled
                           </span>
                         )}

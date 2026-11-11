@@ -3,6 +3,7 @@ import { OrderType, TickData, RiskGuardConfig, DetailedSymbolInfo, AccountInfo, 
 import { api } from '../../services/api';
 import { Send, ArrowUp, ArrowDown, AlertTriangle, CheckCircle2, Lock, ShieldAlert, Clock, Zap, Calculator } from 'lucide-react';
 import { ForexCalculatorModal } from './ForexCalculatorModal';
+import { calculatePositionSizeByRisk, getSymbolDigits, getSymbolPoint } from '../../utils/symbolEconomics';
 
 interface OrderExecutionDockProps {
   selectedSymbol: string;
@@ -36,9 +37,9 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
 
   const activeTick = ticks.find((t) => t.symbol === selectedSymbol);
   const symbolInfo = symbols.find((s) => s.symbol.toUpperCase() === selectedSymbol.toUpperCase());
-  const digits = symbolInfo?.digits ?? (selectedSymbol.includes('JPY') ? 3 : 5);
-  const point = symbolInfo?.point ?? (selectedSymbol.includes('JPY') ? 0.001 : 0.00001);
-  const pip = point * 10;
+  const digits = getSymbolDigits(selectedSymbol, symbolInfo?.digits);
+  const point = getSymbolPoint(selectedSymbol, symbolInfo?.point);
+  const pip = digits === 3 || digits === 5 ? point * 10 : point;
 
   const tradeMode = symbolInfo?.tradeMode || (symbolInfo?.tradeAllowed === false ? 'CLOSEONLY' : 'FULL');
   const isCloseOnly = tradeMode === 'CLOSEONLY';
@@ -91,6 +92,72 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
 
   const isBuySide = orderType === 'BUY' || orderType === 'BUY_LIMIT' || orderType === 'BUY_STOP';
   const isSellSide = orderType === 'SELL' || orderType === 'SELL_LIMIT' || orderType === 'SELL_STOP';
+
+  const handleQuickRiskCalc = (riskPct: number) => {
+    if (!activeTick || !sl) {
+      setStatus({ message: 'Set a Stop Loss price first to calculate lot size from risk percentage', error: true });
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+    const entryPrice = orderCategory === 'PENDING' && pendingPrice ? parseFloat(pendingPrice) : (isBuySide ? activeTick.ask : activeTick.bid);
+    const slPrice = parseFloat(sl);
+    if (!slPrice || slPrice <= 0 || Math.abs(entryPrice - slPrice) <= 0) {
+      setStatus({ message: 'Valid non-zero Stop Loss required for risk-based sizing', error: true });
+      setTimeout(() => setStatus(null), 3000);
+      return;
+    }
+    const balance = account?.balance || account?.equity || 10000;
+    const res = calculatePositionSizeByRisk({
+      symbol: selectedSymbol,
+      balance,
+      riskPercent: riskPct,
+      entryPrice,
+      stopLossPrice: slPrice,
+      symbolInfo: (symbolInfo as any) || undefined,
+      maxAllowedLots: maxLots,
+      leverage: account?.leverage || 100,
+    });
+    if (res.recommendedLots > 0) {
+      setVolume(res.recommendedLots.toFixed(2));
+      setStatus({ message: `Calculated ${res.recommendedLots} lots for ${riskPct}% risk ($${res.riskAmountUSD.toFixed(2)}) based on ${res.stopLossPoints} pts SL distance` });
+      setTimeout(() => setStatus(null), 3500);
+    }
+  };
+
+  const handleQuickPreset = (slPips: number, tpPips: number) => {
+    if (!activeTick) return;
+    const isBuy = isBuySide;
+    const basePrice = orderCategory === 'PENDING' && pendingPrice ? parseFloat(pendingPrice) : (isBuy ? activeTick.ask : activeTick.bid);
+    const slPrice = isBuy ? basePrice - slPips * pip : basePrice + slPips * pip;
+    const tpPrice = isBuy ? basePrice + tpPips * pip : basePrice - tpPips * pip;
+    setSl(slPrice.toFixed(digits));
+    setTp(tpPrice.toFixed(digits));
+  };
+
+  const handleQuickRR = (rrRatio: number) => {
+    if (!activeTick) return;
+    const isBuy = isBuySide;
+    const basePrice = orderCategory === 'PENDING' && pendingPrice ? parseFloat(pendingPrice) : (isBuy ? activeTick.ask : activeTick.bid);
+    const slPrice = parseFloat(sl);
+    if (!slPrice || slPrice <= 0 || Math.abs(basePrice - slPrice) <= 0) {
+      const defaultSlDist = 20 * pip;
+      const calculatedSl = isBuy ? basePrice - defaultSlDist : basePrice + defaultSlDist;
+      const calculatedTp = isBuy ? basePrice + defaultSlDist * rrRatio : basePrice - defaultSlDist * rrRatio;
+      setSl(calculatedSl.toFixed(digits));
+      setTp(calculatedTp.toFixed(digits));
+      return;
+    }
+    const slDist = Math.abs(basePrice - slPrice);
+    const tpPrice = isBuy ? basePrice + slDist * rrRatio : basePrice - slDist * rrRatio;
+    setTp(tpPrice.toFixed(digits));
+  };
+
+  const currentEntry = orderCategory === 'PENDING' && pendingPrice ? parseFloat(pendingPrice) : (activeTick ? (isBuySide ? activeTick.ask : activeTick.bid) : 0);
+  const currentSl = parseFloat(sl) || 0;
+  const currentTp = parseFloat(tp) || 0;
+  const calculatedRR = currentEntry > 0 && currentSl > 0 && currentTp > 0 && Math.abs(currentEntry - currentSl) > 0
+    ? (Math.abs(currentTp - currentEntry) / Math.abs(currentEntry - currentSl)).toFixed(2)
+    : null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,11 +332,9 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                     list="symbol-options"
                   />
                   <datalist id="symbol-options">
-                    {ticks.length > 0
-                      ? ticks.map((t) => <option key={t.symbol} value={t.symbol} />)
-                      : ['EURUSD', 'GBPUSD', 'USDJPY', 'XAUUSD', 'BTCUSD', 'AUDUSD', 'USDCAD'].map((s) => (
-                          <option key={s} value={s} />
-                        ))}
+                    {symbols.length > 0
+                      ? symbols.map((s) => <option key={s.symbol} value={s.symbol} />)
+                      : ticks.map((t) => <option key={t.symbol} value={t.symbol} />)}
                   </datalist>
                 </div>
               </div>
@@ -461,22 +526,105 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
                 exceedsRisk ? 'border-rose-500 bg-rose-950/20' : 'border-slate-700 focus:border-cyan-500'
               }`}
             />
-            {/* Quick lot pills */}
-            <div className="flex items-center gap-1.5 mt-1.5">
-              {quickLotSizes.map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setVolume(sz)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                    volume === sz
-                      ? 'bg-cyan-950 text-cyan-300 border-cyan-700'
-                      : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+            {/* Quick lot pills & Risk % Sizing */}
+            <div className="flex items-center justify-between gap-1 mt-1.5 flex-wrap">
+              <div className="flex items-center gap-1">
+                {quickLotSizes.map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => setVolume(sz)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border transition-all ${
+                      volume === sz
+                        ? 'bg-cyan-950 text-cyan-300 border-cyan-700 font-bold'
+                        : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    {sz}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-slate-500 font-mono">Risk:</span>
+                {[1, 2, 3].map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => handleQuickRiskCalc(pct)}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-700/60 text-indigo-300 hover:bg-indigo-900 font-bold transition-all"
+                    title={`Calculate exact lot size risking ${pct}% of account equity`}
+                  >
+                    {pct}%
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* SL & TP Presets */}
+          <div className="flex items-center justify-between text-[11px] pt-1">
+            <span className="text-slate-400">Target Brackets:</span>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleQuickPreset(15, 30)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-cyan-300 transition-all"
+                title="15 pips Stop Loss / 30 pips Take Profit"
+              >
+                Scalp (15/30p)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickPreset(30, 60)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-cyan-300 transition-all"
+                title="30 pips Stop Loss / 60 pips Take Profit"
+              >
+                Day (30/60p)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickPreset(75, 150)}
+                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-cyan-300 transition-all"
+                title="75 pips Stop Loss / 150 pips Take Profit"
+              >
+                Swing (75/150p)
+              </button>
+            </div>
+          </div>
+
+          {/* Dynamic Risk/Reward Expectancy Indicator */}
+          <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-800/60">
+            <span className="text-slate-400">Risk/Reward Expectancy:</span>
+            <div className="flex items-center gap-1.5 font-mono text-xs">
+              {calculatedRR ? (
+                <span
+                  className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                    parseFloat(calculatedRR) >= 1.5
+                      ? 'bg-emerald-950/70 text-emerald-400 border border-emerald-800/60'
+                      : parseFloat(calculatedRR) >= 1.0
+                      ? 'bg-cyan-950/70 text-cyan-400 border border-cyan-800/60'
+                      : 'bg-amber-950/70 text-amber-400 border border-amber-800/60'
                   }`}
+                  title="Calculated Risk-to-Reward ratio based on Entry, SL, and TP"
                 >
-                  {sz}
-                </button>
-              ))}
+                  1:{calculatedRR} R:R
+                </span>
+              ) : (
+                <span className="text-slate-500 text-[10px]">Set SL & TP</span>
+              )}
+              <div className="flex items-center gap-1">
+                {[1.5, 2.0, 3.0].map((rr) => (
+                  <button
+                    key={rr}
+                    type="button"
+                    onClick={() => handleQuickRR(rr)}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-cyan-700 text-slate-300 hover:text-cyan-300 transition-all font-mono"
+                    title={`Auto-calculate Take Profit for 1:${rr} Risk:Reward based on current Stop Loss`}
+                  >
+                    {rr}R
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -516,6 +664,47 @@ export const OrderExecutionDock: React.FC<OrderExecutionDockProps> = ({
               placeholder="e.g. AI_SCALPER_RSI_OVERSOLD"
               className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-mono focus:border-cyan-500 focus:outline-none"
             />
+          </div>
+
+          {/* Estimated Margin & Pip Value Preview */}
+          <div className="bg-slate-950/70 border border-slate-800/80 rounded-lg p-2.5 space-y-1.5 font-mono text-xs">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Est. Margin Required:</span>
+              <span className={`font-bold ${
+                (() => {
+                  const cs = symbolInfo?.contractSize || (selectedSymbol.includes('XAU') ? 100 : selectedSymbol.includes('BTC') ? 1 : 100000);
+                  const lev = account?.leverage || 100;
+                  const reqMargin = (lotNumber * cs * (currentEntry || 1)) / lev;
+                  const freeMargin = account?.freeMargin ?? account?.equity ?? 10000;
+                  return reqMargin > freeMargin ? 'text-rose-400' : 'text-cyan-300';
+                })()
+              }`}>
+                ${(() => {
+                  const cs = symbolInfo?.contractSize || (selectedSymbol.includes('XAU') ? 100 : selectedSymbol.includes('BTC') ? 1 : 100000);
+                  const lev = account?.leverage || 100;
+                  const reqMargin = (lotNumber * cs * (currentEntry || 1)) / lev;
+                  return reqMargin.toFixed(2);
+                })()} USD
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="text-slate-400">Pip Value:</span>
+              <span className="text-white font-bold">
+                ~${(() => {
+                  const cs = symbolInfo?.contractSize || (selectedSymbol.includes('XAU') ? 100 : selectedSymbol.includes('BTC') ? 1 : 100000);
+                  const pipVal = lotNumber * cs * pip;
+                  return (pipVal > 0 ? pipVal : 1).toFixed(2);
+                })()} / pip
+              </span>
+            </div>
+
+            {account?.freeMargin !== undefined && (
+              <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-900">
+                <span>Free Margin:</span>
+                <span className="text-slate-300">${account.freeMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            )}
           </div>
 
           {/* Feedback message */}

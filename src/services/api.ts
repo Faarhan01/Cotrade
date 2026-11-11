@@ -35,6 +35,40 @@ export const api = {
     return res.json();
   },
 
+  async executeOrder(params: {
+    action?: TradeCommand['action'];
+    symbol: string;
+    orderType: TradeCommand['orderType'];
+    volume: number;
+    price?: number;
+    sl?: number;
+    tp?: number;
+    comment?: string;
+    slippage?: number;
+    source?: TradeCommand['source'];
+  }): Promise<{ success: boolean; commandId?: string; error?: string }> {
+    return this.sendCommand({
+      action: params.action || 'EXECUTE_TRADE',
+      symbol: params.symbol,
+      orderType: params.orderType,
+      volume: params.volume,
+      price: params.price,
+      sl: params.sl,
+      tp: params.tp,
+      comment: params.comment,
+      source: params.source || 'MANUAL_UI',
+    });
+  },
+
+  async closeAllPositions(symbol = 'ALL'): Promise<{ success: boolean; commandId?: string; error?: string }> {
+    return this.sendCommand({
+      action: 'CLOSE_ALL',
+      symbol,
+      source: 'MANUAL_UI',
+      comment: 'EMERGENCY_CLOSE_ALL',
+    });
+  },
+
   async updateRisk(risk: Partial<RiskGuardConfig>): Promise<{ status: string; riskGuard: RiskGuardConfig }> {
     const res = await fetch('/api/risk', {
       method: 'POST',
@@ -624,6 +658,16 @@ export const api = {
     return res.json();
   },
 
+  async partialClosePosition(ticket: number, volume: number): Promise<{ success: boolean; message?: string; commandId?: string }> {
+    const res = await fetch('/api/position/partial-close', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket, volume }),
+    });
+    if (!res.ok) throw new Error(`Failed to partially close position #${ticket}`);
+    return res.json();
+  },
+
   async trackSymbol(symbol: string): Promise<{ success: boolean; message?: string; symbol: string }> {
     const res = await fetch('/api/symbols/track', {
       method: 'POST',
@@ -654,6 +698,12 @@ export const api = {
     if (limit !== undefined) params.append('limit', limit.toString());
     const res = await fetch(`/api/ticks/history?${params.toString()}`);
     if (!res.ok) throw new Error('Failed to fetch ticks history');
+    return res.json();
+  },
+
+  async getPositionsHistory(limit = 100): Promise<{ success: boolean; count: number; history: any[] }> {
+    const res = await fetch(`/api/positions/history?limit=${limit}`);
+    if (!res.ok) throw new Error('Failed to fetch closed positions history');
     return res.json();
   },
 };

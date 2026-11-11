@@ -301,43 +301,71 @@ export async function dbSaveBacktestResult(result: any): Promise<void> {
   `);
 
   const dataQuality = result.dataQuality === 'SYNTHETIC' || result.dataQuality === 'NONE' ? result.dataQuality : 'LIVE';
+  const evaluatedAt = Number(result.evaluatedAt) || Date.now();
+  const startTime = Number(result.startTime) > 0 ? Number(result.startTime) : Math.floor(evaluatedAt / 1000) - 86400;
+  const endTime = Number(result.endTime) > 0 ? Number(result.endTime) : Math.floor(evaluatedAt / 1000);
+  const startTimeIso = result.startTimeIso || new Date(startTime * 1000).toISOString();
+  const endTimeIso = result.endTimeIso || new Date(endTime * 1000).toISOString();
+
+  const initialDeposit = Number(result.initialDeposit ?? result.initialBalance ?? 10000);
+  const finalEquity = Number(result.finalEquity ?? initialDeposit);
+  const netProfit = Number(result.netProfit ?? result.netProfitUSD ?? (finalEquity - initialDeposit));
+  const profitFactor = Number(result.profitFactor ?? 0);
+  const winRatePct = Number(result.winRatePct ?? result.winRate ?? 0);
+  const totalTrades = Number(result.totalTrades ?? (Array.isArray(result.trades) ? result.trades.length : 0));
+  const winningTrades = Number(result.winningTrades ?? 0);
+  const losingTrades = Number(result.losingTrades ?? 0);
+  const maxDrawdownPct = Number(result.maxDrawdownPct ?? result.maxDrawdownPercent ?? 0);
+  const maxDrawdownUsd = Number(result.maxDrawdownUsd ?? result.maxDrawdownUSD ?? 0);
+  const averageTradeProfit = Number(result.averageTradeProfit ?? result.expectancyUSD ?? 0);
+  const averageWin = Number(result.averageWin ?? result.avgWinUSD ?? 0);
+  const averageLoss = Number(result.averageLoss ?? result.avgLossUSD ?? 0);
+  const riskRewardRatio = Number(result.riskRewardRatio ?? 0);
+
+  const tradesJson = typeof result.tradesJson === 'string'
+    ? result.tradesJson
+    : JSON.stringify(result.trades || []);
+
+  const equityCurveJson = typeof result.equityCurveJson === 'string'
+    ? result.equityCurveJson
+    : JSON.stringify(result.equityCurve || []);
 
   stmt.run([
-    result.id,
-    result.strategyId,
-    result.strategyName,
-    normalizeSymbol(result.symbol),
+    result.id || `bt-${Date.now()}`,
+    result.strategyId || 'custom-strategy',
+    result.strategyName || result.strategyId || 'Custom Strategy',
+    normalizeSymbol(result.symbol || 'EURUSD'),
     normalizeTimeframe(result.timeframe) || 'M1',
-    result.candleCount,
-    result.startTime,
-    result.startTimeIso || new Date(result.startTime * 1000).toISOString(),
-    result.endTime,
-    result.endTimeIso || new Date(result.endTime * 1000).toISOString(),
-    result.initialDeposit,
-    result.finalEquity,
-    result.netProfit,
-    result.profitFactor,
-    result.winRatePct,
-    result.totalTrades,
-    result.winningTrades,
-    result.losingTrades,
-    result.maxDrawdownPct,
-    result.maxDrawdownUsd,
-    result.averageTradeProfit,
-    result.averageWin,
-    result.averageLoss,
-    result.riskRewardRatio,
-    JSON.stringify(result.trades || []),
-    JSON.stringify(result.equityCurve || []),
-    result.evaluatedAt || Date.now(),
+    Number(result.candleCount ?? 0),
+    startTime,
+    startTimeIso,
+    endTime,
+    endTimeIso,
+    initialDeposit,
+    finalEquity,
+    netProfit,
+    profitFactor,
+    winRatePct,
+    totalTrades,
+    winningTrades,
+    losingTrades,
+    maxDrawdownPct,
+    maxDrawdownUsd,
+    averageTradeProfit,
+    averageWin,
+    averageLoss,
+    riskRewardRatio,
+    tradesJson,
+    equityCurveJson,
+    evaluatedAt,
     dataQuality,
     result.knowledgeAssisted ? 1 : 0,
     result.newsFilterActive ? 1 : 0,
     result.proofSummary || null,
     result.comparison ? JSON.stringify(result.comparison) : null,
     result.caughtNewsEvents ? JSON.stringify(result.caughtNewsEvents) : null,
-    result.tradesAvoidedDueToNews || 0,
-    result.lossesPreventedUsd || 0,
+    Number(result.tradesAvoidedDueToNews || 0),
+    Number(result.lossesPreventedUsd || result.lossesPreventedUSD || 0),
   ]);
 
   stmt.free();

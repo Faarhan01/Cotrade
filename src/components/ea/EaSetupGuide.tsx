@@ -18,7 +18,7 @@ import {
 export const EaSetupGuide: React.FC = () => {
   const [eaCode, setEaCode] = useState<string>('');
   const [copiedCode, setCopiedCode] = useState(false);
-  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
   const [pingResult, setPingResult] = useState<{ ok: boolean; latencyMs: number; data?: any } | null>(null);
   const [isPinging, setIsPinging] = useState(false);
 
@@ -44,8 +44,8 @@ export const EaSetupGuide: React.FC = () => {
 
   const handleCopyUrl = (url: string) => {
     navigator.clipboard.writeText(url);
-    setCopiedUrl(true);
-    setTimeout(() => setCopiedUrl(false), 2000);
+    setCopiedUrl(url);
+    setTimeout(() => setCopiedUrl(null), 2000);
   };
 
   const handlePingTest = async () => {
@@ -70,14 +70,15 @@ export const EaSetupGuide: React.FC = () => {
               <span className="p-2 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
                 <FileCode2 className="h-5 w-5" />
               </span>
-              <h1 className="text-xl font-extrabold text-white tracking-tight">
-                MetaTrader 5 Expert Advisor Bridge Setup
+              <h1 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+                <span>MetaTrader 5 Expert Advisor Bridge Setup</span>
+                <span className="text-xs font-mono font-bold text-cyan-400 bg-cyan-950/80 border border-cyan-800/80 px-2 py-0.5 rounded">v2.75</span>
               </h1>
             </div>
             <p className="text-sm text-slate-300 mt-2 max-w-3xl leading-relaxed">
               The <code className="text-cyan-400 font-mono">AIMT5Bridge.mq5</code> Expert Advisor runs directly inside
               MetaTrader 5. It streams live tick quotes, pushes position updates, and polls the local bridge endpoint
-              at <code className="text-cyan-400 font-mono">http://127.0.0.1:7777</code> for pending AI trade commands.
+              at <code className="text-cyan-400 font-mono">http://127.0.0.1:3000</code> (or fallback <code className="text-cyan-400 font-mono">:7777</code>) for pending AI trade commands.
             </p>
           </div>
 
@@ -99,12 +100,12 @@ export const EaSetupGuide: React.FC = () => {
         {/* Step 1 */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
           <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
-            <span className="h-5 w-5 rounded-full bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px]">
+            <span className="h-5 w-5 rounded bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px] font-bold">
               1
             </span>
             <span>Allow MT5 WebRequest</span>
           </div>
-          <h3 className="text-sm font-bold text-white">Whitelist Bridge URL in MT5</h3>
+          <h3 className="text-sm font-bold text-white">Whitelist Bridge URLs in MT5</h3>
           <p className="text-xs text-slate-400 leading-relaxed">
             MT5 restricts HTTP requests by default. Open MT5:
           </p>
@@ -113,21 +114,34 @@ export const EaSetupGuide: React.FC = () => {
             <p>2. Tab: <strong className="text-white">Expert Advisors</strong></p>
             <p>3. Check: <strong className="text-emerald-400">Allow WebRequest for listed URL:</strong></p>
           </div>
-          <div className="flex items-center justify-between p-2 bg-slate-950/90 border border-slate-800 rounded text-xs font-mono">
-            <span className="text-cyan-400 font-bold truncate">http://127.0.0.1:7777</span>
-            <button
-              onClick={() => handleCopyUrl('http://127.0.0.1:7777')}
-              className="text-slate-400 hover:text-white ml-2 flex items-center gap-1 text-[11px]"
-            >
-              {copiedUrl ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-            </button>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between p-2 bg-slate-950/90 border border-slate-800 rounded text-xs font-mono">
+              <span className="text-cyan-400 font-bold truncate">http://127.0.0.1:3000</span>
+              <button
+                onClick={() => handleCopyUrl('http://127.0.0.1:3000')}
+                className="text-slate-400 hover:text-white ml-2 flex items-center gap-1 text-[11px]"
+                title="Copy Primary Bridge URL"
+              >
+                {copiedUrl === 'http://127.0.0.1:3000' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
+            <div className="flex items-center justify-between p-2 bg-slate-950/90 border border-slate-800 rounded text-xs font-mono">
+              <span className="text-slate-400 font-medium truncate">http://127.0.0.1:7777</span>
+              <button
+                onClick={() => handleCopyUrl('http://127.0.0.1:7777')}
+                className="text-slate-400 hover:text-white ml-2 flex items-center gap-1 text-[11px]"
+                title="Copy Fallback Bridge URL"
+              >
+                {copiedUrl === 'http://127.0.0.1:7777' ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Step 2 */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
           <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
-            <span className="h-5 w-5 rounded-full bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px]">
+            <span className="h-5 w-5 rounded bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px] font-bold">
               2
             </span>
             <span>Copy EA to MT5 Folder</span>
@@ -147,7 +161,7 @@ export const EaSetupGuide: React.FC = () => {
         {/* Step 3 */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-5 shadow-sm space-y-3">
           <div className="flex items-center gap-2 text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
-            <span className="h-5 w-5 rounded-full bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px]">
+            <span className="h-5 w-5 rounded bg-cyan-950 border border-cyan-800 flex items-center justify-center text-[11px] font-bold">
               3
             </span>
             <span>Attach EA & Enable Trading</span>
@@ -159,7 +173,7 @@ export const EaSetupGuide: React.FC = () => {
           <div className="bg-slate-950 border border-slate-800 p-2.5 rounded-lg text-xs font-mono text-slate-300 space-y-1">
             <p>1. Ensure <strong className="text-emerald-400">Algo Trading</strong> is enabled (Green icon)</p>
             <p>2. Check "Allow Algo Trading" in EA properties</p>
-            <p>3. Default URL: <code className="text-cyan-400">http://127.0.0.1:7777</code></p>
+            <p>3. Default URL: <code className="text-cyan-400">http://127.0.0.1:3000</code> (Fallback: :7777)</p>
             <p>4. Check MT5 <strong>Experts tab</strong> for "Connected" log</p>
           </div>
         </div>
@@ -210,7 +224,7 @@ export const EaSetupGuide: React.FC = () => {
           <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-lg">
             <span className="text-[10px] font-mono text-slate-500 block uppercase">EA WebRequest Target</span>
             <div className="font-mono text-xs font-bold text-slate-200 mt-1">
-              http://127.0.0.1:7777/sync
+              http://127.0.0.1:3000/sync (or :7777)
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { TradeSignal, generateTradeSignal } from '../core/tradeSignal.js';
 import { tradeStore } from '../../services/tradeStore.js';
-import { dbGetCandles, dbInsertBotSignal } from '../../database/db.js';
+import { dbGetCandles, dbInsertBotSignal, dbGetStrategyById, dbGetStrategies } from '../../database/db.js';
 import { evaluateMultiTimeframeConsensus } from './multiTimeframe.js';
 
 export interface SignalWatcherConfig {
@@ -10,6 +10,7 @@ export interface SignalWatcherConfig {
   multiTimeframeConsensus?: boolean;
   minConfidence: number;
   dataQualityFilter: 'LIVE' | 'ANY';
+  activeStrategyId?: string;
 }
 
 export interface MonitoredSignal extends TradeSignal {
@@ -65,14 +66,25 @@ export class SignalWatcher {
       }
 
       if (!candles || candles.length < 20) {
+        candles = await dbGetCandles(sym, 'M1', 200);
+      }
+      if (!candles || candles.length < 20) {
+        candles = await dbGetCandles(sym, 'M5', 200);
+      }
+
+      if (!candles || candles.length < 20) {
         // Fallback to in-memory chart history if available
         const inMem = tradeStore.getChartHistory();
         if (inMem && inMem.length >= 20 && tradeStore.getCurrentChart()?.symbol?.toUpperCase() === sym) {
           candles = inMem;
         } else {
-          // If EA is connected, proactively request real candle history from MT5
+          // If EA is connected, proactively request real candle history and fill gaps from MT5
           if (tradeStore.getState().connection.isEaConnected) {
-            tradeStore.requestHistoryFromEA(sym, this.config.timeframe, 100);
+            import('../../services/historySyncService.js').then(({ inspectAndFillChartGaps }) => {
+              inspectAndFillChartGaps(sym, this.config.timeframe, 150).catch(() => {});
+            }).catch(() => {
+              tradeStore.requestHistoryFromEA(sym, this.config.timeframe, 100);
+            });
           }
           return null;
         }
@@ -119,6 +131,50 @@ export class SignalWatcher {
         }
       } catch (err) {
         console.warn(`[SignalWatcher] Multi-timeframe analysis notice for ${sym}:`, err);
+      }
+
+      // Evaluate Active KnowledgeBase Strategy Confluence
+      try {
+        let activeStrat: any = null;
+        if (this.config.activeStrategyId) {
+          activeStrat = await dbGetStrategyById(this.config.activeStrategyId);
+        }
+        if (!activeStrat) {
+          const strats = await dbGetStrategies(sym);
+          activeStrat = strats.find((s: any) => s.status === 'active' && s.symbol?.toUpperCase() === sym) || strats.find((s: any) => s.status === 'active') || null;
+        }
+
+        if (activeStrat) {
+          const sType = activeStrat.type;
+          const sParams = activeStrat.parameters || {};
+          reasons.push(`Armed Knowledge Strategy: "${activeStrat.name}" [${sType}]`);
+
+          if (sType === 'ORDER_BLOCK_CONFLUENCE') {
+            if (baseSignal.components.institutionalBias || baseSignal.components.judasSwing) {
+              finalConfidence = Math.min(99, finalConfidence + 12);
+              reasons.push(`Institutional Order Block & FVG structure aligned with "${activeStrat.name}"`);
+            }
+          } else if (sType === 'RSI_REVERSAL') {
+            const hasRsi = reasons.some((r) => r.toLowerCase().includes('rsi'));
+            if (hasRsi) {
+              finalConfidence = Math.min(99, finalConfidence + 10);
+              reasons.push(`RSI threshold confirmed by strategy rule: ${sParams.rsiOversold || 30}/${sParams.rsiOverbought || 70}`);
+            }
+          } else if (sType === 'EMA_CROSSOVER') {
+            const hasEma = reasons.some((r) => r.toLowerCase().includes('ema'));
+            if (hasEma) {
+              finalConfidence = Math.min(99, finalConfidence + 10);
+              reasons.push(`EMA trend continuation aligned with "${activeStrat.name}"`);
+            }
+          } else if (sType === 'BREAKOUT_MOMENTUM') {
+            if (baseSignal.components.regime?.includes('BREAKOUT') || baseSignal.components.regime?.includes('VOLATILITY')) {
+              finalConfidence = Math.min(99, finalConfidence + 12);
+              reasons.push(`Volatility expansion breakout confirmed by "${activeStrat.name}"`);
+            }
+          }
+        }
+      } catch (stratErr) {
+        console.warn(`[SignalWatcher] Strategy evaluation notice for ${sym}:`, stratErr);
       }
 
       const monitoredSignal: MonitoredSignal = {

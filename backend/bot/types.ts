@@ -56,6 +56,7 @@ export interface BotConfig {
   higherTimeframes: string[];
   multiTimeframeConsensus: boolean;
   minConfidence: number;
+  minRiskRewardRatio?: number;
   riskPercent: number;
   maxOpenPositions: number;
   maxTradesPerSymbol: number;
@@ -70,6 +71,8 @@ export interface BotConfig {
   allowedSessions: string[];
   newsRiskFilter: boolean;
   shockProtectionFilter: boolean;
+  activeStrategyId?: string;
+  activeStrategyName?: string;
   scalperSettings?: ScalperSettings;
   dayTradeSettings?: DayTradeSettings;
   swingTradeSettings?: SwingTradeSettings;
@@ -79,11 +82,14 @@ export interface BotConfig {
 export const DEFAULT_BOT_CONFIG: BotConfig = {
   enabled: false,
   mode: 'DAY_TRADES',
+  activeStrategyId: undefined,
+  activeStrategyName: undefined,
   symbols: ['EURUSD', 'GBPUSD', 'XAUUSD'],
   timeframe: 'M15',
   higherTimeframes: ['M30', 'H1'],
   multiTimeframeConsensus: true,
   minConfidence: 70,
+  minRiskRewardRatio: 1.5,
   riskPercent: 1.0,
   maxOpenPositions: 3,
   maxTradesPerSymbol: 1,

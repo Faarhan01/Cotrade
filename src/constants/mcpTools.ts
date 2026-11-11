@@ -123,6 +123,77 @@ export const MCP_TOOLS: MCPToolDefinition[] = [
     },
   },
   {
+    name: 'mt5_partial_close',
+    description: 'Partially close an open MetaTrader 5 position by ticket, specifying the exact volume in lots to close (e.g. 0.05 out of 0.10 lots).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket: {
+          type: 'number',
+          description: 'Unique ticket number of the open position to partially close',
+        },
+        volume: {
+          type: 'number',
+          description: 'Volume in lots to close (e.g. 0.01, 0.05)',
+        },
+      },
+      required: ['ticket', 'volume'],
+    },
+  },
+  {
+    name: 'mt5_get_pending_orders',
+    description: 'Retrieve all active pending orders in MetaTrader 5 (BUY_LIMIT, SELL_LIMIT, BUY_STOP, SELL_STOP) including open prices, SL/TP, and order tickets.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        symbol: {
+          type: 'string',
+          description: 'Optional filter by symbol (e.g. EURUSD)',
+        },
+      },
+    },
+  },
+  {
+    name: 'mt5_modify_pending',
+    description: 'Modify an active pending limit or stop order in MetaTrader 5 (change trigger price, stop loss, and/or take profit) by order ticket ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket: {
+          type: 'number',
+          description: 'Pending order ticket ID to modify',
+        },
+        price: {
+          type: 'number',
+          description: 'New trigger activation price (optional if only modifying SL/TP)',
+        },
+        sl: {
+          type: 'number',
+          description: 'New stop loss price (0 to clear SL)',
+        },
+        tp: {
+          type: 'number',
+          description: 'New take profit price (0 to clear TP)',
+        },
+      },
+      required: ['ticket'],
+    },
+  },
+  {
+    name: 'mt5_cancel_pending_order',
+    description: 'Cancel an active pending limit or stop order in MetaTrader 5 by ticket ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticket: {
+          type: 'number',
+          description: 'Order ticket ID to cancel',
+        },
+      },
+      required: ['ticket'],
+    },
+  },
+  {
     name: 'mt5_close_all',
     description: 'Emergency liquidation: Close all open positions immediately or all open positions for a designated symbol.',
     inputSchema: {

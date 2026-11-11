@@ -4,6 +4,7 @@ import { SignalWatcher } from '../knowledgebase/signals/signalWatcher.js';
 import { TradeExecutor } from './tradeExecutor.js';
 import { tradeStore } from '../services/tradeStore.js';
 import { broadcast } from '../services/websocketServer.js';
+import { calculatePipValue, getSymbolDigits, getSymbolPoint } from '../utils/symbolEconomics.js';
 
 export class TradingBot {
   private config: BotConfig;
@@ -22,6 +23,7 @@ export class TradingBot {
       multiTimeframeConsensus: this.config.multiTimeframeConsensus,
       minConfidence: this.config.minConfidence,
       dataQualityFilter: this.config.dataQualityFilter,
+      activeStrategyId: this.config.activeStrategyId,
     });
     this.tradeExecutor = new TradeExecutor(this.config);
 
@@ -61,6 +63,7 @@ export class TradingBot {
       multiTimeframeConsensus: this.config.multiTimeframeConsensus,
       minConfidence: this.config.minConfidence,
       dataQualityFilter: this.config.dataQualityFilter,
+      activeStrategyId: this.config.activeStrategyId,
     });
     this.tradeExecutor.updateConfig(this.config);
     await this.tradeExecutor.loadFromDb();
@@ -151,6 +154,7 @@ export class TradingBot {
       multiTimeframeConsensus: this.config.multiTimeframeConsensus,
       minConfidence: this.config.minConfidence,
       dataQualityFilter: this.config.dataQualityFilter,
+      activeStrategyId: this.config.activeStrategyId,
     });
     this.tradeExecutor.updateConfig(this.config);
     this.state.config = { ...this.config };
@@ -254,6 +258,30 @@ export class TradingBot {
       }
     }
 
+    // Allowed Trading Sessions Filter (London, NY, Asian)
+    if (this.config.allowedSessions && this.config.allowedSessions.length > 0 && !this.config.allowedSessions.includes('ALL')) {
+      const utcHour = new Date().getUTCHours();
+      const isAsian = utcHour >= 0 && utcHour < 9;
+      const isLondon = utcHour >= 7 && utcHour < 16;
+      const isNewYork = utcHour >= 12 && utcHour < 21;
+
+      const currentSessions: string[] = [];
+      if (isAsian) currentSessions.push('ASIAN');
+      if (isLondon) currentSessions.push('LONDON');
+      if (isNewYork) currentSessions.push('NEW_YORK');
+
+      const isPermitted = this.config.allowedSessions.some((s) => currentSessions.includes(s));
+      if (!isPermitted) {
+        tradeStore.addLog(
+          'info',
+          `Bot Session Filter: Held ${signal.direction} ${signal.symbol}`,
+          `Current time (${utcHour}:00 UTC, active: ${currentSessions.join('/') || 'ROLLOVER'}) is outside allowed sessions [${this.config.allowedSessions.join(', ')}].`,
+          'BOT'
+        );
+        return;
+      }
+    }
+
     const trade = await this.tradeExecutor.executeSignal(signal);
     if (trade) {
       this.state.lastTradeAt[signal.symbol] = Date.now();
@@ -316,9 +344,21 @@ export class TradingBot {
             if (curTick && trade.entryPrice) {
               const exitPrice = trade.direction === 'BUY' ? curTick.bid : curTick.ask;
               const symInfo = tradeStore.getAllSymbols().find((s: any) => s.symbol === trade.symbol);
-              const contractSize = symInfo?.contractSize || (trade.symbol.includes('XAU') ? 100 : 100000);
+              const digits = getSymbolDigits(trade.symbol, symInfo?.digits);
+              const point = getSymbolPoint(trade.symbol, symInfo?.point);
+              const pipUnit = (digits === 3 || digits === 5) ? 10 * point : (point > 0 ? point : 0.0001);
+              const pipVal = calculatePipValue({
+                symbol: trade.symbol,
+                contractSize: symInfo?.contractSize,
+                digits,
+                point,
+                currentPrice: exitPrice,
+                tickValue: symInfo?.tickValue,
+                tickSize: symInfo?.tickSize,
+              });
               const priceDiff = trade.direction === 'BUY' ? (exitPrice - trade.entryPrice) : (trade.entryPrice - exitPrice);
-              trade.profit = Math.round((priceDiff * trade.volume * contractSize) * 100) / 100;
+              const pipsGained = pipUnit > 0 ? priceDiff / pipUnit : 0;
+              trade.profit = Math.round((pipsGained * pipVal * trade.volume) * 100) / 100;
             }
           }
 
@@ -338,7 +378,7 @@ export class TradingBot {
     if (!Array.isArray(closedDeals) || closedDeals.length === 0) return;
     const trades = this.tradeExecutor.getTrades();
     for (const deal of closedDeals) {
-      const posTicket = deal.positionTicket || deal.orderTicket || deal.ticket;
+      const posTicket = deal.positionId || deal.positionTicket || deal.orderTicket || deal.ticket;
       const trade = trades.find((t) => (t as any).ticket === posTicket || t.commandId === deal.comment);
       if (trade && trade.status !== 'CLOSED') {
         trade.status = 'CLOSED';

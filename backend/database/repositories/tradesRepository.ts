@@ -180,3 +180,8 @@ export async function dbSaveClosedDeals(deals: any[]): Promise<void> {
   stmt.free();
   persistDatabase();
 }
+
+export async function dbGetPositionsHistory(limit = 100): Promise<any[]> {
+  const db = await getDatabase();
+  return selectRows(db, `SELECT * FROM positions_history ORDER BY close_time DESC LIMIT ?`, [safeLimit(limit)]);
+}

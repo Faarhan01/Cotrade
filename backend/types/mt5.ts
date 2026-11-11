@@ -1,7 +1,7 @@
 export type OrderType = 'BUY' | 'SELL' | 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP';
 export type PendingOrderType = 'BUY_LIMIT' | 'SELL_LIMIT' | 'BUY_STOP' | 'SELL_STOP' | 'BUY_STOP_LIMIT' | 'SELL_STOP_LIMIT';
 export type CommandStatus = 'pending' | 'dispatched' | 'executed' | 'failed' | 'cancelled';
-export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CANCEL_PENDING' | 'FETCH_HISTORY' | 'SET_RISK_GUARD' | 'TRACK_SYMBOL' | 'PROTECT_POSITION';
+export type OrderAction = 'EXECUTE_TRADE' | 'MODIFY_POSITION' | 'CLOSE_POSITION' | 'CLOSE_ALL' | 'CLOSE_PROFITABLE' | 'CLOSE_PROFITABLE_ONLY' | 'CANCEL_PENDING' | 'MODIFY_PENDING' | 'PARTIAL_CLOSE' | 'FETCH_HISTORY' | 'SET_RISK_GUARD' | 'TRACK_SYMBOL' | 'PROTECT_POSITION';
 
 export interface AccountInfo {
   login: number;

@@ -163,7 +163,7 @@ export const LiveTrailingRadar: React.FC<LiveTrailingRadarProps> = ({
 
         <div className="flex items-center gap-2 font-mono text-xs">
           <span
-            className={`px-2.5 py-1 rounded-full border ${
+            className={`px-2.5 py-1 rounded-md border ${
               trailingEnabled
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800/80'
                 : 'bg-slate-950 text-slate-500 border-slate-800'
@@ -171,7 +171,7 @@ export const LiveTrailingRadar: React.FC<LiveTrailingRadarProps> = ({
           >
             EA Trailing: {trailingEnabled ? `ACTIVE (${trailingDistancePoints} pts)` : 'STANDBY'}
           </span>
-          <span className="px-2.5 py-1 rounded-full bg-slate-950 text-slate-400 border border-slate-800">
+          <span className="px-2.5 py-1 rounded-md bg-slate-950 text-slate-400 border border-slate-800">
             Step: {trailingStepPoints} pts
           </span>
         </div>
@@ -287,7 +287,7 @@ export const LiveTrailingRadar: React.FC<LiveTrailingRadarProps> = ({
                   </div>
 
                   {/* Progress bar */}
-                  <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div className="h-1.5 bg-slate-800 rounded-sm overflow-hidden">
                     <div
                       className={`h-full transition-all ${
                         hasBreakevenSL

@@ -44,7 +44,9 @@ export const PatternRecognitionTab: React.FC<PatternRecognitionTabProps> = ({
         setSymbol(s.currentChart.symbol);
       }
       if (s?.allSymbols && s.allSymbols.length > 0) {
-        const live = s.allSymbols.map((item) => item.symbol);
+        const live = s.allSymbols
+          .map((item: any) => (typeof item === 'string' ? item : item?.symbol))
+          .filter((sym: any): sym is string => typeof sym === 'string' && sym.length > 0);
         const unique = Array.from(new Set([...(s.currentChart ? [s.currentChart.symbol] : []), ...live]));
         if (unique.length > 0) setSymbols(unique.slice(0, 10));
       }

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calculator, X, DollarSign, Percent, ShieldAlert, ArrowRight, Zap, Target } from 'lucide-react';
 import { DetailedSymbolInfo, ChartSymbolInfo, TickData } from '../../types';
+import { calculatePipValue, getSymbolDigits, getSymbolPoint, getSymbolContractSize } from '../../utils/symbolEconomics';
 
 interface ForexCalculatorModalProps {
   isOpen: boolean;
@@ -33,23 +34,25 @@ export const ForexCalculatorModal: React.FC<ForexCalculatorModalProps> = ({
   const slPipsNum = parseFloat(slPips) || 0;
   const tpPipsNum = parseFloat(tpPips) || 0;
 
-  const digits = symbolInfo?.digits ?? (selectedSymbol.includes('JPY') ? 3 : 5);
-  const point = symbolInfo?.point ?? (selectedSymbol.includes('JPY') ? 0.001 : 0.00001);
-  const pip = point * 10;
-  const contractSize = (symbolInfo as any)?.contractSize || (symbolInfo as any)?.tradeContractSize || (selectedSymbol.includes('XAU') ? 100 : 100000);
+  const digits = getSymbolDigits(selectedSymbol, symbolInfo?.digits);
+  const point = getSymbolPoint(selectedSymbol, symbolInfo?.point);
+  const pip = digits === 3 || digits === 5 ? point * 10 : point;
+  const contractSize = getSymbolContractSize(selectedSymbol, (symbolInfo as any)?.contractSize);
 
-  const bid = currentTick?.bid || (selectedSymbol.includes('JPY') ? 154.5 : 1.085);
-  const ask = currentTick?.ask || (selectedSymbol.includes('JPY') ? 154.52 : 1.0852);
-  const spreadPoints = currentTick?.spread || Math.round((ask - bid) / point) || 15;
-  const spreadPips = spreadPoints / 10;
+  const bid = currentTick?.bid || (symbolInfo?.bid && symbolInfo.bid > 0 ? symbolInfo.bid : (selectedSymbol.includes('JPY') ? 154.5 : 1.085));
+  const ask = currentTick?.ask || (symbolInfo?.ask && symbolInfo.ask > 0 ? symbolInfo.ask : (selectedSymbol.includes('JPY') ? 154.52 : 1.0852));
+  const spreadPoints = currentTick?.spread || (symbolInfo?.spread && symbolInfo.spread > 0 ? symbolInfo.spread : Math.round((ask - bid) / (point > 0 ? point : 0.00001))) || 15;
+  const spreadPips = digits === 3 || digits === 5 ? spreadPoints / 10 : spreadPoints;
 
-  // Approximate pip value in USD per 1.0 lot
-  let pipValuePerLot = 10;
-  if (selectedSymbol.includes('JPY')) {
-    pipValuePerLot = (100000 * 0.01) / bid; // approx USD
-  } else if (selectedSymbol.includes('XAU')) {
-    pipValuePerLot = 10; // $10 per $0.10 move on 100oz
-  }
+  const pipValuePerLot = calculatePipValue({
+    symbol: selectedSymbol,
+    contractSize,
+    digits,
+    point,
+    currentPrice: bid,
+    tickValue: (symbolInfo as any)?.tickValue,
+    tickSize: (symbolInfo as any)?.tickSize,
+  });
 
   const pipValue = pipValuePerLot * lotNum;
   const spreadCostUsd = spreadPips * pipValue;

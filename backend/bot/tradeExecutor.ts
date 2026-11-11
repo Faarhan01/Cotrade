@@ -166,6 +166,17 @@ export class TradeExecutor {
       targetTp = orderType === 'BUY' ? entryPrice + swingTpDist : entryPrice - swingTpDist;
     }
 
+    // Enforce profitable Risk-to-Reward ratio (minimum 1.2:1 to 2.5:1)
+    const minRR = Math.max(1.2, this.config.minRiskRewardRatio || 1.5);
+    const effectiveSlDist = Math.abs(entryPrice - targetSl);
+    if (effectiveSlDist > 0 && targetTp > 0) {
+      const effectiveTpDist = Math.abs(targetTp - entryPrice);
+      if (effectiveTpDist / effectiveSlDist < minRR) {
+        const requiredTpDist = effectiveSlDist * minRR;
+        targetTp = orderType === 'BUY' ? entryPrice + requiredTpDist : entryPrice - requiredTpDist;
+      }
+    }
+
     // Symbol-aware position sizing
     const sizing = calculatePositionSizeByRisk({
       symbol: signal.symbol,

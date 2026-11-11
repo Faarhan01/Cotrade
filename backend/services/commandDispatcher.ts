@@ -3,6 +3,7 @@ import { broadcast } from './websocketServer.js';
 import { OrderType, TradeCommand } from '../types/mt5.js';
 import { normalizeSymbol } from '../utils/symbol.js';
 import { normalizeTimeframe } from '../utils/timeframe.js';
+import { getRecommendedSlippagePoints } from '../utils/symbolEconomics.js';
 
 export interface DispatchResult {
   success: boolean;
@@ -49,6 +50,23 @@ export interface CloseAllParams {
 
 export interface CancelPendingParams {
   ticket: number;
+  source: 'MANUAL_UI' | 'BOT' | 'AI_MCP' | 'RISK_GUARD';
+  comment?: string;
+}
+
+export interface ModifyPendingParams {
+  ticket: number;
+  price?: number;
+  sl?: number;
+  tp?: number;
+  symbol?: string;
+  source: 'MANUAL_UI' | 'BOT' | 'AI_MCP' | 'RISK_GUARD';
+  comment?: string;
+}
+
+export interface PartialCloseParams {
+  ticket: number;
+  volume: number;
   source: 'MANUAL_UI' | 'BOT' | 'AI_MCP' | 'RISK_GUARD';
   comment?: string;
 }
@@ -115,7 +133,7 @@ export class CommandDispatcher {
       tp: params.tp !== undefined ? Number(params.tp) : undefined,
       comment: params.comment ? String(params.comment).trim() : `${params.source}_ORDER`,
       magic: params.magic || (params.source === 'BOT' ? 889911 : 889900),
-      slippage: params.slippage || 10,
+      slippage: params.slippage && params.slippage > 0 ? params.slippage : getRecommendedSlippagePoints(symbol),
       source: params.source,
     });
 
@@ -300,6 +318,103 @@ export class CommandDispatcher {
   }
 
   /**
+   * Modify an active pending limit or stop order (price, SL, TP)
+   */
+  public modifyPendingOrder(params: ModifyPendingParams): DispatchResult {
+    const ticket = Number(params.ticket);
+    if (!ticket || ticket <= 0) {
+      return {
+        success: false,
+        error: 'A valid numeric pending order ticket is required.',
+        status: 'rejected',
+        timestamp: Date.now(),
+      };
+    }
+
+    const res = tradeStore.enqueueCommand({
+      action: 'MODIFY_PENDING',
+      ticket,
+      price: params.price !== undefined ? Number(params.price) : undefined,
+      sl: params.sl !== undefined ? Number(params.sl) : undefined,
+      tp: params.tp !== undefined ? Number(params.tp) : undefined,
+      symbol: params.symbol ? normalizeSymbol(params.symbol) : undefined,
+      source: params.source,
+      comment: params.comment || `${params.source}_MODIFY_PENDING`,
+    });
+
+    if (!res.success) {
+      return {
+        success: false,
+        error: res.error || 'Modify pending order failed.',
+        status: 'rejected',
+        timestamp: Date.now(),
+      };
+    }
+
+    this.notifyCommandQueued(res.commandId!);
+
+    return {
+      success: true,
+      commandId: res.commandId,
+      message: `Modification queued for pending order #${ticket}`,
+      status: 'queued',
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
+   * Partially close an open position with specific volume
+   */
+  public partialClose(params: PartialCloseParams): DispatchResult {
+    const ticket = Number(params.ticket);
+    if (!ticket || ticket <= 0) {
+      return {
+        success: false,
+        error: 'A valid numeric position ticket is required.',
+        status: 'rejected',
+        timestamp: Date.now(),
+      };
+    }
+
+    const volume = Number(params.volume);
+    if (!Number.isFinite(volume) || volume <= 0) {
+      return {
+        success: false,
+        error: `Invalid partial volume: "${params.volume}". Must be positive number.`,
+        status: 'rejected',
+        timestamp: Date.now(),
+      };
+    }
+
+    const res = tradeStore.enqueueCommand({
+      action: 'CLOSE_POSITION',
+      ticket,
+      volume,
+      source: params.source,
+      comment: params.comment || `${params.source}_PARTIAL_CLOSE`,
+    });
+
+    if (!res.success) {
+      return {
+        success: false,
+        error: res.error || 'Partial close failed.',
+        status: 'rejected',
+        timestamp: Date.now(),
+      };
+    }
+
+    this.notifyCommandQueued(res.commandId!);
+
+    return {
+      success: true,
+      commandId: res.commandId,
+      message: `Partial close (${volume} lots) queued for position #${ticket}`,
+      status: 'queued',
+      timestamp: Date.now(),
+    };
+  }
+
+  /**
    * Request historical candle data from MetaTrader 5 on-demand
    */
   public requestHistory(params: RequestHistoryParams): DispatchResult {
@@ -361,6 +476,8 @@ export class CommandDispatcher {
         });
 
       case 'CLOSE_POSITION':
+      case 'PARTIAL_CLOSE':
+      case 'CLOSE_PARTIAL':
         return this.closePosition({
           ticket: body.ticket,
           volume: body.volume,
@@ -368,12 +485,64 @@ export class CommandDispatcher {
           source,
         });
 
+      case 'MODIFY_PENDING':
+      case 'MODIFY_ORDER': {
+        const ticket = Number(body.ticket);
+        if (!ticket || ticket <= 0) {
+          return { success: false, error: 'Valid pending order ticket required', status: 'rejected', timestamp: Date.now() };
+        }
+        const res = tradeStore.enqueueCommand({
+          action: 'MODIFY_PENDING',
+          ticket,
+          price: body.price ? Number(body.price) : undefined,
+          sl: body.sl !== undefined ? Number(body.sl) : undefined,
+          tp: body.tp !== undefined ? Number(body.tp) : undefined,
+          symbol: body.symbol ? normalizeSymbol(body.symbol) : undefined,
+          source,
+          comment: body.comment || 'MODIFY_PENDING_ORDER',
+        });
+        if (!res.success) {
+          return { success: false, error: res.error || 'Failed to queue order modification', status: 'rejected', timestamp: Date.now() };
+        }
+        this.notifyCommandQueued(res.commandId!);
+        return {
+          success: true,
+          commandId: res.commandId,
+          message: `Pending order #${ticket} modification queued for MT5 dispatch`,
+          status: 'queued',
+          timestamp: Date.now(),
+        };
+      }
+
       case 'CLOSE_ALL':
         return this.closeAll({
           symbol: body.symbol,
           comment: body.comment,
           source,
         });
+
+      case 'CLOSE_PROFITABLE':
+      case 'CLOSE_PROFITABLE_ONLY': {
+        const rawSym = body.symbol ? String(body.symbol).trim().toUpperCase() : 'ALL';
+        const symbol = rawSym === 'ALL' || rawSym === '*' ? 'ALL' : normalizeSymbol(rawSym);
+        const res = tradeStore.enqueueCommand({
+          action: 'CLOSE_PROFITABLE_ONLY',
+          symbol,
+          source,
+          comment: body.comment || `${source}_CLOSE_PROFITABLE`,
+        });
+        if (!res.success) {
+          return { success: false, error: res.error || 'Liquidation failed.', status: 'rejected', timestamp: Date.now() };
+        }
+        this.notifyCommandQueued(res.commandId!);
+        return {
+          success: true,
+          commandId: res.commandId,
+          message: `Close profitable positions queued for symbol: ${symbol}`,
+          status: 'queued',
+          timestamp: Date.now(),
+        };
+      }
 
       case 'CANCEL_PENDING':
         return this.cancelPendingOrder({
@@ -390,7 +559,10 @@ export class CommandDispatcher {
           source,
         });
 
-      case 'PROTECT_POSITION': {
+      case 'PROTECT_POSITION':
+      case 'BREAKEVEN':
+      case 'SET_BREAKEVEN':
+      case 'APPLY_BREAKEVEN': {
         const ticket = Number(body.ticket);
         if (!ticket || ticket <= 0) {
           return { success: false, error: 'Valid position ticket required for breakeven protection', status: 'rejected', timestamp: Date.now() };
@@ -417,6 +589,25 @@ export class CommandDispatcher {
           success: true,
           commandId: res.commandId,
           message: `Dispatched tracking request for ${sym} to MT5 EA`,
+          status: 'queued',
+          timestamp: Date.now(),
+        };
+      }
+
+      case 'SET_RISK_GUARD': {
+        const res = tradeStore.enqueueCommand({
+          action: 'SET_RISK_GUARD',
+          source,
+          comment: typeof body.comment === 'string' ? body.comment : JSON.stringify(body.settings || body),
+        });
+        if (!res.success) {
+          return { success: false, error: res.error || 'Failed to queue risk guard update', status: 'rejected', timestamp: Date.now() };
+        }
+        this.notifyCommandQueued(res.commandId!);
+        return {
+          success: true,
+          commandId: res.commandId,
+          message: 'Risk Guard parameters queued for MT5 EA synchronization',
           status: 'queued',
           timestamp: Date.now(),
         };
